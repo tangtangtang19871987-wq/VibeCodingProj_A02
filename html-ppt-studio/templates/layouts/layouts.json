@@ -163,5 +163,10 @@
   "name": "workflow",
   "file": "33-workflow.html",
   "description": "Workflow / DAG: glass icon nodes, solid (sequential) and dashed (conditional / loop) edges, legend"
+ },
+ {
+  "name": "diagram",
+  "file": "34-diagram.html",
+  "description": "Free diagram canvas (1000x490 units): tone-tinted nodes (round/pill/diamond), lanes, numbered notes, code/list/legend panels, 3D cubes, rounded coloured edges"
  }
 ]

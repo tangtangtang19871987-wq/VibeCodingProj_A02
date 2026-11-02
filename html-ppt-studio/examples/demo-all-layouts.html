@@ -104,7 +104,7 @@ body.overview .hud-progress,body.overview .hud-count{display:none}
 }
 @media (prefers-reduced-motion:reduce){ .slide{transition:none} [data-anim]{animation:none!important;opacity:1!important} }
 
-/* HTML PPT Studio — 31 layouts. Each slide: <section class="slide layout-NAME">. */
+/* HTML PPT Studio — 34 layouts. Each slide: <section class="slide layout-NAME">. */
 
 /* 01 cover */
 .layout-cover{justify-content:center}
@@ -319,6 +319,53 @@ body.overview .hud-progress,body.overview .hud-count{display:none}
 .layout-workflow .legend i.d{border-top:4px dashed var(--accent2)}
 .dag.sm .node{padding:0 16px;gap:12px;border-radius:18px}.dag.sm .node .ni{width:48px;height:48px;font-size:23px}.dag.sm .node b{font-size:22px}.dag.sm .node small{font-size:17px}.dag.sm .elabel{font-size:16px}
 
+/* 34 diagram — free canvas (1000x490 units): tinted tone nodes, lanes, notes, panels, cubes, rounded coloured edges */
+.layout-diagram{padding:52px 80px 40px}
+.layout-diagram .slide-head{margin-bottom:22px;display:flex;flex-direction:column}
+.layout-diagram .slide-head h2{font-size:60px}
+.layout-diagram .sub{font-size:28px;color:var(--muted);margin-top:8px}
+.dg{position:relative;flex:none;margin:0 auto}
+.dg svg.edges,.dg svg.art{position:absolute;left:0;top:0;pointer-events:none;overflow:visible}
+.dg > *{position:absolute}
+.dg .ico{display:inline-grid;place-items:center;flex:none;border-radius:50%;background:var(--ts);color:#fff}
+.dg .ico svg{width:58%;height:58%;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.dg .dn{display:flex;align-items:center;gap:calc(var(--u)*10);padding:0 calc(var(--u)*12);border-radius:calc(var(--u)*13);background:linear-gradient(135deg,var(--tf),color-mix(in srgb,var(--tf) 55%,#fff));border:2px solid var(--tb);box-shadow:0 8px 22px color-mix(in srgb,var(--ts) 14%,transparent);color:#15214a}
+.dg .dn.pill{border-radius:999px;justify-content:center}
+.dg .dn.stack{flex-direction:column;justify-content:center;text-align:center;gap:calc(var(--u)*4);padding:calc(var(--u)*8) calc(var(--u)*10)}
+.dg .dn.diamond{background:none;border:0;box-shadow:none;justify-content:center;padding:0}
+.dg .dn.diamond svg.bg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;filter:drop-shadow(0 8px 14px color-mix(in srgb,var(--ts) 18%,transparent))}
+.dg .dn .tx{position:relative;line-height:1.2;white-space:pre-line}
+.dg .dn.diamond .tx{display:flex;flex-direction:column;align-items:center;text-align:center;gap:calc(var(--u)*2)}
+.dg .dn b{font-size:calc(var(--u)*16);display:block}.dg .dn small{font-size:calc(var(--u)*12.2);color:#5b6788;display:block;margin-top:2px}
+.dg .dn.dashed{border-style:dashed}
+.dg .grp{border-radius:calc(var(--u)*18);border:2px solid var(--tb);background:color-mix(in srgb,var(--tf) 45%,transparent)}
+.dg .gh{display:flex;align-items:center;justify-content:center;border-radius:999px;background:var(--ts);color:#fff;font-weight:800;font-size:calc(var(--u)*16);box-shadow:0 6px 14px color-mix(in srgb,var(--ts) 30%,transparent)}
+.dg .note{display:flex;gap:calc(var(--u)*8);align-items:center;padding:0 calc(var(--u)*10);border-radius:calc(var(--u)*9);background:color-mix(in srgb,var(--tf) 70%,#fff);font-size:calc(var(--u)*12.2);color:#35416b;line-height:1.3}
+.dg .note .ico{width:calc(var(--u)*20);height:calc(var(--u)*20);font-size:calc(var(--u)*12);font-weight:800}
+.dg .chip2{display:flex;align-items:center;justify-content:center;border-radius:999px;background:var(--tf);color:var(--ts);border:1.5px solid var(--tb);font-weight:700;font-size:calc(var(--u)*12.5);white-space:nowrap}
+.dg .pn{border-radius:calc(var(--u)*13);background:linear-gradient(135deg,rgba(255,255,255,.92),color-mix(in srgb,var(--tf) 75%,#fff));border:2px solid var(--tb);box-shadow:0 8px 22px color-mix(in srgb,var(--ts) 12%,transparent);padding:calc(var(--u)*10) calc(var(--u)*12);overflow:hidden;color:#1e2a55}
+.dg .pn.dashed{border-style:dashed;box-shadow:none;background:rgba(255,255,255,.55)}
+.dg .pn h4{display:flex;align-items:center;gap:calc(var(--u)*7);font-size:calc(var(--u)*14);color:var(--ts);margin-bottom:calc(var(--u)*6);letter-spacing:0}
+.dg .pn h4 .ico{width:calc(var(--u)*22);height:calc(var(--u)*22)}
+.dg .pn pre{font:calc(var(--u)*12)/1.22 var(--font-mono);white-space:pre;color:#26335f}
+.dg .pn ul{list-style:none;font-size:calc(var(--u)*12.4);line-height:1.38;color:#35416b}
+.dg .pn li::before{content:"• ";color:var(--ts);font-weight:900}
+.dg .pn .it{display:flex;gap:calc(var(--u)*8);align-items:center;margin-bottom:calc(var(--u)*5)}
+.dg .pn .it .ico{width:calc(var(--u)*24);height:calc(var(--u)*24)}.dg .pn .it b{font-size:calc(var(--u)*12.8);display:block;color:var(--ts)}.dg .pn .it small{font-size:calc(var(--u)*11.5);color:#5b6788;display:block;line-height:1.2}
+.dg .pn .rw{display:grid;grid-template-columns:calc(var(--u)*128) 1fr;gap:calc(var(--u)*8);align-items:center;margin-bottom:calc(var(--u)*6)}
+.dg .pn .rw .c{border-radius:calc(var(--u)*7);padding:calc(var(--u)*4) calc(var(--u)*7);background:var(--tf);color:var(--ts);font-weight:700;font-size:calc(var(--u)*12);border:1.5px solid var(--tb)}
+.dg .pn .rw ul{font-size:calc(var(--u)*11.8)}
+.dg .pn .lg{display:flex;align-items:center;gap:calc(var(--u)*10);font-size:calc(var(--u)*12.4);margin:calc(var(--u)*5) 0;color:#35416b}
+.dg .pn .lg i{display:inline-block;width:calc(var(--u)*34);border-top:3px solid var(--ts)}.dg .pn .lg i.d{border-top-style:dashed}
+.dg .pn p{font-size:calc(var(--u)*12.2);line-height:1.35;color:#5b6788}
+.dg .pn.stk{display:flex;flex-direction:column;align-items:center;text-align:center;justify-content:center}
+.dg .pn.stk .ico{width:calc(var(--u)*40);height:calc(var(--u)*40);margin-bottom:calc(var(--u)*5)}.dg .pn.stk h4{display:block;margin:0 0 4px;font-size:calc(var(--u)*15);color:#1e2a55}
+.dg .hd .k{font-size:calc(var(--u)*13);letter-spacing:.2em;text-transform:uppercase;font-weight:800;color:var(--accent);margin-bottom:calc(var(--u)*6)}
+.dg .hd h1{font-size:calc(var(--u)*37);line-height:1.08;white-space:pre-line}.dg .hd p{font-size:calc(var(--u)*14.5);color:var(--muted);margin-top:calc(var(--u)*12);line-height:1.4}
+.dg .txt{font-size:calc(var(--u)*13);color:#35416b;line-height:1.35}
+.dg .dn.top{justify-content:flex-start;padding-top:calc(var(--u)*16)}
+.layout-diagram .slide-head h2{font-size:54px}.layout-diagram .sub{font-size:26px}
+
 /* HTML PPT Studio — animations.
    Usage: <h2 data-anim="fade-up" style="--d:.2s;--t:.7s">…</h2>
    Animations replay every time the slide becomes active.
@@ -387,7 +434,7 @@ body.overview .hud-progress,body.overview .hud-count{display:none}
 /* overview mode shows every slide in its final state */
 body.overview .slide [data-anim]{opacity:1!important;animation:none!important}
 
-/* HTML PPT Studio — all 24 themes. Activate with <body data-theme="NAME">. */
+/* HTML PPT Studio — all 25 themes. Activate with <body data-theme="NAME">. */
 
 /* Aurora (dark) */
 [data-theme="aurora"]{--bg:#0b1020;--bg2:#1a1146;--fg:#f5f7ff;--muted:#a3acd1;--accent:#5eead4;--accent2:#a78bfa;--card:rgba(255,255,255,.06);--border:rgba(255,255,255,.14);
@@ -682,6 +729,18 @@ d.<span class="f">go</span>(<span class="n">3</span>);</pre></div>
 </section>
 <section class="slide layout-workflow" data-notes="">
 <header class="slide-head"><div class="kicker" data-anim="fade-down">事件流</div><h2 data-anim="fade-up">下单成功路径与失败补偿路径</h2></header><div class="dag-wrap" data-anim="fade-up"><div style="padding-bottom:64px"><div class="dag " style="width:1680px;height:500px"><svg viewBox="0 0 1680 500"><defs><marker id="ah2-solid" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" style="fill:var(--accent)"/></marker><marker id="ah2-dashed" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" style="fill:var(--accent2)"/></marker></defs><path class="e-solid" d="M310 250 L370 250" marker-end="url(#ah2-solid)"/><path class="e-solid" d="M680 250 L754 250" marker-end="url(#ah2-solid)"/><path class="e-solid" d="M1064 250 H1217 V66 H1370" marker-end="url(#ah2-solid)"/><path class="e-solid" d="M1064 250 H1217 V296 H1370" marker-end="url(#ah2-solid)"/><path class="e-dashed" d="M1525 354 V442 H1064" marker-end="url(#ah2-dashed)"/><path class="e-dashed" d="M909 500 V546 H525 V308" marker-end="url(#ah2-dashed)"/></svg><div class="node" style="left:0px;top:192px;width:310px;height:116px"><div class="ni">⌕</div><div><b>API Gateway</b><small>鉴权 · 限流</small></div></div><div class="node" style="left:370px;top:192px;width:310px;height:116px"><div class="ni">▤</div><div><b>订单服务</b><small>创建 · 落库</small></div></div><div class="node" style="left:754px;top:192px;width:310px;height:116px"><div class="ni">⇄</div><div><b>Kafka</b><small>OrderCreated</small></div></div><div class="node" style="left:1370px;top:8px;width:310px;height:116px"><div class="ni">▽</div><div><b>库存</b><small>预占</small></div></div><div class="node" style="left:1370px;top:238px;width:310px;height:116px"><div class="ni">¥</div><div><b>支付</b><small>扣款</small></div></div><div class="node" style="left:754px;top:384px;width:310px;height:116px"><div class="ni">↻</div><div><b>补偿</b><small>回滚 / 重试</small></div></div><div class="elabel" style="left:1294px;top:398px">支付失败</div><div class="elabel" style="left:717px;top:546px">重试</div></div><div class="legend"><span><i></i>顺序 Sequential</span><span><i class="d"></i>条件 / 循环 Conditional · Loop</span></div></div></div><div class="takeaway" data-anim="fade-up" style="--d:.5s">实线是正常路径，虚线是条件 / 补偿路径；所有边都经过事件总线，便于回放。</div>
+
+</section>
+<section class="slide layout-diagram" data-notes="按编号 1→6 讲：从 START 进入 agent，条件路由决定调用工具还是直接回答，工具结果写回 State 并回到 agent。">
+<header class="slide-head"><div class="kicker" data-anim="fade-down">LangGraph</div><h2 data-anim="fade-up">LangGraph 执行流程图</h2><div class="sub">通过节点、边和条件路由描述 Agent 的执行逻辑</div></header><div class="dg" data-anim="fade-in" style="width:1600px;height:784px;--u:1.6px"><svg class="edges" width="1600" height="784" viewBox="0 0 1600 784"><defs><marker id="m12a3a7a" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L6,3 L0,6 z" fill="#2a3a7a"/></marker></defs><path d="M464.0 57.6 L464.0 96.0" fill="none" stroke="#2a3a7a" stroke-width="3"  marker-end="url(#m12a3a7a)"/><path d="M464.0 188.8 L464.0 214.4" fill="none" stroke="#2a3a7a" stroke-width="3"  marker-end="url(#m12a3a7a)"/><path d="M272.0 313.6 L238.4 313.6 L233.2 314.2 L229.2 315.9 L226.3 318.8 L224.6 322.8 L224.0 328.0 L224.0 464.0" fill="none" stroke="#2a3a7a" stroke-width="3"  marker-end="url(#m12a3a7a)"/><path d="M656.0 313.6 L673.6 313.6 L678.8 314.2 L682.8 315.9 L685.7 318.8 L687.4 322.8 L688.0 328.0 L688.0 464.0" fill="none" stroke="#2a3a7a" stroke-width="3"  marker-end="url(#m12a3a7a)"/><path d="M224.0 556.8 L224.0 632.0" fill="none" stroke="#2a3a7a" stroke-width="3"  marker-end="url(#m12a3a7a)"/><path d="M688.0 556.8 L688.0 640.0" fill="none" stroke="#2a3a7a" stroke-width="3"  marker-end="url(#m12a3a7a)"/><path d="M64.0 678.4 L30.4 678.4 L25.2 677.8 L21.2 676.1 L18.3 673.2 L16.6 669.2 L16.0 664.0 L16.0 156.8 L16.6 151.6 L18.3 147.6 L21.2 144.7 L25.2 143.0 L30.4 142.4 L288.0 142.4" fill="none" stroke="#2a3a7a" stroke-width="3" stroke-dasharray="10 7" marker-end="url(#m12a3a7a)"/></svg><div class="dn pill " style="left:360.0px;top:0.0px;width:208.0px;height:57.6px;--u:1.6px;--tb:#a0aec4;--tf:#eef1f8;--ts:#64748b"><div class="tx"><b>START</b></div></div><div class="dn " style="left:288.0px;top:96.0px;width:352.0px;height:92.8px;--u:1.6px;--tb:#a07dfa;--tf:#f1ebff;--ts:#7c4dff"><span class="ico" style="width:calc(var(--u)*30);height:calc(var(--u)*30)"><svg viewBox="0 0 24 24"><path d="M6 8h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2z M12 8V4 M12 4h.01 M9 13h.01 M15 13h.01 M2 12v3 M22 12v3"/></svg></span><div class="tx"><b>agent 节点</b><small>调用模型，生成回复</small></div></div><div class="dn diamond" style="left:272.0px;top:214.4px;width:384.0px;height:198.4px;--u:1.6px;--tb:#6096fa;--tf:#eaf2ff;--ts:#2f6bff"><svg class="bg" viewBox="0 0 384 198"><polygon points="192,2 382,99 192,196 2,99" fill="#eaf2ff" stroke="#6096fa" stroke-width="2.5"/></svg><div class="tx" style="position:relative;display:flex;flex-direction:column;align-items:center"><span class="ico" style="width:calc(var(--u)*30);height:calc(var(--u)*30)"><svg viewBox="0 0 24 24"><path d="M15.5 5a2.5 2.5 0 1 0 5 0 2.5 2.5 0 1 0-5 0 M3.5 12a2.5 2.5 0 1 0 5 0 2.5 2.5 0 1 0-5 0 M15.5 19a2.5 2.5 0 1 0 5 0 2.5 2.5 0 1 0-5 0 M8.2 10.8l7.6-4.4 M8.2 13.2l7.6 4.4"/></svg></span><div style="text-align:center"><b>tools_condition</b><small>判断是否需要工具调用</small></div></div></div><div class="dn " style="left:64.0px;top:464.0px;width:320.0px;height:92.8px;--u:1.6px;--tb:#3cbe8c;--tf:#e6f8ef;--ts:#16a06b"><span class="ico" style="width:calc(var(--u)*30);height:calc(var(--u)*30)"><svg viewBox="0 0 24 24"><path d="M14.5 6.5a4 4 0 0 0-5 5L4 17l3 3 5.5-5.5a4 4 0 0 0 5-5l-2.5 2.5-2.5-.5-.5-2.5z"/></svg></span><div class="tx"><b>工具调用</b><small>执行工具，获取结果</small></div></div><div class="dn " style="left:528.0px;top:464.0px;width:320.0px;height:92.8px;--u:1.6px;--tb:#f7b246;--tf:#fff1e0;--ts:#f08a1c"><span class="ico" style="width:calc(var(--u)*30);height:calc(var(--u)*30)"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z M8 10.5h.01 M12 10.5h.01 M16 10.5h.01"/></svg></span><div class="tx"><b>最终回答</b><small>生成最终结果</small></div></div><div class="dn " style="left:64.0px;top:632.0px;width:320.0px;height:92.8px;--u:1.6px;--tb:#a07dfa;--tf:#f1ebff;--ts:#7c4dff"><span class="ico" style="width:calc(var(--u)*30);height:calc(var(--u)*30)"><svg viewBox="0 0 24 24"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z M12 2.5v3 M12 18.5v3 M2.5 12h3 M18.5 12h3 M5.3 5.3l2.1 2.1 M16.6 16.6l2.1 2.1 M18.7 5.3l-2.1 2.1 M7.4 16.6l-2.1 2.1"/></svg></span><div class="tx"><b>tools 节点</b><small>将工具结果写入 State</small></div></div><div class="dn pill " style="left:584.0px;top:640.0px;width:208.0px;height:57.6px;--u:1.6px;--tb:#a0aec4;--tf:#eef1f8;--ts:#64748b"><div class="tx"><b>END</b></div></div><div class="note" style="left:688.0px;top:0.0px;width:336.0px;height:60.8px;--u:1.6px;--tb:#6096fa;--tf:#eaf2ff;--ts:#2f6bff"><span class="ico">1</span><span>从 START 开始，进入 agent 节点</span></div><div class="note" style="left:688.0px;top:99.2px;width:336.0px;height:86.4px;--u:1.6px;--tb:#a07dfa;--tf:#f1ebff;--ts:#7c4dff"><span class="ico">2</span><span>agent 根据当前 State 构造输入并调用 LLM</span></div><div class="note" style="left:720.0px;top:204.8px;width:304.0px;height:76.8px;--u:1.6px;--tb:#6096fa;--tf:#eaf2ff;--ts:#2f6bff"><span class="ico">3</span><span>根据模型返回，判断是否有工具调用</span></div><div class="note" style="left:304.0px;top:563.2px;width:240.0px;height:60.8px;--u:1.6px;--tb:#3cbe8c;--tf:#e6f8ef;--ts:#16a06b"><span class="ico">4</span><span>结果保存到 State 中</span></div><div class="note" style="left:872.0px;top:464.0px;width:176.0px;height:92.8px;--u:1.6px;--tb:#f7b246;--tf:#fff1e0;--ts:#f08a1c"><span class="ico">5</span><span>无工具调用时直接结束</span></div><div class="note" style="left:160.0px;top:726.4px;width:640.0px;height:54.4px;--u:1.6px;--tb:#6096fa;--tf:#eaf2ff;--ts:#2f6bff"><span class="ico">6</span><span>工具执行完成后，返回 agent 节点进行下一轮模型调用</span></div><div class="pn " style="left:1080.0px;top:0.0px;width:520.0px;height:304.0px;--u:1.6px;--tb:#6096fa;--tf:#eaf2ff;--ts:#2f6bff"><h4>核心代码（简化示例）</h4><pre>from langgraph.graph import StateGraph
+b = StateGraph(AgentState)
+b.add_node(&quot;agent&quot;, call_model)
+b.add_node(&quot;tools&quot;, ToolNode(tools))
+b.add_edge(START, &quot;agent&quot;)
+b.add_conditional_edges(&quot;agent&quot;,
+  tools_condition, {&quot;tools&quot;: &quot;tools&quot;})
+b.add_edge(&quot;tools&quot;, &quot;agent&quot;)
+graph = b.compile()</pre></div><div class="pn " style="left:1080.0px;top:316.8px;width:520.0px;height:297.6px;--u:1.6px;--tb:#a0aec4;--tf:#eef1f8;--ts:#64748b"><h4>节点说明</h4><div class="it" style="--tb:#a07dfa;--tf:#f1ebff;--ts:#7c4dff"><span class="ico"><svg viewBox="0 0 24 24"><path d="M6 8h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2z M12 8V4 M12 4h.01 M9 13h.01 M15 13h.01 M2 12v3 M22 12v3"/></svg></span><div><b>agent 节点</b><small>调用模型，生成回复</small></div></div><div class="it" style="--tb:#6096fa;--tf:#eaf2ff;--ts:#2f6bff"><span class="ico"><svg viewBox="0 0 24 24"><path d="M15.5 5a2.5 2.5 0 1 0 5 0 2.5 2.5 0 1 0-5 0 M3.5 12a2.5 2.5 0 1 0 5 0 2.5 2.5 0 1 0-5 0 M15.5 19a2.5 2.5 0 1 0 5 0 2.5 2.5 0 1 0-5 0 M8.2 10.8l7.6-4.4 M8.2 13.2l7.6 4.4"/></svg></span><div><b>tools_condition</b><small>判断是否需要工具调用</small></div></div><div class="it" style="--tb:#3cbe8c;--tf:#e6f8ef;--ts:#16a06b"><span class="ico"><svg viewBox="0 0 24 24"><path d="M14.5 6.5a4 4 0 0 0-5 5L4 17l3 3 5.5-5.5a4 4 0 0 0 5-5l-2.5 2.5-2.5-.5-.5-2.5z"/></svg></span><div><b>工具调用</b><small>执行工具，获取结果</small></div></div><div class="it" style="--tb:#f7b246;--tf:#fff1e0;--ts:#f08a1c"><span class="ico"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z M8 10.5h.01 M12 10.5h.01 M16 10.5h.01"/></svg></span><div><b>最终回答</b><small>生成最终结果</small></div></div></div><div class="pn " style="left:1080.0px;top:627.2px;width:520.0px;height:153.6px;--u:1.6px;--tb:#6096fa;--tf:#eaf2ff;--ts:#2f6bff"><h4><span class="ico"><svg viewBox="0 0 24 24"><path d="M9 18h6 M10 21h4 M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></svg></span>核心理解</h4><ul><li>循环由图的回边表达</li><li>State 保存执行过程中的数据</li><li>条件路由决定下一步走向</li></ul></div><div class="chip2" style="left:12.8px;top:294.4px;width:166.4px;height:35.2px;--u:1.6px;--tb:#3cbe8c;--tf:#e6f8ef;--ts:#16a06b">需要调用工具</div><div class="chip2" style="left:720.0px;top:294.4px;width:166.4px;height:35.2px;--u:1.6px;--tb:#f7b246;--tf:#fff1e0;--ts:#f08a1c">无需调用工具</div></div>
 
 </section>
 </main>

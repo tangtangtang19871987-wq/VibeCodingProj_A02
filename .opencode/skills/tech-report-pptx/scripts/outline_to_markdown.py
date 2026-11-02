@@ -48,6 +48,11 @@ def main():
             L += ["Workflow / DAG diagram. Nodes: " + ", ".join(n["label"] for n in s["nodes"]), "Edges (solid = sequential, dashed = conditional/loop):"]
             idn = {n["id"]: n["label"] for n in s["nodes"]}
             L += ["- %s -> %s [%s]%s" % (idn[e_["from"]], idn[e_["to"]], e_.get("style", "solid"), " " + e_["label"] if e_.get("label") else "") for e_ in s.get("edges", [])]
+        elif t == "diagram":
+            els = s.get("elements", []); idn = {e_["id"]: (e_.get("label") or e_.get("title")) for e_ in els if e_.get("id")}
+            L += ["Diagram (nodes, lanes, panels) — draw as a flow diagram with tinted colour-coded nodes and icons:"]
+            L += ["- %s: %s%s" % (e_["kind"], e_.get("label") or e_.get("title") or e_.get("text", ""), " — " + e_["sub"] if e_.get("sub") else "") for e_ in els if e_["kind"] in ("node", "panel", "group", "note", "heading")]
+            L += ["Edges:"] + ["- %s -> %s [%s]%s" % (idn.get(e_["from"]), idn.get(e_["to"]), e_.get("style", "solid"), " " + e_["label"] if e_.get("label") else "") for e_ in s.get("edges", [])]
         elif t == "closing": L += bl(s.get("contact", []))
         if s.get("takeaway") or s.get("caption"): L += ["", "Takeaway: " + (s.get("takeaway") or s["caption"])]
         if s.get("source"): L += ["", "Source: " + s["source"]]

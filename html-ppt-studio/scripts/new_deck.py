@@ -37,7 +37,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out"); ap.add_argument("--title", default="Untitled Deck")
     ap.add_argument("--theme", default="modern-tech"); ap.add_argument("--layouts", default="")
-    ap.add_argument("--all", action="store_true", help="include all 33 layouts")
+    ap.add_argument("--all", action="store_true", help="include all 34 layouts")
     ap.add_argument("--slides-file", help="file with custom <section class='slide ...'> markup (appended after --layouts)")
     ap.add_argument("--transition", default="fade", choices=["fade", "slide", "zoom", "none"])
     ap.add_argument("--lang", default="en"); ap.add_argument("--inline", action="store_true")

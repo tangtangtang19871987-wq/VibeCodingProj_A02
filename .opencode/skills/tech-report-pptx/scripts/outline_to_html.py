@@ -6,6 +6,8 @@
 Uses the same slide types and theme names as python-pptx/outline_to_pptx.py, so the two outputs match.
 """
 import argparse, html, json, os, subprocess, sys, tempfile
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "python-pptx", "scripts"))
+import diagram_geom as G
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STUDIO = os.path.normpath(os.path.join(HERE, "..", "..", "html-ppt-studio"))
@@ -93,6 +95,104 @@ def dag(nodes, edges, W, H, nw, nh, cls=""):
     nd = "".join('<div class="node" style="left:%.0fpx;top:%.0fpx;width:%dpx;height:%dpx"><div class="ni">%s</div><div><b>%s</b>%s</div></div>' % (
         n["_x"], n["_y"], nw, nh, e(n.get("icon", "◆")), e(n["label"]), "<small>%s</small>" % e(n["sub"]) if n.get("sub") else "") for n in nodes)
     return '<div class="dag %s" style="width:%dpx;height:%dpx"><svg viewBox="0 0 %d %d">%s%s</svg>%s%s</div>' % (cls, W, H, W, H, defs, "".join(paths), nd, "".join(labels))
+
+
+
+US = 1.76   # px per logical unit
+
+
+def _svgicon(name): return '<svg viewBox="0 0 24 24"><path d="%s"/></svg>' % G.ICONS.get(name, G.ICONS["cube"])
+
+
+def _tv(tn):
+    t = G.tone(tn); return "--tb:%s;--tf:%s;--ts:%s" % (G.rgbhex(t["border"]), G.rgbhex(t["fill"]), G.rgbhex(t["solid"]))
+
+
+def _pos(e, extra=""):
+    x, y, w, h = G.rect(e); return 'style="left:%.1fpx;top:%.1fpx;width:%.1fpx;height:%.1fpx;--u:%spx;%s%s"' % (x * US, y * US, w * US, h * US, US, _tv(e.get("tone", "blue")), extra)
+
+
+def _cubes_svg(e):
+    x, y, w, h = G.rect(e); S = US; uid = "cb%d" % id(e); defs = []; out = []
+    for ci, (fx, fy, fe, cols) in enumerate(G.CUBE_SET):
+        faces = G.cube_faces(x + fx * w, y + fy * h, fe * w)
+        for fi, (fname, pts) in enumerate(faces.items()):
+            gid = "%s-%d-%d" % (uid, ci, fi); c0, c1 = cols[fi]
+            defs.append('<linearGradient id="%s" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="%s"/><stop offset="1" stop-color="%s"/></linearGradient>' % (gid, G.rgbhex(c0), G.rgbhex(c1)))
+            out.append('<polygon points="%s" fill="url(#%s)" fill-opacity=".86" stroke="#fff" stroke-opacity=".9" stroke-width="2"/>' % (" ".join("%.1f,%.1f" % (a * S, b * S) for a, b in pts), gid))
+    for fx, fy, fr, col in G.CUBE_DOTS: out.append('<circle cx="%.1f" cy="%.1f" r="%.1f" fill="%s" fill-opacity=".85"/>' % ((x + fx * w) * S, (y + fy * h) * S, fr * w * S, G.rgbhex(col)))
+    return '<g data-anim="float" style="--t:6s"><defs>%s</defs>%s</g>' % ("".join(defs), "".join(out))
+
+
+_DG_N = [0]
+
+
+def render_diagram(s):
+    global US
+    US = 1.76 if s.get("cover") else 1.6; _DG_N[0] += 1; pre = "m%d" % _DG_N[0]
+    els = s.get("elements", []); M = {e["id"]: e for e in els if e.get("id")}; parts = []; svg_art = []
+    for e in els:
+        k = e["kind"]; tn = e.get("tone", "blue")
+        if k == "group":
+            x, y, w, h = G.rect(e); parts.append('<div class="grp" %s></div>' % _pos(e))
+            lw = max(120, sum(18 if ord(c) > 255 else 10 for c in e.get("label", "")) + 56)
+            parts.append('<div class="gh" style="left:%.1fpx;top:%.1fpx;width:%.1fpx;height:%.1fpx;--u:%spx;%s">%s</div>' % ((x + 18) * US, (y - 15) * US, lw * US, 30 * US, US, _tv(tn), html.escape(e.get("label", ""))))
+        elif k == "node":
+            shp = e.get("shape", "round"); lay = "stack" if (e.get("layout") == "stack" or (shp == "diamond" and e.get("icon"))) else "row"
+            x, y, w, h = G.rect(e); isz = 30 if lay == "row" else 30
+            ic = '<span class="ico" style="width:calc(var(--u)*%d);height:calc(var(--u)*%d)">%s</span>' % (isz, isz, _svgicon(e["icon"])) if e.get("icon") else ""
+            tx = '<div class="tx"><b>%s</b>%s</div>' % (html.escape(e.get("label", "")), "<small>%s</small>" % html.escape(e["sub"]) if e.get("sub") else "")
+            if shp == "diamond":
+                W_, H_ = w * US, h * US; poly = "%.0f,2 %.0f,%.0f %.0f,%.0f 2,%.0f" % (W_ / 2, W_ - 2, H_ / 2, W_ / 2, H_ - 2, H_ / 2); t = G.tone(tn)
+                bg = '<svg class="bg" viewBox="0 0 %.0f %.0f"><polygon points="%s" fill="%s" stroke="%s" stroke-width="2.5"/></svg>' % (W_, H_, poly, G.rgbhex(t["fill"]), G.rgbhex(t["border"]))
+                parts.append('<div class="dn diamond" %s>%s<div class="tx" style="position:relative;display:flex;flex-direction:column;align-items:center">%s%s</div></div>' % (_pos(e), bg, ic, tx.replace('<div class="tx">', '<div style="text-align:center">', 1)))
+            else:
+                cls = "dn %s%s%s%s" % ("pill " if shp == "pill" else "", "stack " if lay == "stack" else "", "top " if e.get("valign") == "top" else "", "dashed" if e.get("dashed") else "")
+                parts.append('<div class="%s" %s>%s%s</div>' % (cls, _pos(e), ic, tx))
+        elif k == "note":
+            n = e.get("n"); badge = '<span class="ico">%s</span>' % n if n is not None else ""
+            parts.append('<div class="note" %s>%s<span>%s</span></div>' % (_pos(e), badge, html.escape(e["text"])))
+        elif k == "chip":
+            x, y, w, h = G.rect(e); parts.append('<div class="chip2" style="left:%.1fpx;top:%.1fpx;width:%.1fpx;height:%.1fpx;--u:%spx;%s">%s</div>' % (x * US, y * US, w * US, h * US, US, _tv(tn), html.escape(e["text"])))
+        elif k == "panel":
+            b = e.get("body", {}); ttl = ""
+            if e.get("title"): ttl = '<h4>%s%s</h4>' % ('<span class="ico">%s</span>' % _svgicon(e["icon"]) if e.get("icon") and not e.get("stack") else "", html.escape(e["title"]))
+            if e.get("stack"):
+                ttl = ('<span class="ico">%s</span>' % _svgicon(e["icon"]) if e.get("icon") else "") + ttl
+            if "code" in b: body = "<pre>%s</pre>" % html.escape(b["code"])
+            elif "bullets" in b: body = "<ul>%s</ul>" % "".join("<li>%s</li>" % html.escape(i) for i in b["bullets"])
+            elif "items" in b: body = "".join('<div class="it" style="%s"><span class="ico">%s</span><div><b>%s</b>%s</div></div>' % (_tv(i.get("tone", tn)), _svgicon(i.get("icon", "cube")), html.escape(i["title"]), "<small>%s</small>" % html.escape(i["sub"]) if i.get("sub") else "") for i in b["items"])
+            elif "rows" in b: body = "".join('<div class="rw" style="%s"><div class="c">%s</div><ul>%s</ul></div>' % (_tv(r.get("tone", tn)), html.escape(r["chip"]), "".join("<li>%s</li>" % html.escape(t_) for t_ in r["text"])) for r in b["rows"])
+            elif "legend" in b: body = "".join('<div class="lg" style="%s"><i class="%s"></i>%s</div>' % (_tv(l.get("tone", "dark")), "d" if l.get("style") == "dashed" else "", html.escape(l["text"])) for l in b["legend"])
+            elif "text" in b: body = "<p>%s</p>" % html.escape(b["text"])
+            else: body = ""
+            parts.append('<div class="pn %s%s" %s>%s%s</div>' % ("dashed " if e.get("dashed") else "", "stk" if e.get("stack") else "", _pos(e), ttl, body))
+        elif k == "text":
+            parts.append('<div class="txt" %s style="font-size:%.1fpx">%s</div>' % ("", e.get("size", 13) * US, html.escape(e["text"])) if False else '<div class="txt" style="left:%.1fpx;top:%.1fpx;width:%.1fpx;height:%.1fpx;font-size:%.1fpx;font-weight:%s;color:%s">%s</div>' % (e["x"] * US, e["y"] * US, e["w"] * US, e.get("h", 20) * US, e.get("size", 13) * US, 800 if e.get("bold") else 400, G.rgbhex(G.tone(tn)["solid"]) if e.get("tone") else "#35416b", html.escape(e["text"])))
+        elif k == "heading":
+            parts.append('<div class="hd" style="left:%.1fpx;top:%.1fpx;width:%.1fpx;--u:%spx">%s<h1 class="grad-text" data-anim="fade-up">%s</h1>%s</div>' % (
+                e["x"] * US, e["y"] * US, e["w"] * US, US, '<div class="k">%s</div>' % html.escape(e["kicker"]) if e.get("kicker") else "", html.escape(e["title"]), "<p>%s</p>" % html.escape(e["tagline"]) if e.get("tagline") else ""))
+        elif k == "cubes": svg_art.append(_cubes_svg(e))
+    # edges
+    cols = {}; edge_svg = []; labels = []; ec = s.get("edge_color", "source")
+    for ed in s.get("edges", []):
+        pts, lab = G.route(ed, M); col = G.edge_color(ed, M, ec); hx = G.rgbhex(col); cols[hx] = 1
+        rp = G.round_poly(pts, 9 if ed.get("round", True) else 0)
+        d = "M" + " L".join("%.1f %.1f" % (a * US, b * US) for a, b in rp)
+        edge_svg.append('<path d="%s" fill="none" stroke="%s" stroke-width="3" %s marker-end="url(#%s%s)"/>' % (d, hx, 'stroke-dasharray="10 7"' if ed.get("style") == "dashed" else "", pre, hx[1:]))
+        if ed.get("label"):
+            cw = G.chip_w({"text": ed["label"]}); lt = ed.get("label_tone") or ed.get("tone") or (M[ed["from"]].get("tone") or "blue")
+            labels.append('<div class="chip2" style="left:%.1fpx;top:%.1fpx;width:%.1fpx;height:%.1fpx;--u:%spx;%s">%s</div>' % ((lab[0] - cw / 2) * US, (lab[1] - 11) * US, cw * US, 22 * US, US, _tv(lt), html.escape(ed["label"])))
+    marks = "".join('<marker id="%s%s" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L6,3 L0,6 z" fill="#%s"/></marker>' % (pre, c[1:], c[1:]) for c in cols)
+    W_, H_ = G.CW * US, G.CH * US
+    # edges drawn BELOW nodes but above groups: groups first, then svg, then rest
+    grp = [p for p in parts if p.startswith('<div class="grp"') or p.startswith('<div class="gh"')]; rest = [p for p in parts if p not in grp]
+    art = '<svg class="art" width="%d" height="%d" viewBox="0 0 %d %d">%s</svg>' % (W_, H_, W_, H_, "".join(svg_art)) if svg_art else ""
+    esv = '<svg class="edges" width="%d" height="%d" viewBox="0 0 %d %d"><defs>%s</defs>%s</svg>' % (W_, H_, W_, H_, marks, "".join(edge_svg))
+    sub = '<div class="sub">%s</div>' % html.escape(s["subtitle"]) if s.get("subtitle") else ""
+    hdr = "" if s.get("cover") else '<header class="slide-head"><div class="kicker" data-anim="fade-down">%s</div><h2 data-anim="fade-up">%s</h2>%s</header>' % (html.escape(s.get("kicker", "")), html.escape(s.get("title", "")), sub)
+    return hdr + '<div class="dg" data-anim="fade-in" style="width:%dpx;height:%dpx;--u:%spx">%s%s%s%s%s</div>' % (
+        W_, H_, US, "".join(grp), art, esv, "".join(rest), "".join(labels))
 
 
 def sec(cls, inner, s):
@@ -197,6 +297,8 @@ def render(o):
         elif t == "workflow":
             leg = '<div class="legend"><span><i></i>顺序 Sequential</span><span><i class="d"></i>条件 / 循环 Conditional · Loop</span></div>'
             out.append(sec("workflow", head(s) + '<div class="dag-wrap" data-anim="fade-up"><div style="padding-bottom:64px">%s%s</div></div>%s' % (dag([dict(n) for n in s["nodes"]], s.get("edges", []), 1680, 500, 310, 116), leg, take(s)), s))
+        elif t == "diagram":
+            out.append(sec("diagram", render_diagram(s), s))
         elif t == "closing":
             ct = "".join('<span class="chip">%s</span>' % e(c) for c in s.get("contact", []))
             out.append(sec("closing", '<h1 class="grad-text" data-anim="bounce-in">%s</h1><p class="lead" data-anim="fade-up" style="--d:.4s">%s</p><div class="contact" data-anim-stagger="fade-up" style="--d:.6s">%s</div>' % (e(s.get("title", "Thank you")), e(s.get("subtitle", "")), ct), s))

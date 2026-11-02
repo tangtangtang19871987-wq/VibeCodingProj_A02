@@ -1,6 +1,6 @@
 # HTML PPT Studio
 
-An AgentSkill for building professional HTML presentations — **25 themes, 33 layouts, 26 animations**, zero dependencies.
+An AgentSkill for building professional HTML presentations — **25 themes, 34 layouts, 26 animations**, zero dependencies.
 
 - Skill entry point: [`html-ppt-studio/SKILL.md`](html-ppt-studio/SKILL.md)
 - Live demo (all layouts, press `T` to switch themes, `O` for overview): open `html-ppt-studio/examples/demo-all-layouts.html`

@@ -1,4 +1,4 @@
-# Layouts (33)
+# Layouts (34)
 
 Snippets live in `templates/layouts/NN-name.html`; each is one `<section class="slide layout-NAME">`.
 
@@ -37,3 +37,4 @@ Snippets live in `templates/layouts/NN-name.html`; each is one `<section class="
 | 31 | `closing` | Thank-you / contact slide |
 | 32 | `hero` | Left concept + title, centre 3D cube, right mini workflow, 3 concept cards (cover / architecture opener) |
 | 33 | `workflow` | Workflow / DAG: glass icon nodes, solid (sequential) and dashed (conditional / loop) edges, legend |
+| 34 | `diagram` | Free diagram canvas (1000x490 units): tone-tinted nodes (round/pill/diamond), lanes, numbered notes, code/list/legend panels, 3D cubes, rounded coloured edges |

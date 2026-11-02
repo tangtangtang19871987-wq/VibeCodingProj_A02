@@ -1,0 +1,892 @@
+{
+ "meta": {
+  "title": "LangGraph 与上下文工程：技术分享",
+  "subtitle": "State · Nodes · Edges · Context",
+  "author": "AI 平台组",
+  "date": "2026-11-02",
+  "lang": "zh",
+  "theme": "modern-tech"
+ },
+ "slides": [
+  {
+   "type": "diagram",
+   "title": "",
+   "elements": [
+    {
+     "kind": "heading",
+     "x": 0,
+     "y": 24,
+     "w": 440,
+     "h": 210,
+     "title": "LangGraph Basics —\nStateGraph,\nNodes & Edges",
+     "tagline": "用结构化 State、智能节点与灵活的图流程，构建强大的 LLM 应用。"
+    },
+    {
+     "kind": "cubes",
+     "x": 445,
+     "y": 235,
+     "w": 190,
+     "h": 250
+    },
+    {
+     "kind": "panel",
+     "x": 0,
+     "y": 330,
+     "w": 138,
+     "h": 150,
+     "tone": "blue",
+     "body": {
+      "text": "在图中共享并管理的状态"
+     },
+     "title": "State",
+     "icon": "database",
+     "stack": true
+    },
+    {
+     "kind": "panel",
+     "x": 148,
+     "y": 330,
+     "w": 138,
+     "h": 150,
+     "tone": "purple",
+     "body": {
+      "text": "执行任务、操作或 LLM 调用"
+     },
+     "title": "Nodes",
+     "icon": "cube",
+     "stack": true
+    },
+    {
+     "kind": "panel",
+     "x": 296,
+     "y": 330,
+     "w": 138,
+     "h": 150,
+     "tone": "teal",
+     "body": {
+      "text": "定义流程与节点间的转移"
+     },
+     "title": "Edges",
+     "icon": "share",
+     "stack": true
+    },
+    {
+     "kind": "node",
+     "id": "st",
+     "x": 690,
+     "y": 0,
+     "w": 110,
+     "h": 34,
+     "label": "START",
+     "tone": "green",
+     "shape": "pill"
+    },
+    {
+     "kind": "node",
+     "id": "n1",
+     "x": 640,
+     "y": 52,
+     "w": 230,
+     "h": 46,
+     "label": "Load Input",
+     "tone": "green",
+     "sub": "Node",
+     "icon": "doc"
+    },
+    {
+     "kind": "node",
+     "id": "n2",
+     "x": 640,
+     "y": 114,
+     "w": 230,
+     "h": 46,
+     "label": "Retrieve Context",
+     "tone": "blue",
+     "sub": "Node",
+     "icon": "search"
+    },
+    {
+     "kind": "node",
+     "id": "n3",
+     "x": 640,
+     "y": 176,
+     "w": 230,
+     "h": 46,
+     "label": "Generate Response",
+     "tone": "purple",
+     "sub": "Node",
+     "icon": "chat"
+    },
+    {
+     "kind": "node",
+     "id": "dc",
+     "x": 640,
+     "y": 240,
+     "w": 225,
+     "h": 104,
+     "label": "Check Condition",
+     "tone": "orange",
+     "sub": "Node",
+     "icon": "filter",
+     "shape": "diamond"
+    },
+    {
+     "kind": "node",
+     "id": "rf",
+     "x": 890,
+     "y": 256,
+     "w": 110,
+     "h": 72,
+     "label": "Refine / Retry",
+     "tone": "pink",
+     "icon": "refresh",
+     "layout": "stack"
+    },
+    {
+     "kind": "node",
+     "id": "en",
+     "x": 690,
+     "y": 432,
+     "w": 110,
+     "h": 34,
+     "label": "END",
+     "tone": "green",
+     "shape": "pill"
+    },
+    {
+     "kind": "panel",
+     "x": 840,
+     "y": 385,
+     "w": 160,
+     "h": 98,
+     "tone": "gray",
+     "body": {
+      "legend": [
+       {
+        "style": "solid",
+        "tone": "dark",
+        "text": "Sequential Edge"
+       },
+       {
+        "style": "dashed",
+        "tone": "green",
+        "text": "Conditional Edge"
+       },
+       {
+        "style": "dashed",
+        "tone": "purple",
+        "text": "Loop Edge"
+       }
+      ]
+     }
+    }
+   ],
+   "edges": [
+    {
+     "from": "st",
+     "to": "n1",
+     "tone": "dark"
+    },
+    {
+     "from": "n1",
+     "to": "n2",
+     "tone": "dark"
+    },
+    {
+     "from": "n2",
+     "to": "n3",
+     "tone": "dark"
+    },
+    {
+     "from": "n3",
+     "to": "dc",
+     "tone": "dark"
+    },
+    {
+     "from": "dc",
+     "to": "rf",
+     "style": "dashed",
+     "tone": "orange",
+     "fs": "r",
+     "ts": "l",
+     "label": "NO",
+     "label_tone": "orange"
+    },
+    {
+     "from": "dc",
+     "to": "en",
+     "style": "dashed",
+     "tone": "green",
+     "label": "YES",
+     "label_tone": "green",
+     "label_at": [
+      752,
+      388
+     ]
+    },
+    {
+     "from": "rf",
+     "to": "n1",
+     "style": "dashed",
+     "tone": "purple",
+     "fs": "t",
+     "ts": "r"
+    }
+   ],
+   "edge_color": "dark",
+   "cover": true,
+   "notes": "开场：一句话说明 LangGraph 的三个核心概念 State / Nodes / Edges，右侧是一个最小的带条件与循环的流程。"
+  },
+  {
+   "type": "diagram",
+   "kicker": "上下文工程",
+   "title": "Context 构建流程图",
+   "subtitle": "将多源信息筛选、组织，形成模型可理解的输入",
+   "elements": [
+    {
+     "kind": "node",
+     "id": "sp",
+     "x": 0,
+     "y": 0,
+     "w": 280,
+     "h": 54,
+     "label": "System Prompt",
+     "tone": "purple",
+     "sub": "角色、目标、指令、行为约束",
+     "icon": "doc"
+    },
+    {
+     "kind": "node",
+     "id": "hist",
+     "x": 0,
+     "y": 64,
+     "w": 280,
+     "h": 54,
+     "label": "对话历史",
+     "tone": "blue",
+     "sub": "用户消息、助手回复、工具结果等",
+     "icon": "chat"
+    },
+    {
+     "kind": "node",
+     "id": "tool",
+     "x": 0,
+     "y": 128,
+     "w": 280,
+     "h": 54,
+     "label": "工具定义",
+     "tone": "green",
+     "sub": "可用工具、参数、调用方式等",
+     "icon": "wrench"
+    },
+    {
+     "kind": "node",
+     "id": "st",
+     "x": 0,
+     "y": 192,
+     "w": 280,
+     "h": 54,
+     "label": "当前执行状态",
+     "tone": "orange",
+     "sub": "任务进度、已完成步骤、临时变量等",
+     "icon": "database"
+    },
+    {
+     "kind": "node",
+     "id": "mem",
+     "x": 0,
+     "y": 256,
+     "w": 280,
+     "h": 54,
+     "label": "相关记忆",
+     "tone": "pink",
+     "sub": "用户偏好、历史知识、长期信息等",
+     "icon": "memory"
+    },
+    {
+     "kind": "node",
+     "id": "cb",
+     "x": 345,
+     "y": 12,
+     "w": 215,
+     "h": 290,
+     "label": "Context Builder",
+     "tone": "blue",
+     "sub": "筛选、裁剪、整合、格式化\n构建模型输入",
+     "icon": "gear",
+     "layout": "stack",
+     "valign": "top"
+    },
+    {
+     "kind": "panel",
+     "x": 358,
+     "y": 165,
+     "w": 189,
+     "h": 128,
+     "tone": "blue",
+     "body": {
+      "items": [
+       {
+        "icon": "doc",
+        "title": "指令"
+       },
+       {
+        "icon": "chat",
+        "title": "消息"
+       },
+       {
+        "icon": "wrench",
+        "title": "工具定义"
+       },
+       {
+        "icon": "database",
+        "title": "相关信息"
+       }
+      ]
+     },
+     "id": "cbin",
+     "in": "cb",
+     "dashed": true
+    },
+    {
+     "kind": "node",
+     "id": "llm",
+     "x": 610,
+     "y": 70,
+     "w": 150,
+     "h": 175,
+     "label": "模型调用",
+     "tone": "purple",
+     "sub": "基于构建的上下文\n进行推理和生成",
+     "icon": "robot",
+     "layout": "stack"
+    },
+    {
+     "kind": "panel",
+     "x": 805,
+     "y": 50,
+     "w": 195,
+     "h": 215,
+     "tone": "blue",
+     "body": {
+      "code": "{\n  \"system\": \"...\",\n  \"messages\": [...],\n  \"tools\": [...],\n  \"context\": {\n    \"prefs\": \"...\",\n    \"state\": \"...\",\n    \"memories\": \"...\"\n  }\n}"
+     },
+     "title": "模型输入示例（简化）",
+     "id": "ex"
+    },
+    {
+     "kind": "panel",
+     "x": 0,
+     "y": 330,
+     "w": 270,
+     "h": 158,
+     "tone": "blue",
+     "body": {
+      "bullets": [
+       "State：保存执行过程中的数据",
+       "Context：本轮模型调用的实际输入",
+       "State 不会全部进入 Context",
+       "按任务需求筛选、组织"
+      ]
+     },
+     "title": "关键点",
+     "icon": "bulb"
+    },
+    {
+     "kind": "panel",
+     "x": 285,
+     "y": 330,
+     "w": 370,
+     "h": 158,
+     "tone": "green",
+     "body": {
+      "code": "def build_context(agent, state, mem):\n    return {\n        \"instructions\": agent.instructions,\n        \"messages\": select(state.messages),\n        \"tools\": agent.tools,\n        \"memories\": mem,\n    }"
+     },
+     "title": "最小实现（伪代码）",
+     "icon": "code"
+    },
+    {
+     "kind": "panel",
+     "x": 670,
+     "y": 330,
+     "w": 330,
+     "h": 158,
+     "tone": "purple",
+     "body": {
+      "rows": [
+       {
+        "chip": "OpenAI Agents SDK",
+        "tone": "green",
+        "text": [
+         "指令、历史、工具定义"
+        ]
+       },
+       {
+        "chip": "LangGraph",
+        "tone": "blue",
+        "text": [
+         "State 保存，节点按需构造输入"
+        ]
+       },
+       {
+        "chip": "CrewAI",
+        "tone": "purple",
+        "text": [
+         "Agent 配置与 Task 描述"
+        ]
+       }
+      ]
+     },
+     "title": "三大框架的实现方式",
+     "icon": "layers"
+    }
+   ],
+   "edges": [
+    {
+     "from": "sp",
+     "to": "cb",
+     "fs": "r",
+     "ts": "l",
+     "mid": 0.2,
+     "ti": 0.1
+    },
+    {
+     "from": "hist",
+     "to": "cb",
+     "fs": "r",
+     "ts": "l",
+     "mid": 0.34,
+     "ti": 0.28
+    },
+    {
+     "from": "tool",
+     "to": "cb",
+     "fs": "r",
+     "ts": "l",
+     "mid": 0.48,
+     "ti": 0.5
+    },
+    {
+     "from": "st",
+     "to": "cb",
+     "fs": "r",
+     "ts": "l",
+     "mid": 0.62,
+     "ti": 0.72
+    },
+    {
+     "from": "mem",
+     "to": "cb",
+     "fs": "r",
+     "ts": "l",
+     "mid": 0.76,
+     "ti": 0.9
+    },
+    {
+     "from": "cb",
+     "to": "llm",
+     "tone": "blue"
+    },
+    {
+     "from": "llm",
+     "to": "ex",
+     "style": "dashed",
+     "tone": "gray"
+    }
+   ],
+   "notes": "左侧五类信息源汇入 Context Builder，经筛选、裁剪后形成模型输入。强调：State 不等于 Context。"
+  },
+  {
+   "type": "diagram",
+   "kicker": "LangGraph",
+   "title": "LangGraph 执行流程图",
+   "subtitle": "通过节点、边和条件路由描述 Agent 的执行逻辑",
+   "elements": [
+    {
+     "kind": "node",
+     "id": "start",
+     "x": 225,
+     "y": 0,
+     "w": 130,
+     "h": 36,
+     "label": "START",
+     "tone": "gray",
+     "shape": "pill"
+    },
+    {
+     "kind": "node",
+     "id": "agent",
+     "x": 180,
+     "y": 60,
+     "w": 220,
+     "h": 58,
+     "label": "agent 节点",
+     "tone": "purple",
+     "sub": "调用模型，生成回复",
+     "icon": "robot"
+    },
+    {
+     "kind": "node",
+     "id": "cond",
+     "x": 170,
+     "y": 134,
+     "w": 240,
+     "h": 124,
+     "label": "tools_condition",
+     "tone": "blue",
+     "sub": "判断是否需要工具调用",
+     "icon": "share",
+     "shape": "diamond"
+    },
+    {
+     "kind": "node",
+     "id": "tools",
+     "x": 40,
+     "y": 290,
+     "w": 200,
+     "h": 58,
+     "label": "工具调用",
+     "tone": "green",
+     "sub": "执行工具，获取结果",
+     "icon": "wrench"
+    },
+    {
+     "kind": "node",
+     "id": "final",
+     "x": 330,
+     "y": 290,
+     "w": 200,
+     "h": 58,
+     "label": "最终回答",
+     "tone": "orange",
+     "sub": "生成最终结果",
+     "icon": "chat"
+    },
+    {
+     "kind": "node",
+     "id": "tn",
+     "x": 40,
+     "y": 395,
+     "w": 200,
+     "h": 58,
+     "label": "tools 节点",
+     "tone": "purple",
+     "sub": "将工具结果写入 State",
+     "icon": "gear"
+    },
+    {
+     "kind": "node",
+     "id": "end",
+     "x": 365,
+     "y": 400,
+     "w": 130,
+     "h": 36,
+     "label": "END",
+     "tone": "gray",
+     "shape": "pill"
+    },
+    {
+     "kind": "note",
+     "x": 430,
+     "y": 0,
+     "w": 210,
+     "h": 38,
+     "n": 1,
+     "tone": "blue",
+     "text": "从 START 开始，进入 agent 节点"
+    },
+    {
+     "kind": "note",
+     "x": 430,
+     "y": 62,
+     "w": 210,
+     "h": 54,
+     "n": 2,
+     "tone": "purple",
+     "text": "agent 根据当前 State 构造输入并调用 LLM"
+    },
+    {
+     "kind": "note",
+     "x": 450,
+     "y": 128,
+     "w": 190,
+     "h": 48,
+     "n": 3,
+     "tone": "blue",
+     "text": "根据模型返回，判断是否有工具调用"
+    },
+    {
+     "kind": "note",
+     "x": 190,
+     "y": 352,
+     "w": 150,
+     "h": 38,
+     "n": 4,
+     "tone": "green",
+     "text": "结果保存到 State 中"
+    },
+    {
+     "kind": "note",
+     "x": 545,
+     "y": 290,
+     "w": 110,
+     "h": 58,
+     "n": 5,
+     "tone": "orange",
+     "text": "无工具调用时直接结束"
+    },
+    {
+     "kind": "note",
+     "x": 100,
+     "y": 454,
+     "w": 400,
+     "h": 34,
+     "n": 6,
+     "tone": "blue",
+     "text": "工具执行完成后，返回 agent 节点进行下一轮模型调用"
+    },
+    {
+     "kind": "panel",
+     "x": 675,
+     "y": 0,
+     "w": 325,
+     "h": 190,
+     "tone": "blue",
+     "body": {
+      "code": "from langgraph.graph import StateGraph\nb = StateGraph(AgentState)\nb.add_node(\"agent\", call_model)\nb.add_node(\"tools\", ToolNode(tools))\nb.add_edge(START, \"agent\")\nb.add_conditional_edges(\"agent\",\n  tools_condition, {\"tools\": \"tools\"})\nb.add_edge(\"tools\", \"agent\")\ngraph = b.compile()"
+     },
+     "title": "核心代码（简化示例）"
+    },
+    {
+     "kind": "panel",
+     "x": 675,
+     "y": 198,
+     "w": 325,
+     "h": 186,
+     "tone": "gray",
+     "body": {
+      "items": [
+       {
+        "icon": "robot",
+        "tone": "purple",
+        "title": "agent 节点",
+        "sub": "调用模型，生成回复"
+       },
+       {
+        "icon": "share",
+        "tone": "blue",
+        "title": "tools_condition",
+        "sub": "判断是否需要工具调用"
+       },
+       {
+        "icon": "wrench",
+        "tone": "green",
+        "title": "工具调用",
+        "sub": "执行工具，获取结果"
+       },
+       {
+        "icon": "chat",
+        "tone": "orange",
+        "title": "最终回答",
+        "sub": "生成最终结果"
+       }
+      ]
+     },
+     "title": "节点说明"
+    },
+    {
+     "kind": "panel",
+     "x": 675,
+     "y": 392,
+     "w": 325,
+     "h": 96,
+     "tone": "blue",
+     "body": {
+      "bullets": [
+       "循环由图的回边表达",
+       "State 保存执行过程中的数据",
+       "条件路由决定下一步走向"
+      ]
+     },
+     "title": "核心理解",
+     "icon": "bulb"
+    }
+   ],
+   "edges": [
+    {
+     "from": "start",
+     "to": "agent",
+     "tone": "dark"
+    },
+    {
+     "from": "agent",
+     "to": "cond",
+     "tone": "dark"
+    },
+    {
+     "from": "cond",
+     "to": "tools",
+     "fs": "l",
+     "ts": "t",
+     "tone": "dark",
+     "label": "需要调用工具",
+     "label_tone": "green",
+     "label_at": [
+      60,
+      195
+     ]
+    },
+    {
+     "from": "cond",
+     "to": "final",
+     "fs": "r",
+     "ts": "t",
+     "tone": "dark",
+     "label": "无需调用工具",
+     "label_tone": "orange",
+     "label_at": [
+      502,
+      195
+     ]
+    },
+    {
+     "from": "tools",
+     "to": "tn",
+     "tone": "dark"
+    },
+    {
+     "from": "final",
+     "to": "end",
+     "tone": "dark"
+    },
+    {
+     "from": "tn",
+     "to": "agent",
+     "style": "dashed",
+     "tone": "dark",
+     "fs": "l",
+     "ts": "l",
+     "bulge": 30
+    }
+   ],
+   "edge_color": "dark",
+   "notes": "按编号 1→6 讲：从 START 进入 agent，条件路由决定调用工具还是直接回答，工具结果写回 State 并回到 agent。"
+  },
+  {
+   "type": "diagram",
+   "kicker": "记忆与持久化",
+   "title": "短期状态与长期记忆如何汇入 Agent Runtime",
+   "elements": [
+    {
+     "kind": "group",
+     "x": 0,
+     "y": 22,
+     "w": 485,
+     "h": 318,
+     "tone": "blue",
+     "label": "当前线程的执行状态"
+    },
+    {
+     "kind": "group",
+     "x": 515,
+     "y": 22,
+     "w": 485,
+     "h": 318,
+     "tone": "green",
+     "label": "跨线程复用的长期信息"
+    },
+    {
+     "kind": "node",
+     "id": "a1",
+     "x": 24,
+     "y": 78,
+     "w": 437,
+     "h": 108,
+     "label": "当前线程的执行状态",
+     "tone": "blue",
+     "sub": "包括：对话进度、工具调用状态、中间结果、临时变量等",
+     "icon": "chat"
+    },
+    {
+     "kind": "node",
+     "id": "a2",
+     "x": 24,
+     "y": 228,
+     "w": 437,
+     "h": 86,
+     "label": "Checkpointer",
+     "tone": "blue",
+     "sub": "保存当前执行状态，支持断点续用",
+     "icon": "history"
+    },
+    {
+     "kind": "node",
+     "id": "b1",
+     "x": 539,
+     "y": 78,
+     "w": 437,
+     "h": 108,
+     "label": "跨线程的长期信息",
+     "tone": "green",
+     "sub": "包括：用户画像、偏好、历史行为、长期记忆等",
+     "icon": "database"
+    },
+    {
+     "kind": "node",
+     "id": "b2",
+     "x": 539,
+     "y": 228,
+     "w": 437,
+     "h": 86,
+     "label": "Store",
+     "tone": "green",
+     "sub": "将长期信息存入持久化存储",
+     "icon": "cube"
+    },
+    {
+     "kind": "node",
+     "id": "rt",
+     "x": 0,
+     "y": 392,
+     "w": 1000,
+     "h": 92,
+     "label": "Agent Runtime",
+     "tone": "purple",
+     "sub": "统一管理执行状态与长期记忆，支撑 Agent 稳定运行",
+     "icon": "robot"
+    }
+   ],
+   "edges": [
+    {
+     "from": "a1",
+     "to": "a2",
+     "tone": "blue"
+    },
+    {
+     "from": "b1",
+     "to": "b2",
+     "tone": "green"
+    },
+    {
+     "from": "a2",
+     "to": "rt",
+     "fs": "b",
+     "ts": "t",
+     "ti": 0.5,
+     "tone": "blue",
+     "mid": 0.5
+    },
+    {
+     "from": "b2",
+     "to": "rt",
+     "fs": "b",
+     "ts": "t",
+     "ti": 0.5,
+     "tone": "green",
+     "mid": 0.5
+    }
+   ],
+   "notes": "左泳道是线程内状态（Checkpointer），右泳道是跨线程长期信息（Store），二者由 Agent Runtime 统一管理。"
+  }
+ ]
+}

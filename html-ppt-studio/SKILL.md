@@ -1,6 +1,6 @@
 ---
 name: html-ppt-studio
-description: Build professional, presentable HTML slide decks with 25 themes, 33 layouts and 25+ animations. Use when the user asks for a presentation, slide deck, pitch, keynote-style talk or "PPT" delivered as HTML — or wants to restyle/re-theme an existing HTML deck. Zero dependencies; output is a single static .html file that presents in any browser and prints to PDF.
+description: Build professional, presentable HTML slide decks with 25 themes, 34 layouts and 25+ animations. Use when the user asks for a presentation, slide deck, pitch, keynote-style talk or "PPT" delivered as HTML — or wants to restyle/re-theme an existing HTML deck. Zero dependencies; output is a single static .html file that presents in any browser and prints to PDF.
 ---
 
 # HTML PPT Studio
