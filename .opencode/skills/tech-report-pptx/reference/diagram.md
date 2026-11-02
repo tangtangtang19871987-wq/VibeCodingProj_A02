@@ -33,8 +33,8 @@ Everything is placed in **1000 × 490 units** (x→right, y→down, origin top-l
 ## Colour rules (measured from the user's reference images — clean, professional, never flashy)
 Page: near-white (`#fdfdfe`). Titles: deep navy. Body: dark grey. Cards/nodes: **pale tint fills** (e.g. green `#e5f6ed`, orange `#fef0e3`, purple `#ede7fd`) with a **clear 1.5px tone-coloured border**; **vivid tone colour only for icons, labels, lane header pills, edges and (small) key nodes**. Never: large saturated blocks, neon, dark backgrounds, gradients, strong shadows. Same component type ⇒ same colour on every slide.
 
-Tones: `blue` input / data / general flow / branching · `purple` model / agent / runtime / instructions · `green` tools / storage / success · `orange` state / progress / answer / retry · `pink` memory / long-term knowledge · `gray` start / end / neutral · `dark` navy lines. (`teal` is retired — `check_outline.py` errors on it.)
-Colour count: usually a main colour + 1–2 secondary; a dense architecture map may use 4–5 semantic tones (the checker only hints at 5 and warns above).
+Tones: `blue` input / data / general flow / branching · `purple` model / agent / runtime / instructions · `green` tools / storage / success · `yellow` decision / condition / warning · `orange` state / progress / answer / retry · `pink` memory / long-term knowledge · `gray` start / end / neutral · `dark` navy lines. (`teal` is retired — `check_outline.py` errors on it.)
+Colour richness: pages are NOT one-colour. Parallel cards / steps / series cycle through blue → purple → green → yellow → orange → pink (automatic in the non-diagram layouts); in `diagram` slides assign tones by meaning, typically 4–5 per slide (the checker only hints at 5 and warns above).
 `key:true` on a **small** node = heavier border + coloured label for the one node the audience must look at (warns if the node is large).
 Icon ⇒ colour is fixed across the deck (e.g. `robot` always purple, `wrench` green, `sliders` orange, `memory` pink, `split` blue); the checker warns when an icon changes colour.
 

@@ -8,6 +8,7 @@
   --font-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   --radius:24px; --shadow:0 20px 50px rgba(0,0,0,.25);
   --head-weight:800; --head-transform:none; --head-tracking:-.02em;
+  --c1s:var(--accent); --c2s:var(--accent2); --c3s:var(--accent3); --c4s:#f59e0b; --c5s:var(--muted);
   --good:#22c55e; --bad:#ef4444; --warn:#f59e0b;
   --bg-image:linear-gradient(160deg,var(--bg),var(--bg2));
 }

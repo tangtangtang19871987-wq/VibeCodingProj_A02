@@ -26,17 +26,19 @@ CW, CH = 1000, 490
 #   icons / labels / edges = vivid tone colour · lane header pills = solid tone with white text.
 #   blue   = input / data / general flow / branching         purple = model / agent / runtime / instructions
 #   green  = tools / storage / success                       orange = state / progress / answer / retry
-#   pink   = memory / long-term knowledge                    gray   = start / end / neutral          dark = navy lines
+#   yellow = decision / condition / warning                  pink   = memory / long-term knowledge                    gray   = start / end / neutral          dark = navy lines
 TONES = {  # border, tint (fill), solid (icon / label / line)
     "blue":   {"border": (140, 184, 236), "soft": (208, 226, 247), "fill": (230, 241, 253), "solid": (20, 112, 232)},
     "purple": {"border": (172, 160, 232), "soft": (216, 203, 247), "fill": (233, 226, 252), "solid": (108, 60, 236)},
     "green":  {"border": (56, 180, 124), "soft": (192, 233, 215),  "fill": (224, 245, 234), "solid": (8, 148, 100)},
     "orange": {"border": (250, 150, 70), "soft": (250, 216, 180),  "fill": (254, 237, 221), "solid": (240, 138, 28)},
+    "yellow": {"border": (240, 200, 80),  "soft": (250, 230, 150), "fill": (255, 247, 214), "solid": (226, 160, 0)},
     "pink":   {"border": (240, 140, 175), "soft": (250, 204, 221), "fill": (254, 231, 239), "solid": (232, 62, 116)},
     "gray":   {"border": (168, 178, 202), "soft": (204, 211, 229), "fill": (224, 231, 245), "solid": (92, 108, 142)},
     "dark":   {"border": (16, 44, 88), "soft": (160, 174, 200),    "fill": (238, 242, 249), "solid": (16, 44, 88)},
 }
 NEUTRAL = {"gray", "dark"}
+CYCLE = ["blue", "purple", "green", "yellow", "orange", "pink"]   # order used when a layout colours its cards / steps / series automatically
 RETIRED = {"teal": "blue"}   # not in the reference palette — validate() tells the author what to use
 
 # 24x24 stroke icons (stroke-width 2, round caps). Own simple geometry.

@@ -266,3 +266,5 @@
 .dg .dn.diamond .ico,.dg .dn.stack .ico{}
 .dg .pn{border-color:var(--tbs);background:color-mix(in srgb,var(--tf) 80%,#fff)}
 .dg .dn.soft{border-color:var(--tbs)}
+.dag .e-solid{stroke-width:3}.dag .e-dashed{stroke-width:3;stroke-dasharray:12 9;fill:none}
+.layout-workflow .legend i{border-top-color:var(--accent)}

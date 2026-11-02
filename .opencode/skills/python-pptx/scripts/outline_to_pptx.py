@@ -38,7 +38,7 @@ class Deck:
         self.blank = self.p.slide_layouts[6]
         self.n = 0
         self.meta = outline.get("meta", {})
-        self.palette = [self.t["accent"], self.t["accent2"], self.t["accent3"], self.t["warn"], self.t["muted"]] if self.t["glass"] else [self.t["accent"], self.t["accent2"], self.t["good"], self.t["warn"], self.t["muted"]]
+        self.palette = [G.tone(n)["solid"] for n in ("blue", "purple", "green", "yellow", "orange", "pink")] if self.t["glass"] else [self.t["accent"], self.t["accent2"], self.t["good"], self.t["warn"], self.t["muted"]]
 
     # ---------- primitives ----------
     def new_slide(self, s, footer=True):
@@ -65,6 +65,16 @@ class Deck:
         sh.shadow.inherit = False
         if name: sh.name = name
         return sh
+
+    def tn(self, i):
+        """Tone name for the i-th card/step/series (multi-colour semantic cycle) — only in the clean multi-colour style."""
+        return G.CYCLE[i % len(G.CYCLE)] if self.t["flat"] else None
+
+    def tcard(self, sl, x, y, w, h, tn, name="Card"):
+        """Tinted card in tone `tn` (pale fill + clear tone border); plain card in other themes."""
+        if not tn: return self.card(sl, x, y, w, h)
+        t = G.tone(tn); sh = self.rect(sl, x, y, w, h, t["fill"], t["border"], MSO_SHAPE.ROUNDED_RECTANGLE, lw=1.5, name=name)
+        self.soft_shadow(sh, 12, 3, 10, t["solid"]); return sh
 
     def card(self, sl, x, y, w, h, fill=None):
         if self.t["glass"] and fill is None: return self.glass(sl, x, y, w, h)
@@ -95,7 +105,7 @@ class Deck:
         if name: tb.name = name
         return tb
 
-    def bullets(self, sl, x, y, w, h, items, size=22, color=None, sub_color=None, gap=10, minimum=12):
+    def bullets(self, sl, x, y, w, h, items, size=22, color=None, sub_color=None, gap=10, minimum=12, bcolors=None):
         """items: str | {"text","sub"}; real bullets (buChar)."""
         flat = []
         for it in items:
@@ -106,15 +116,16 @@ class Deck:
         fs = _fit.fit(flat, w - 0.2, h - 0.1, size, minimum=minimum, spacing=1.2, gap_ratio=gap / size * 0.8)
         tb = sl.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h)); tf = tb.text_frame; tf.word_wrap = True
         tf.margin_left = tf.margin_right = Inches(0.08)
-        first = True
+        first = True; top_i = [-1]
         def add(txt, lvl, c, sz):
             nonlocal first
+            if lvl == 0: top_i[0] += 1
             para = tf.paragraphs[0] if first else tf.add_paragraph(); first = False
             r = para.add_run(); r.text = txt; r.font.size = Pt(sz); r.font.name = self.t["font_body"]; r.font.color.rgb = rgb(c)
             para.space_after = Pt(gap if lvl == 0 else 2); para.line_spacing = 1.1
             pPr = para._p.get_or_add_pPr()
             pPr.set("marL", str(int(Inches(0.3 + 0.3 * lvl)))); pPr.set("indent", str(-int(Inches(0.3))))
-            bc = etree.SubElement(pPr, qn("a:buClr")); sc = etree.SubElement(bc, qn("a:srgbClr")); sc.set("val", "%02X%02X%02X" % self.t["accent"])
+            bc = etree.SubElement(pPr, qn("a:buClr")); sc = etree.SubElement(bc, qn("a:srgbClr")); sc.set("val", "%02X%02X%02X" % (bcolors[max(top_i[0], 0) % len(bcolors)] if bcolors else self.t["accent"]))
             bu = etree.SubElement(pPr, qn("a:buChar")); bu.set("char", "•" if lvl == 0 else "–")
         for it in items:
             if isinstance(it, dict):
@@ -213,8 +224,8 @@ class Deck:
     # ---------- DAG ----------
     def dag(self, sl, nodes, edges, bx, by, bw, bh, nw, nh, fs=16):
         byid = {}
-        for n in nodes:
-            n = dict(n); n["_x"] = bx + n.get("x", 0) * (bw - nw); n["_y"] = by + n.get("y", .5) * (bh - nh); byid[n["id"]] = n
+        for ni, n in enumerate(nodes):
+            n = dict(n); n["_x"] = bx + n.get("x", 0) * (bw - nw); n["_y"] = by + n.get("y", .5) * (bh - nh); n["_tn"] = n.get("tone") or self.tn(ni); byid[n["id"]] = n
         anc = lambda n, s_: {"r": (n["_x"] + nw, n["_y"] + nh / 2), "l": (n["_x"], n["_y"] + nh / 2), "t": (n["_x"] + nw / 2, n["_y"]), "b": (n["_x"] + nw / 2, n["_y"] + nh)}[s_]
         for ed in edges:                       # edges first (drawn under nodes)
             a, b = byid[ed["from"]], byid[ed["to"]]; route = ed.get("route"); off = 0.32
@@ -235,17 +246,17 @@ class Deck:
                     pts = [(x1, y1), (x2, y2)] if abs(x1 - x2) < .02 else [(x1, y1), (x1, ym), (x2, ym), (x2, y2)]
                 lab = ((x1 + x2) / 2, (y1 + y2) / 2)
             dashed = ed.get("style") == "dashed"
-            self.arrow_line(sl, pts, self.t["accent2"] if dashed else self.t["accent"], dashed, name="Edge")
+            self.arrow_line(sl, pts, G.tone(a["_tn"])["solid"] if a.get("_tn") else (self.t["accent2"] if dashed else self.t["accent"]), dashed, name="Edge")
             if ed.get("label"):
                 lw_ = max(0.5, len(ed["label"]) * 0.16 + 0.3)
                 chip = self.rect(sl, lab[0] - lw_ / 2, lab[1] - 0.15, lw_, 0.3, self.t["bg"], self.t["border"], MSO_SHAPE.ROUNDED_RECTANGLE, radius=99, name="EdgeLabel")
                 self.text(sl, 0, 0, 0, 0, ed["label"], 11, self.t["muted"], shape=chip, align="c", anchor="m", fit=False)
         for n in byid.values():
             x, y = n["_x"], n["_y"]
-            card = self.glass(sl, x, y, nw, nh, name="Node") if self.t["glass"] else self.card(sl, x, y, nw, nh)
+            nt = G.tone(n["_tn"]) if n.get("_tn") else None
+            card = self.tcard(sl, x, y, nw, nh, n["_tn"], name="Node") if nt else self.card(sl, x, y, nw, nh)
             d = nh * 0.58
-            bd = self.rect(sl, x + 0.16, y + (nh - d) / 2, d, d, self.t["accent"], shape=MSO_SHAPE.OVAL, name="NodeIcon")
-            if self.t["glass"]: self.gfill(bd, None, 45)
+            bd = self.rect(sl, x + 0.16, y + (nh - d) / 2, d, d, nt["solid"] if nt else self.t["accent"], shape=MSO_SHAPE.OVAL, name="NodeIcon")
             self.text(sl, 0, 0, 0, 0, n.get("icon", "◆"), max(12, int(d * 34)), self.t["on_accent"], True, font="Segoe UI Symbol", shape=bd, align="c", anchor="m", fit=False)
             tx = x + 0.16 + d + 0.1; tw = nw - (tx - x) - 0.08
             tb = sl.shapes.add_textbox(Inches(tx), Inches(y), Inches(tw), Inches(nh)); tf = tb.text_frame; tf.word_wrap = True; tf.vertical_anchor = MSO_ANCHOR.MIDDLE
@@ -296,9 +307,9 @@ class Deck:
             gap = 0.3; cw = (W - 2 * MX - gap * (len(cons) - 1)) / len(cons)
             for i, c in enumerate(cons):
                 x = MX + i * (cw + gap); y = 5.55; ch = 1.2
-                self.glass(sl, x, y, cw, ch) if self.t["glass"] else self.card(sl, x, y, cw, ch)
-                bd = self.rect(sl, x + 0.25, y + 0.28, 0.64, 0.64, self.t["accent"], shape=MSO_SHAPE.OVAL, name="ConceptIcon")
-                if self.t["glass"]: self.gfill(bd, None, 45)
+                tnm = c.get("tone") or self.tn(i); self.tcard(sl, x, y, cw, ch, tnm) if tnm else self.card(sl, x, y, cw, ch)
+                bcol = G.tone(tnm)["solid"] if tnm else self.t["accent"]
+                bd = self.rect(sl, x + 0.25, y + 0.28, 0.64, 0.64, bcol, shape=MSO_SHAPE.OVAL, name="ConceptIcon")
                 self.text(sl, 0, 0, 0, 0, c.get("icon", "◆"), 18, self.t["on_accent"], True, font="Segoe UI Symbol", shape=bd, align="c", anchor="m", fit=False)
                 self.text(sl, x + 1.05, y + 0.18, cw - 1.2, 0.45, c["name"], 20, self.t["fg"], True, name="Concept")
                 self.text(sl, x + 1.05, y + 0.62, cw - 1.2, 0.5, c.get("desc", ""), 13, self.t["muted"])
@@ -506,31 +517,31 @@ class Deck:
         per = -(-len(items) // cols); cw = (W - 2 * MX - 0.4 * (cols - 1)) / cols; rh = min(0.95, (H - y0 - 1.0) / per)
         for i, it in enumerate(items):
             c, r = divmod(i, per); x = MX + c * (cw + 0.4); y = y0 + r * (rh + 0.12)
-            self.card(sl, x, y, cw, rh)
-            self.text(sl, x + 0.15, y, 0.9, rh, "%02d" % (i + 1), 26, self.t["accent"], True, self.t["font_head"], anchor="m", fit=False)
+            tnm = self.tn(i); self.tcard(sl, x, y, cw, rh, tnm)
+            self.text(sl, x + 0.15, y, 0.9, rh, "%02d" % (i + 1), 26, G.tone(tnm)["solid"] if tnm else self.t["accent"], True, self.t["font_head"], anchor="m", fit=False)
             label = it["text"] if isinstance(it, dict) else it
             self.text(sl, x + 1.05, y, cw - 1.2, rh, label, 20, anchor="m")
 
     def bullets_slide(self, s):
         sl = self.new_slide(s); y0 = self.title(sl, s)
-        self.bullets(sl, MX, y0, W - 2 * MX, H - y0 - 1.1, s["bullets"], 24)
+        self.bullets(sl, MX, y0, W - 2 * MX, H - y0 - 1.1, s["bullets"], 24, bcolors=self.palette if self.t["flat"] else None)
 
     def two_col(self, s):
         sl = self.new_slide(s); y0 = self.title(sl, s); cw = (W - 2 * MX - 0.5) / 2; ch = H - y0 - 1.1
         for i, k in enumerate(("left", "right")):
             col = s[k]; x = MX + i * (cw + 0.5)
-            self.card(sl, x, y0, cw, ch)
-            self.text(sl, x + 0.3, y0 + 0.2, cw - 0.6, 0.6, col.get("heading", ""), 24, self.t["accent"], True, self.t["font_head"], name="Heading")
-            self.bullets(sl, x + 0.3, y0 + 0.95, cw - 0.6, ch - 1.15, col.get("bullets", []), 20)
+            tnm = self.tn(i); self.tcard(sl, x, y0, cw, ch, tnm); tt = G.tone(tnm) if tnm else None
+            self.text(sl, x + 0.3, y0 + 0.2, cw - 0.6, 0.6, col.get("heading", ""), 24, tt["solid"] if tt else self.t["accent"], True, self.t["font_head"], name="Heading")
+            self.bullets(sl, x + 0.3, y0 + 0.95, cw - 0.6, ch - 1.15, col.get("bullets", []), 20, bcolors=[tt["solid"]] if tt else None)
 
     def kpi(self, s):
         sl = self.new_slide(s); y0 = self.title(sl, s); items = s["items"]; n = len(items)
         gap = 0.35; cw = (W - 2 * MX - gap * (n - 1)) / n; ch = 2.9
         kfs = min(_fit.fit([str(i["value"])], (cw - 0.6) / 1.4, 1.1, 48, minimum=24) for i in items)   # one size for all tiles
         for i, it in enumerate(items):
-            x = MX + i * (cw + gap); self.card(sl, x, y0 + 0.2, cw, ch)
+            x = MX + i * (cw + gap); tnm = self.tn(i); self.tcard(sl, x, y0 + 0.2, cw, ch, tnm)
             self.text(sl, x + 0.2, y0 + 0.4, cw - 0.4, 0.4, it["label"], 16, self.t["muted"])
-            self.text(sl, x + 0.2, y0 + 0.95, cw - 0.4, 1.2, str(it["value"]), kfs, self.t["head"], True, self.t["font_head"], anchor="m", name="KPI", min_size=24, fit=False)
+            self.text(sl, x + 0.2, y0 + 0.95, cw - 0.4, 1.2, str(it["value"]), kfs, G.tone(tnm)["solid"] if tnm else self.t["head"], True, self.t["font_head"], anchor="m", name="KPI", min_size=24, fit=False)
             if it.get("delta"):
                 bad = str(it["delta"]).strip().startswith(("▼", "-", "−")) and not it.get("good_down")
                 self.text(sl, x + 0.2, y0 + 2.25, cw - 0.4, 0.5, it["delta"], 16, self.t["bad"] if bad else self.t["good"], True)
@@ -599,8 +610,9 @@ class Deck:
         if self.t["glass"]: self.gfill(tl_)
         for i, e in enumerate(ev):
             x = MX + i * cw
-            self.rect(sl, x, ly - 0.14, 0.34, 0.34, self.t["bg"], self.t["accent"], MSO_SHAPE.OVAL, lw=3.5)
-            self.text(sl, x - 0.05, ly - 0.75, cw - 0.1, 0.5, e["when"], 24, self.t["accent"], True, self.t["font_head"])
+            tnm = self.tn(i); tcol = G.tone(tnm)["solid"] if tnm else self.t["accent"]
+            self.rect(sl, x, ly - 0.14, 0.34, 0.34, self.t["bg"], tcol, MSO_SHAPE.OVAL, lw=3.5)
+            self.text(sl, x - 0.05, ly - 0.75, cw - 0.1, 0.5, e["when"], 24, tcol, True, self.t["font_head"])
             self.text(sl, x - 0.05, ly + 0.4, cw - 0.2, 0.6, e["title"], 18, bold=True)
             self.text(sl, x - 0.05, ly + 1.0, cw - 0.2, 2.2, e.get("text", ""), 15, self.t["muted"])
 
@@ -611,7 +623,7 @@ class Deck:
             sh = self.rect(sl, x, y0 + 0.3, cw, 1.15, self.t["accent"] if i % 2 == 0 else self.t["accent2"], shape=MSO_SHAPE.PENTAGON, name="Step")
             scol = self.t["on_accent"]
             if self.t["flat"]:
-                st = G.tone(("blue", "purple")[i % 2]); sh.fill.solid(); sh.fill.fore_color.rgb = rgb(st["fill"]); sh.line.color.rgb = rgb(st["border"]); sh.line.width = Pt(1.25); scol = st["solid"]
+                st = G.tone(self.tn(i)); sh.fill.solid(); sh.fill.fore_color.rgb = rgb(st["fill"]); sh.line.color.rgb = rgb(st["border"]); sh.line.width = Pt(1.25); scol = st["solid"]
             self.text(sl, 0, 0, 0, 0, "%d  %s" % (i + 1, e["title"]), 20, scol, True, shape=sh, anchor="m")
             sh.text_frame.margin_right = Inches(0.35)
             self.text(sl, x, y0 + 1.7, cw - 0.15, 2.8, e.get("text", ""), 16, self.t["muted"])
@@ -619,8 +631,8 @@ class Deck:
     def comparison(self, s):
         sl = self.new_slide(s); y0 = self.title(sl, s); cw = (W - 2 * MX - 1.0) / 2; ch = H - y0 - 1.2
         for i, k in enumerate(("a", "b")):
-            col = s[k]; x = MX + i * (cw + 1.0); self.card(sl, x, y0, cw, ch)
-            self.text(sl, x + 0.3, y0 + 0.2, cw - 0.6, 0.7, col["name"], 28, self.t["accent"] if i == 0 else self.t["accent2"], True, self.t["font_head"], name="Heading")
+            col = s[k]; x = MX + i * (cw + 1.0); tnm = self.tn(i); self.tcard(sl, x, y0, cw, ch, tnm)
+            self.text(sl, x + 0.3, y0 + 0.2, cw - 0.6, 0.7, col["name"], 28, G.tone(tnm)["solid"] if tnm else (self.t["accent"] if i == 0 else self.t["accent2"]), True, self.t["font_head"], name="Heading")
             if col.get("tag"): self.text(sl, x + 0.3, y0 + 0.9, cw - 0.6, 0.4, col["tag"], 15, self.t["muted"])
             self.bullets(sl, x + 0.3, y0 + 1.4, cw - 0.6, ch - 1.6, col["points"], 20)
         v = self.rect(sl, MX + cw + 0.12, y0 + ch / 2 - 0.38, 0.76, 0.76, self.t["accent"], shape=MSO_SHAPE.OVAL, name="VS")
@@ -633,14 +645,15 @@ class Deck:
         for i, layer in enumerate(L):
             y = y0 + i * (lh + gap)
             if self.t["flat"]:   # tint + coloured label (no saturated block)
-                lt = G.tone(("blue", "purple")[i % 2]); lab = self.rect(sl, MX, y, lw, lh, lt["fill"], lt["border"], MSO_SHAPE.ROUNDED_RECTANGLE, lw=1.25, name="LayerLabel"); lcol = lt["solid"]
+                lt = G.tone(self.tn(i)); lab = self.rect(sl, MX, y, lw, lh, lt["fill"], lt["border"], MSO_SHAPE.ROUNDED_RECTANGLE, lw=1.25, name="LayerLabel"); lcol = lt["solid"]
             else:
                 lab = self.rect(sl, MX, y, lw, lh, self.palette[i % 2], shape=MSO_SHAPE.ROUNDED_RECTANGLE, name="LayerLabel"); lcol = self.t["on_accent"]
             self.text(sl, 0, 0, 0, 0, layer["name"], 18, lcol, True, shape=lab, align="c", anchor="m")
             items = layer["items"]; k = len(items); iw = (W - 2 * MX - lw - 0.25 - 0.18 * (k - 1)) / k
             for j, it in enumerate(items):
                 x = MX + lw + 0.25 + j * (iw + 0.18)
-                b = self.rect(sl, x, y, iw, lh, self.t["card"], self.t["border"], MSO_SHAPE.ROUNDED_RECTANGLE, name="Component")
+                lt2 = G.tone(self.tn(i)) if self.t["flat"] else None
+                b = self.rect(sl, x, y, iw, lh, self._mix(lt2["fill"], (255, 255, 255), .45) if lt2 else self.t["card"], lt2["soft"] if lt2 else self.t["border"], MSO_SHAPE.ROUNDED_RECTANGLE, lw=1.25, name="Component")
                 self.text(sl, 0, 0, 0, 0, it, 16, shape=b, align="c", anchor="m")
             if i < n - 1:
                 a = self.rect(sl, W / 2 - 0.15, y + lh + 0.02, 0.3, gap - 0.04, self.t["muted"], shape=MSO_SHAPE.DOWN_ARROW, name="Flow")

@@ -27,7 +27,7 @@ EXTRA_CSS = """
 .src{position:absolute;left:120px;bottom:70px;font-size:20px;color:var(--muted)}
 .layout-code pre{font-size:28px}
 """
-PAL = ["var(--accent)", "var(--accent2)", "var(--good)", "var(--warn)", "var(--muted)"]
+PAL = ["var(--c1s)", "var(--c2s)", "var(--c3s)", "var(--c4s)", "var(--c5s)"]
 
 
 
@@ -65,9 +65,9 @@ def dag(nodes, edges, W, H, nw, nh, cls=""):
     _DAG_N[0] += 1; uid = _DAG_N[0]
     """Positioned glass nodes + SVG edges. nodes: id,label,icon?,sub?,x,y in 0..1 ; edges: from,to,style(solid|dashed),label?,route(above|below)?"""
     byid = {}
-    for n in nodes:
-        n["_x"] = n.get("x", 0) * (W - nw); n["_y"] = n.get("y", 0.5) * (H - nh); byid[n["id"]] = n
-    paths, labels = [], []
+    for ni, n in enumerate(nodes):
+        n["_x"] = n.get("x", 0) * (W - nw); n["_y"] = n.get("y", 0.5) * (H - nh); n["_tn"] = n.get("tone") or G.CYCLE[ni % len(G.CYCLE)]; byid[n["id"]] = n
+    paths, labels, cols = [], [], {}
     for ed in edges:
         a, b = byid[ed["from"]], byid[ed["to"]]; st = ed.get("style", "solid"); route = ed.get("route")
         if route in ("above", "below"):
@@ -88,12 +88,12 @@ def dag(nodes, edges, W, H, nw, nh, cls=""):
                 s_, t_ = ("b", "t") if dy >= 0 else ("t", "b"); (x1, y1), (x2, y2) = _anchor(a, s_, nw, nh), _anchor(b, t_, nw, nh); ym = (y1 + y2) / 2
                 d = "M%.0f %.0f L%.0f %.0f" % (x1, y1, x2, y2) if abs(x1 - x2) < 2 else "M%.0f %.0f V%.0f H%.0f V%.0f" % (x1, y1, ym, x2, y2)
             lx, ly = (x1 + x2) / 2, (y1 + y2) / 2
-        paths.append('<path class="e-%s" d="%s" marker-end="url(#ah%d-%s)"/>' % (st, d, uid, st))
+        hx = G.rgbhex(G.tone(a["_tn"])["solid"]); cols[hx] = 1
+        paths.append('<path class="e-%s" d="%s" style="stroke:%s" marker-end="url(#ah%d-%s)"/>' % (st, d, hx, uid, hx[1:]))
         if ed.get("label"): labels.append('<div class="elabel" style="left:%.0fpx;top:%.0fpx">%s</div>' % (lx, ly, e(ed["label"])))
-    defs = ('<defs><marker id="ah%d-solid" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" style="fill:var(--accent)"/></marker>'
-            '<marker id="ah%d-dashed" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" style="fill:var(--accent2)"/></marker></defs>') % (uid, uid)
-    nd = "".join('<div class="node" style="left:%.0fpx;top:%.0fpx;width:%dpx;height:%dpx"><div class="ni">%s</div><div><b>%s</b>%s</div></div>' % (
-        n["_x"], n["_y"], nw, nh, e(n.get("icon", "◆")), e(n["label"]), "<small>%s</small>" % e(n["sub"]) if n.get("sub") else "") for n in nodes)
+    defs = "<defs>" + "".join('<marker id="ah%d-%s" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="%s"/></marker>' % (uid, c[1:], c) for c in cols) + "</defs>"
+    nd = "".join('<div class="node" style="left:%.0fpx;top:%.0fpx;width:%dpx;height:%dpx;%s"><div class="ni">%s</div><div><b>%s</b>%s</div></div>' % (
+        n["_x"], n["_y"], nw, nh, _tv(n["_tn"]), e(n.get("icon", "◆")), e(n["label"]), "<small>%s</small>" % e(n["sub"]) if n.get("sub") else "") for n in nodes)
     return '<div class="dag %s" style="width:%dpx;height:%dpx"><svg viewBox="0 0 %d %d">%s%s</svg>%s%s</div>' % (cls, W, H, W, H, defs, "".join(paths), nd, "".join(labels))
 
 
