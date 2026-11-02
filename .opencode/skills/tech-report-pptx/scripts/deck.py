@@ -197,9 +197,12 @@ def cmd_colors(a):
     nb = sum(bg.values()); print("image %dx%d · near-white background %.0f%% (most common %s)" % (W, H, 100 * nb / max(n, 1), ["#%02x%02x%02x" % k for k, _ in bg.most_common(3)]))
     tot = sum(c.values()) or 1
     def near(rgb):
-        best = None
+        """Nearest palette entry. Neutral tones only match as lines/labels (solid) or, for gray, very unsaturated fills — never steal a pale chromatic fill."""
+        sat = colorsys.rgb_to_hsv(*[q / 255 for q in rgb])[1]; best = None
         for name, t in G.TONES.items():
             for role in ("fill", "solid"):
+                if name == "dark" and role == "fill": continue
+                if name == "gray" and role == "fill" and sat > 0.05: continue
                 d = sum((rgb[i] - t[role][i]) ** 2 for i in range(3))
                 if best is None or d < best[0]: best = (d, name, role)
         return best
