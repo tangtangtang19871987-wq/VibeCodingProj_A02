@@ -105,7 +105,7 @@ def _svgicon(name): return '<svg viewBox="0 0 24 24"><path d="%s"/></svg>' % G.I
 
 
 def _tv(tn):
-    t = G.tone(tn); return "--tb:%s;--tf:%s;--ts:%s" % (G.rgbhex(t["border"]), G.rgbhex(t["fill"]), G.rgbhex(t["solid"]))
+    t = G.tone(tn); return "--tb:%s;--tbs:%s;--tf:%s;--ts:%s" % (G.rgbhex(t["border"]), G.rgbhex(t["soft"]), G.rgbhex(t["fill"]), G.rgbhex(t["solid"]))
 
 
 def _pos(e, extra=""):
@@ -148,7 +148,7 @@ def render_diagram(s):
                 bg = '<svg class="bg" viewBox="0 0 %.0f %.0f"><polygon points="%s" fill="%s" stroke="%s" stroke-width="2.5"/></svg>' % (W_, H_, poly, G.rgbhex(t["fill"]), G.rgbhex(t["border"]))
                 parts.append('<div class="dn diamond" %s>%s<div class="tx" style="position:relative;display:flex;flex-direction:column;align-items:center">%s%s</div></div>' % (_pos(e), bg, ic, tx.replace('<div class="tx">', '<div style="text-align:center">', 1)))
             else:
-                cls = "dn %s%s%s%s%s" % ("pill " if shp == "pill" else "", "stack " if lay == "stack" else "", "top " if e.get("valign") == "top" else "", "key " if e.get("key") else "", "dashed" if e.get("dashed") else "")
+                cls = "dn %s%s%s%s%s%s" % ("pill " if shp == "pill" else "", "stack " if lay == "stack" else "", "top " if e.get("valign") == "top" else "", "key " if e.get("key") else "", "soft " if e.get("soft") else "", "dashed" if e.get("dashed") else "")
                 parts.append('<div class="%s" %s>%s%s</div>' % (cls, _pos(e, "--k:%s;" % k_), ic, tx))
         elif k == "note":
             n = e.get("n"); badge = '<span class="ico">%s</span>' % n if n is not None else ""

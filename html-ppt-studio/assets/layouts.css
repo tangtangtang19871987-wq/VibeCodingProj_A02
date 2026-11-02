@@ -264,3 +264,5 @@
 .dg .dn b{font-size:calc(var(--u)*16*var(--k,1))}.dg .dn small{font-size:calc(var(--u)*12.2*var(--k,1))}
 .dg .gh{font-size:calc(var(--u)*16*var(--k,1))}
 .dg .dn.diamond .ico,.dg .dn.stack .ico{}
+.dg .pn{border-color:var(--tbs);background:color-mix(in srgb,var(--tf) 80%,#fff)}
+.dg .dn.soft{border-color:var(--tbs)}

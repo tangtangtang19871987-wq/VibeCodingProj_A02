@@ -402,6 +402,7 @@ class Deck:
                     d_ = tint_card(x, y, w, h, tn, radius=99); d_.adjustments[0] = .5
                 else: d_ = tint_card(x, y, w, h, tn, dashed=bool(e.get("dashed")))
                 if e.get("key"): d_.line.width = Pt(2.75); d_.line.color.rgb = rgb(t["solid"])
+                elif e.get("soft"): d_.line.color.rgb = rgb(t["soft"])
                 if lay == "row" and shp != "diamond":
                     if icon:
                         bd = Lg(34 * k_); badge(x + Lg(12) + bd / 2, y + h / 2, bd, tn, icon); tx = x + Lg(12 + 34 * k_ + 10)
@@ -424,8 +425,8 @@ class Deck:
                 self.text(sl, 0, 0, 0, 0, e["text"], F(12.5), t["solid"], True, shape=c, align="c", anchor="m", fit=False)
             elif k == "panel":
                 x, y, w, h = X(e["x"]), Y(e["y"]), Lg(e["w"]), Lg(e["h"]); b = e.get("body", {}); dashed = bool(e.get("dashed")); pad = Lg(12)
-                c = self.rect(sl, x, y, w, h, white, t["border"], MSO_SHAPE.ROUNDED_RECTANGLE, lw=1.5, name="Panel"); c.adjustments[0] = min(.5, 13 * u / max(min(w, h), .1))
-                self.gfill(c, [white if dashed else self._mix(t["fill"], white, .55), white], 45, [100 if dashed else 94, 100 if dashed else 80])
+                c = self.rect(sl, x, y, w, h, white, t["soft"], MSO_SHAPE.ROUNDED_RECTANGLE, lw=1.5, name="Panel"); c.adjustments[0] = min(.5, 13 * u / max(min(w, h), .1))
+                self.gfill(c, [white if dashed else self._mix(t["fill"], white, .8), white], 45, [100 if dashed else 94, 100 if dashed else 80])
                 if dashed:
                     from pptx.enum.dml import MSO_LINE
                     c.line.dash_style = MSO_LINE.DASH

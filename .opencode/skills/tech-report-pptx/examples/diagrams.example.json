@@ -253,7 +253,8 @@
      "label": "System Prompt",
      "tone": "purple",
      "sub": "角色、目标、指令、行为约束",
-     "icon": "doc"
+     "icon": "doc",
+     "soft": true
     },
     {
      "kind": "node",
@@ -265,7 +266,8 @@
      "label": "对话历史",
      "tone": "blue",
      "sub": "用户消息、助手回复、工具结果等",
-     "icon": "chat"
+     "icon": "chat",
+     "soft": true
     },
     {
      "kind": "node",
@@ -277,7 +279,8 @@
      "label": "工具定义",
      "tone": "green",
      "sub": "可用工具、参数、调用方式等",
-     "icon": "wrench"
+     "icon": "wrench",
+     "soft": true
     },
     {
      "kind": "node",
@@ -289,7 +292,8 @@
      "label": "当前执行状态",
      "tone": "orange",
      "sub": "任务进度、已完成步骤、临时变量等",
-     "icon": "sliders"
+     "icon": "sliders",
+     "soft": true
     },
     {
      "kind": "node",
@@ -301,7 +305,8 @@
      "label": "相关记忆",
      "tone": "pink",
      "sub": "用户偏好、历史知识、长期信息等",
-     "icon": "memory"
+     "icon": "memory",
+     "soft": true
     },
     {
      "kind": "node",
