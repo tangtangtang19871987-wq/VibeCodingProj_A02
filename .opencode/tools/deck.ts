@@ -103,9 +103,26 @@ export const lint = tool({
   async execute(a, ctx) { return deck(ctx.worktree, ["lint", a.deck, ...(a.render ? ["--render"] : [])]) },
 })
 
+export const compare = tool({
+  description:
+    "Build ONE side-by-side image (reference | ours) so you can LOOK at both at once with the read tool. This is the primary way to judge style / colour complaints. 'ours' = deck.pptx / outline.json (renders the given page) or a PNG.",
+  args: {
+    reference: tool.schema.string().describe("the user's reference image"),
+    ours: tool.schema.string(),
+    page: tool.schema.number().optional(),
+    crop: tool.schema.string().optional().describe("'x0,y0,x1,y1' crop of the reference"),
+  },
+  async execute(a, ctx) {
+    const args = ["compare", a.reference, a.ours]
+    if (a.page) args.push("--page", String(a.page))
+    if (a.crop) args.push("--crop", a.crop)
+    return deck(ctx.worktree, args)
+  },
+})
+
 export const colors = tool({
   description:
-    "MEASURE the colours of a reference image (optionally a crop 'x0,y0,x1,y1') and map them to the palette. Use this whenever the user says the colours are wrong or supplies a reference screenshot — never guess hex values.",
+    "SUPPORTING evidence only: measure exact hex values of a reference image (optionally a crop 'x0,y0,x1,y1') and map them to the palette. Look at the image first (deck_compare + read); use this afterwards to get exact numbers.",
   args: { image: tool.schema.string(), crop: tool.schema.string().optional(), top: tool.schema.number().optional() },
   async execute(a, ctx) {
     const args = ["colors", a.image]

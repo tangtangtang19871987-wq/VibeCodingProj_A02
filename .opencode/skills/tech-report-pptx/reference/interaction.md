@@ -29,7 +29,7 @@ Skip gate A only if the user said "直接做" / "just do it". Never skip the vis
 | "太挤 / 拆开 / 换成时间线" | layout | split slide, change type, or move coordinates (diagram) |
 | "顺序调一下" | order | `deck_edit move` |
 | "加一页讲…" | new slide | planner for the slide → `deck_edit insert` |
-| "颜色不对 / 照这张图" | colour | **never guess**: `deck_colors` on reference + on our preview → difference table (hex, area share, border weight, hue assignment, icon style) → propose → confirm. The palette is a constant; changing it is a developer action |
+| "颜色不对 / 照这张图" | colour / style | **look first, never guess**: `deck_compare` (reference \| ours side by side) → read it → describe the differences in words (hues per element type, outline weight, fill strength, background, icon style, shadows, text size) → `deck_colors` only for exact hex → propose → confirm. Styles are data (`assets/styles/*.json`); changing one is a developer action and must pass `evals/selftest.py` |
 | "字太小 / 太大" | typography | diagram: `scale` on nodes; otherwise shorten text; never < 10pt |
 | "我在 PowerPoint 里改过了，帮我继续" | external edit | do NOT rebuild over it: use python-pptx surgical edit (run text only) + `deck_verify` |
 

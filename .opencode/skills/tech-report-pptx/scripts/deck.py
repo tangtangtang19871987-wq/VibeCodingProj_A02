@@ -9,7 +9,8 @@
   deck.py edit OUTLINE OP ...                                     structured outline edits (see below)
   deck.py verify DECK.pptx                                        editable + house-style acceptance check
   deck.py lint DECK.pptx [--render]                               overflow / off-slide / notes / fonts
-  deck.py colors IMAGE [--crop x0,y0,x1,y1] [--top 12]            MEASURE the colours in a reference image and map them to the palette (use this instead of guessing)
+  deck.py compare REFERENCE.png OURS [--page N] [--crop x0,y0,x1,y1]  side-by-side image (reference | ours) to LOOK at — the primary way to judge style
+  deck.py colors IMAGE [--crop x0,y0,x1,y1] [--top 12]            MEASURE (supporting evidence only) the colours in a reference image and map them to the palette (use this instead of guessing)
 
 edit ops:  show [N] | set-meta KEY VALUE | set-theme NAME | replace N JSON | insert N JSON | append JSON | delete N | move FROM TO | patch N JSON
            (N is the 1-based slide number; JSON may be '@file.json'; patch = deep merge, null deletes a key)
@@ -181,6 +182,31 @@ def cmd_preview(a):
     except Exception as e: print("(no contact sheet: %s)" % e)
 
 
+def cmd_compare(a):
+    """Reference | ours in ONE image so the model can look at both at once (vision first, numbers second)."""
+    try: from PIL import Image, ImageDraw
+    except ImportError: sys.exit("compare needs Pillow (pip install pillow)")
+    ref = Image.open(a.reference).convert("RGB")
+    if a.crop: ref = ref.crop(tuple(int(v) for v in a.crop.split(",")))
+    ours = a.ours
+    if ours.lower().endswith((".pptx", ".json")):
+        rc, out = run([PY, os.path.abspath(__file__), "preview", ours, "--pages", str(a.page), "--dpi", "100"])
+        if rc: sys.exit(out)
+        png = sorted(glob.glob(os.path.join(os.path.dirname(os.path.abspath(ours)), "preview", "slide-*.png")))
+        if not png: sys.exit("no slide rendered:\n" + out)
+        ours = png[0]
+    im = Image.open(ours).convert("RGB"); W = 1100
+    fit = lambda x: x.resize((W, max(1, int(x.height * W / x.width))))
+    r, o = fit(ref), fit(im); bar = 34; H = max(r.height, o.height) + bar
+    sheet = Image.new("RGB", (2 * W + 12, H), (255, 255, 255)); d = ImageDraw.Draw(sheet)
+    d.rectangle([0, 0, W, bar], fill=(30, 41, 59)); d.rectangle([W + 12, 0, 2 * W + 12, bar], fill=(47, 107, 255))
+    d.text((12, 10), "REFERENCE (what the user wants)", fill=(255, 255, 255)); d.text((W + 24, 10), "OURS (current output)", fill=(255, 255, 255))
+    sheet.paste(r, (0, bar)); sheet.paste(o, (W + 12, bar))
+    out = os.path.join(os.path.dirname(os.path.abspath(a.ours if not a.ours.lower().endswith((".pptx", ".json")) else a.ours)), "compare.png"); sheet.save(out)
+    print("compare image:", out)
+    print("LOOK at it with the read tool, then describe in words: colours present per element type, outline weight, fill strength, background, icon style, shadows, text size, spacing. Use `colors` only for exact hex afterwards.")
+
+
 def cmd_colors(a):
     try: from PIL import Image
     except ImportError: sys.exit("colors needs Pillow (pip install pillow)")
@@ -223,6 +249,7 @@ def main():
     s = sub.add_parser("edit"); s.add_argument("outline"); s.add_argument("op"); s.add_argument("rest", nargs="*"); s.set_defaults(f=cmd_edit)
     s = sub.add_parser("verify"); s.add_argument("deck"); s.add_argument("--theme", default="modern-tech"); s.add_argument("--allow-pictures", action="store_true"); s.set_defaults(f=cmd_verify)
     s = sub.add_parser("lint"); s.add_argument("deck"); s.add_argument("--render", action="store_true"); s.set_defaults(f=cmd_lint)
+    s = sub.add_parser("compare"); s.add_argument("reference"); s.add_argument("ours"); s.add_argument("--page", type=int, default=1); s.add_argument("--crop"); s.set_defaults(f=cmd_compare)
     s = sub.add_parser("colors"); s.add_argument("image"); s.add_argument("--crop"); s.add_argument("--top", type=int, default=12); s.add_argument("--style", default="vivid", choices=G.style_names()); s.set_defaults(f=cmd_colors)
     a = ap.parse_args(); a.f(a)
 

@@ -58,6 +58,11 @@ try:
     sys.path.insert(0, PP); import diagram_geom as _G; _G.use("vivid"); bf = _G.TONES["blue"]["fill"]
     im = Image.new("RGB", (200, 100), (255, 255, 255)); im.paste(bf, (0, 0, 100, 100)); ip = os.path.join(tmp, "swatch.png"); im.save(ip)
     rc, out = run(DECK, "colors", ip); check("colors maps the blue tint %s to 'blue fill'" % (bf,), rc == 0 and re.search(r"->\s+blue\s+fill", out), out[-200:])
+    # --- vision-first helper: reference | ours side-by-side image
+    from PIL import Image as _I
+    _I.new("RGB", (300, 200), (240, 245, 255)).save(os.path.join(tmp, "ref.png")); _I.new("RGB", (320, 180), (255, 250, 240)).save(os.path.join(tmp, "our.png"))
+    rc, out = run(DECK, "compare", os.path.join(tmp, "ref.png"), os.path.join(tmp, "our.png")); cp = os.path.join(tmp, "compare.png")
+    check("compare builds a side-by-side image of reference and ours", rc == 0 and os.path.exists(cp) and _I.open(cp).width > 2000, out[-200:])
     # --- style profiles (data-driven look) + regression guards against the "indigo looks purple / flat look" drift
     sys.path.insert(0, PP); import diagram_geom as G, colorsys
     for name in G.style_names():

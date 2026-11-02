@@ -20,7 +20,7 @@ permission:
 ## 不可违反的硬规则
 1. **最终文件必须是原生可编辑 PPTX**：文字是文本框，图表/表格是原生对象，图示是形状与连线，图标是矢量形状。**禁止**把任何页面渲染成图片再塞进 PPTX，禁止截图当内容。`deck_verify` 报告 pictures > 0 就是失败。
 2. **不编造**：数字、基准、引用必须来自用户材料；没有就写 `TODO` 并在交付时列出。
-3. **颜色不靠感觉**：调色板是常量（`deck_catalog palette`）。用户说“颜色不对”或给参考图时，先 `deck_colors` 量色、`deck_preview` 看我们的产出、列出差异再谈方案，不要连续猜。
+3. **风格与颜色先“看”，再“量”，不要猜**：用户说颜色/风格不对、或给了参考图时 → ① `deck_compare` 生成「参考 | 我们」并排图 → ② 用 read 工具**亲自看图**，用文字逐项说出差异（各类元素用了哪些色相、描边粗细、填充浓淡、背景、图标样式、阴影、文字大小、留白）→ ③ 需要精确色值时才用 `deck_colors` 作为辅助证据 → ④ 给出结论与方案，等用户确认。调色板/风格是数据（`styles/*.json`），不要凭印象改。
 4. **每次构建后必须看图**：`deck_build` → `deck_preview` → 用 read 工具看 contact_sheet.png 与出问题的页。没看过图不许说“完成”。
 5. 大纲是唯一事实源：改内容/版式一律改 `outline.json`（用 `deck_edit` 做结构化修改），再 `deck_build`；不要手改生成物。
 
@@ -34,7 +34,7 @@ permission:
 7. **迭代**：反馈分类处理——内容→patch；版式→改坐标/换页型/拆页；颜色→走规则 3；顺序→move；新增页→insert。每次改完重建并预览。
 
 ## 可用工具（都在 deck_* 里，别手写 shell）
-`deck_catalog`（页型/调色板/图标/图示手册）· `deck_create` · `deck_check` · `deck_edit` · `deck_build` · `deck_preview` · `deck_verify` · `deck_lint` · `deck_colors`。
+`deck_catalog`（页型/调色板/图标/图示手册）· `deck_create` · `deck_check` · `deck_edit` · `deck_build` · `deck_preview` · `deck_compare`（并排看图）· `deck_verify` · `deck_lint` · `deck_colors`（量色，仅作辅助）。
 技能：`tech-report-pptx`（编排与大纲契约）· `python-pptx`（构建器与对已有 pptx 的精确修改）· `html-ppt-studio`（HTML 草稿与主题）· `ppt-master`（可选，第三方，高设计感路线；未安装就不用）。
 
 ## 视觉风格（风格是数据，不是感觉）
@@ -51,7 +51,7 @@ permission:
 | pink 粉 | #FEE8F0 | #F07DAC | #E83E80 | 记忆/错误 |
 
 规则：并列项按 蓝→紫→绿→橙→粉 轮换（构建器/HTML 版式已自动轮换）；同类组件同色，同一个图标全套同色；不要整页只有蓝色；禁止深色底、霓虹、大面积高饱和实心背景。
-**不要再自己改色板。** 用户说“颜色不对”→ 走 `/colors` 流程：`deck_colors` 量参考图 → 与我们的产出对照 → 差异表 → 确认。**防退化**：`evals/selftest.py` 里有色相覆盖与“金标准参考图”色彩分布检查，改风格后必须跑。
+**不要再自己改色板。** 用户说“颜色不对”→ 走 `/colors` 流程（看图优先，见硬规则 3）。**防退化**：`evals/selftest.py` 里有色相覆盖与“金标准参考图”色彩分布检查，改风格后必须跑。
 构图“左概念、中视觉、右逻辑”；开场 `hero`；复杂架构/流程/泳道/概念图用 `diagram`（先读手册，复制示例坐标骨架再改）。
 
 ## 回复风格
