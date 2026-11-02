@@ -1,0 +1,98 @@
+/* HTML PPT Studio — base framework.
+   Slides are authored on a fixed 1920x1080 stage and scaled to fit the viewport. */
+:root{
+  --bg:#0f172a; --bg2:#1e293b; --fg:#f8fafc; --muted:#94a3b8;
+  --accent:#38bdf8; --accent2:#a78bfa; --card:rgba(255,255,255,.06); --border:rgba(255,255,255,.12);
+  --font-head:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;
+  --font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;
+  --font-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --radius:24px; --shadow:0 20px 50px rgba(0,0,0,.25);
+  --head-weight:800; --head-transform:none; --head-tracking:-.02em;
+  --good:#22c55e; --bad:#ef4444; --warn:#f59e0b;
+  --bg-image:linear-gradient(160deg,var(--bg),var(--bg2));
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--fg);font-family:var(--font-body)}
+body{-webkit-font-smoothing:antialiased}
+
+/* ---------- stage ---------- */
+.deck{position:fixed;inset:0;overflow:hidden;background:#000}
+.slide{
+  --s:1; --tx:0px;
+  position:absolute;left:50%;top:50%;width:1920px;height:1080px;overflow:hidden;
+  transform:translate(-50%,-50%) scale(var(--s)) translateX(var(--tx));
+  transform-origin:center center;
+  background:var(--bg-image);color:var(--fg);
+  padding:96px 120px;display:flex;flex-direction:column;
+  opacity:0;visibility:hidden;pointer-events:none;
+  transition:opacity .5s ease,transform .5s ease,visibility 0s .5s;
+  font-size:36px;line-height:1.45;
+}
+.slide.is-active{opacity:1;visibility:visible;pointer-events:auto;transition:opacity .5s ease,transform .5s ease,visibility 0s}
+.deck[data-transition="slide"] .slide.is-prev{--tx:-160px}
+.deck[data-transition="slide"] .slide.is-next{--tx:160px}
+.deck[data-transition="zoom"] .slide.is-prev{transform:translate(-50%,-50%) scale(calc(var(--s)*1.15))}
+.deck[data-transition="zoom"] .slide.is-next{transform:translate(-50%,-50%) scale(calc(var(--s)*.88))}
+.deck[data-transition="none"] .slide{transition:none}
+
+/* ---------- typography ---------- */
+h1,h2,h3,h4{font-family:var(--font-head);font-weight:var(--head-weight);text-transform:var(--head-transform);letter-spacing:var(--head-tracking);line-height:1.1}
+h1{font-size:128px} h2{font-size:76px} h3{font-size:44px} h4{font-size:34px}
+p{margin:0}
+.lead{font-size:44px;color:var(--muted);line-height:1.4;max-width:1300px}
+.small{font-size:26px} .tiny{font-size:22px}
+.muted{color:var(--muted)} .accent{color:var(--accent)} .accent2{color:var(--accent2)}
+.grad-text{background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
+.kicker{font-size:26px;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:22px}
+.mono{font-family:var(--font-mono)}
+.center{text-align:center;align-items:center}
+.slide-head{margin-bottom:56px}
+.slide-head h2{max-width:1500px}
+.slide-body{flex:1;min-height:0}
+.slide-foot{position:absolute;left:120px;right:120px;bottom:36px;display:flex;justify-content:space-between;font-size:20px;color:var(--muted);letter-spacing:.08em}
+
+/* ---------- components ---------- */
+.card{background:var(--card);border:1.5px solid var(--border);border-radius:var(--radius);padding:44px;box-shadow:var(--shadow)}
+.card h3{margin-bottom:14px}
+.card p{color:var(--muted);font-size:30px}
+.chip{display:inline-block;padding:8px 24px;border-radius:999px;border:1.5px solid var(--border);background:var(--card);font-size:24px;color:var(--fg)}
+.chip.solid{background:var(--accent);border-color:var(--accent);color:var(--bg);font-weight:700}
+.icon{width:96px;height:96px;border-radius:50%;display:grid;place-items:center;font-size:48px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:var(--bg);margin-bottom:24px;flex:none}
+.img-ph{position:relative;border-radius:var(--radius);overflow:hidden;background:linear-gradient(135deg,var(--accent),var(--accent2));min-height:200px;display:grid;place-items:center;color:rgba(255,255,255,.85);font-size:28px;letter-spacing:.1em;text-transform:uppercase}
+.img-ph::after{content:attr(data-label);position:absolute;inset:auto 24px 20px auto;font-size:20px;opacity:.8}
+.img-ph img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.grid{display:grid;gap:36px}
+.cols-2{grid-template-columns:repeat(2,1fr)} .cols-3{grid-template-columns:repeat(3,1fr)} .cols-4{grid-template-columns:repeat(4,1fr)}
+.stack{display:flex;flex-direction:column;gap:24px}
+.row{display:flex;gap:32px;align-items:center}
+ul.bullets{list-style:none;display:flex;flex-direction:column;gap:26px}
+ul.bullets li{position:relative;padding-left:56px;font-size:42px}
+ul.bullets li::before{content:"";position:absolute;left:0;top:.5em;width:22px;height:22px;border-radius:6px;background:var(--accent);transform:rotate(45deg)}
+ul.bullets li small{display:block;font-size:28px;color:var(--muted)}
+hr.rule{border:0;height:6px;width:120px;border-radius:3px;background:linear-gradient(90deg,var(--accent),var(--accent2));margin:28px 0}
+
+/* ---------- HUD (injected by runtime.js) ---------- */
+.hud-progress{position:fixed;left:0;top:0;height:5px;background:linear-gradient(90deg,var(--accent),var(--accent2));width:0;z-index:50;transition:width .3s}
+.hud-count{position:fixed;right:20px;bottom:14px;font:600 14px/1 var(--font-body);color:#fff;mix-blend-mode:difference;opacity:.6;z-index:50}
+.hud-notes{position:fixed;left:0;right:0;bottom:0;padding:18px 28px;background:rgba(0,0,0,.85);color:#fff;font:20px/1.5 var(--font-body);z-index:60;display:none}
+body.show-notes .hud-notes{display:block}
+.hud-help{position:fixed;inset:0;background:rgba(0,0,0,.82);color:#fff;z-index:70;display:none;place-items:center;font:20px/1.9 var(--font-body)}
+body.show-help .hud-help{display:grid}
+.hud-help kbd{background:#fff2;border:1px solid #fff4;border-radius:6px;padding:1px 10px;margin-right:8px}
+.hud-toast{position:fixed;left:50%;top:22px;transform:translateX(-50%);background:rgba(0,0,0,.8);color:#fff;padding:8px 22px;border-radius:999px;font:16px var(--font-body);z-index:80;opacity:0;transition:opacity .3s;pointer-events:none}
+.hud-toast.on{opacity:1}
+body.overview .deck{overflow:auto;background:#111;cursor:pointer}
+body.overview .slide{opacity:1;visibility:visible;pointer-events:auto;transition:none;outline:3px solid transparent;transform-origin:0 0}
+body.overview .slide.is-active{outline-color:var(--accent)}
+body.overview .hud-progress,body.overview .hud-count{display:none}
+
+/* ---------- print: one slide per page ---------- */
+@media print{
+  @page{size:1920px 1080px;margin:0}
+  html,body{overflow:visible;height:auto}
+  .deck{position:static;background:none;overflow:visible}
+  .slide{position:relative;left:0;top:0;transform:none!important;opacity:1;visibility:visible;page-break-after:always;break-after:page;transition:none}
+  .hud-progress,.hud-count,.hud-notes,.hud-help,.hud-toast{display:none!important}
+  [data-anim]{animation:none!important;opacity:1!important}
+}
+@media (prefers-reduced-motion:reduce){ .slide{transition:none} [data-anim]{animation:none!important;opacity:1!important} }

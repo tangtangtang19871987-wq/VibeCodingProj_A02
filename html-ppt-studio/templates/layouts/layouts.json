@@ -1,0 +1,157 @@
+[
+ {
+  "name": "cover",
+  "file": "01-cover.html",
+  "description": "Title slide with kicker, big headline, subtitle, meta row"
+ },
+ {
+  "name": "section",
+  "file": "02-section.html",
+  "description": "Section divider with oversized number"
+ },
+ {
+  "name": "agenda",
+  "file": "03-agenda.html",
+  "description": "Numbered agenda, 2 columns"
+ },
+ {
+  "name": "bullets",
+  "file": "04-bullets.html",
+  "description": "Headline plus 3-5 large bullets"
+ },
+ {
+  "name": "two-col",
+  "file": "05-two-col.html",
+  "description": "Two equal cards side by side"
+ },
+ {
+  "name": "three-col",
+  "file": "06-three-col.html",
+  "description": "Three equal cards"
+ },
+ {
+  "name": "grid-4",
+  "file": "07-grid-4.html",
+  "description": "2x2 grid of cards"
+ },
+ {
+  "name": "feature-icons",
+  "file": "08-feature-icons.html",
+  "description": "Six features with icon badges"
+ },
+ {
+  "name": "big-number",
+  "file": "09-big-number.html",
+  "description": "One hero statistic with caption"
+ },
+ {
+  "name": "kpi-row",
+  "file": "10-kpi-row.html",
+  "description": "Four KPI tiles with deltas"
+ },
+ {
+  "name": "quote",
+  "file": "11-quote.html",
+  "description": "Large pull quote with attribution"
+ },
+ {
+  "name": "testimonial",
+  "file": "12-testimonial.html",
+  "description": "Customer testimonial card with avatar"
+ },
+ {
+  "name": "image-left",
+  "file": "13-image-left.html",
+  "description": "Image on the left, text on the right"
+ },
+ {
+  "name": "image-right",
+  "file": "14-image-right.html",
+  "description": "Text on the left, image on the right"
+ },
+ {
+  "name": "full-bleed",
+  "file": "15-full-bleed.html",
+  "description": "Full-screen image with caption overlay"
+ },
+ {
+  "name": "mosaic",
+  "file": "16-mosaic.html",
+  "description": "Image mosaic / gallery (5 tiles)"
+ },
+ {
+  "name": "timeline",
+  "file": "17-timeline.html",
+  "description": "Horizontal 5-point timeline"
+ },
+ {
+  "name": "process",
+  "file": "18-process.html",
+  "description": "Chevron process with 4 steps"
+ },
+ {
+  "name": "roadmap",
+  "file": "19-roadmap.html",
+  "description": "Four-quarter roadmap columns"
+ },
+ {
+  "name": "comparison",
+  "file": "20-comparison.html",
+  "description": "Side-by-side A vs B with VS badge"
+ },
+ {
+  "name": "pros-cons",
+  "file": "21-pros-cons.html",
+  "description": "Pros and cons columns"
+ },
+ {
+  "name": "table",
+  "file": "22-table.html",
+  "description": "Styled data table"
+ },
+ {
+  "name": "bar-chart",
+  "file": "23-bar-chart.html",
+  "description": "Horizontal bar chart (CSS only)"
+ },
+ {
+  "name": "progress-rings",
+  "file": "24-progress-rings.html",
+  "description": "Four circular progress rings"
+ },
+ {
+  "name": "funnel",
+  "file": "25-funnel.html",
+  "description": "Conversion funnel, 5 levels"
+ },
+ {
+  "name": "swot",
+  "file": "26-swot.html",
+  "description": "SWOT 2x2 matrix"
+ },
+ {
+  "name": "team",
+  "file": "27-team.html",
+  "description": "Team grid with 4 people"
+ },
+ {
+  "name": "pricing",
+  "file": "28-pricing.html",
+  "description": "Three pricing plans, middle highlighted"
+ },
+ {
+  "name": "code",
+  "file": "29-code.html",
+  "description": "Code window with syntax colors"
+ },
+ {
+  "name": "faq",
+  "file": "30-faq.html",
+  "description": "FAQ, 4 question cards"
+ },
+ {
+  "name": "closing",
+  "file": "31-closing.html",
+  "description": "Thank-you / contact slide"
+ }
+]

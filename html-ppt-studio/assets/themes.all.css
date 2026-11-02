@@ -1,0 +1,127 @@
+/* HTML PPT Studio — all 24 themes. Activate with <body data-theme="NAME">. */
+
+/* Aurora (dark) */
+[data-theme="aurora"]{--bg:#0b1020;--bg2:#1a1146;--fg:#f5f7ff;--muted:#a3acd1;--accent:#5eead4;--accent2:#a78bfa;--card:rgba(255,255,255,.06);--border:rgba(255,255,255,.14);
+  --font-head:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:24px;--shadow:0 20px 50px rgba(0,0,0,.28);--head-weight:800;--head-transform:none;
+  --bg-image:radial-gradient(1100px 700px at 88% -8%,color-mix(in srgb,var(--accent) 30%,transparent),transparent 62%),radial-gradient(900px 600px at -5% 105%,color-mix(in srgb,var(--accent2) 24%,transparent),transparent 60%),linear-gradient(160deg,var(--bg),var(--bg2));color-scheme:dark}
+
+/* Midnight (dark) */
+[data-theme="midnight"]{--bg:#0f172a;--bg2:#1e293b;--fg:#f8fafc;--muted:#94a3b8;--accent:#38bdf8;--accent2:#818cf8;--card:rgba(255,255,255,.06);--border:rgba(255,255,255,.12);
+  --font-head:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:20px;--shadow:0 20px 50px rgba(0,0,0,.28);--head-weight:800;--head-transform:none;
+  --bg-image:linear-gradient(160deg,var(--bg),var(--bg2));color-scheme:dark}
+
+/* Paper (light) */
+[data-theme="paper"]{--bg:#faf7f2;--bg2:#f1ebe0;--fg:#262320;--muted:#7a7066;--accent:#c2410c;--accent2:#b45309;--card:#ffffff;--border:rgba(38,35,32,.12);
+  --font-head:Georgia,"Iowan Old Style","Songti SC","Noto Serif SC",serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:12px;--shadow:0 14px 36px rgba(15,23,42,.10);--head-weight:700;--head-transform:none;
+  --bg-image:linear-gradient(var(--bg),var(--bg));color-scheme:light}
+
+/* Sunset (dark) */
+[data-theme="sunset"]{--bg:#2b0f2e;--bg2:#5b1b3a;--fg:#fff4ec;--muted:#e8b9a8;--accent:#fb923c;--accent2:#f43f5e;--card:rgba(255,255,255,.08);--border:rgba(255,255,255,.16);
+  --font-head:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:28px;--shadow:0 20px 50px rgba(0,0,0,.28);--head-weight:800;--head-transform:none;
+  --bg-image:radial-gradient(1100px 700px at 88% -8%,color-mix(in srgb,var(--accent) 30%,transparent),transparent 62%),radial-gradient(900px 600px at -5% 105%,color-mix(in srgb,var(--accent2) 24%,transparent),transparent 60%),linear-gradient(160deg,var(--bg),var(--bg2));color-scheme:dark}
+
+/* Forest (dark) */
+[data-theme="forest"]{--bg:#0d1f17;--bg2:#14352a;--fg:#ecfdf5;--muted:#8fbfa8;--accent:#4ade80;--accent2:#facc15;--card:rgba(255,255,255,.06);--border:rgba(255,255,255,.13);
+  --font-head:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:18px;--shadow:0 20px 50px rgba(0,0,0,.28);--head-weight:800;--head-transform:none;
+  --bg-image:radial-gradient(1100px 700px at 88% -8%,color-mix(in srgb,var(--accent) 30%,transparent),transparent 62%),radial-gradient(900px 600px at -5% 105%,color-mix(in srgb,var(--accent2) 24%,transparent),transparent 60%),linear-gradient(160deg,var(--bg),var(--bg2));color-scheme:dark}
+
+/* Ocean (dark) */
+[data-theme="ocean"]{--bg:#031c33;--bg2:#06496b;--fg:#ecfeff;--muted:#9fcbdc;--accent:#22d3ee;--accent2:#60a5fa;--card:rgba(255,255,255,.07);--border:rgba(255,255,255,.15);
+  --font-head:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:26px;--shadow:0 20px 50px rgba(0,0,0,.28);--head-weight:800;--head-transform:none;
+  --bg-image:radial-gradient(1100px 700px at 88% -8%,color-mix(in srgb,var(--accent) 30%,transparent),transparent 62%),radial-gradient(900px 600px at -5% 105%,color-mix(in srgb,var(--accent2) 24%,transparent),transparent 60%),linear-gradient(160deg,var(--bg),var(--bg2));color-scheme:dark}
+
+/* Neon Cyber (dark) */
+[data-theme="neon-cyber"]{--bg:#07060f;--bg2:#150b2e;--fg:#f2f0ff;--muted:#9a92c9;--accent:#00f5d4;--accent2:#ff2e97;--card:rgba(0,245,212,.06);--border:rgba(0,245,212,.35);
+  --font-head:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:6px;--shadow:0 0 40px rgba(0,245,212,.18);--head-weight:800;--head-transform:uppercase;
+  --bg-image:linear-gradient(color-mix(in srgb,var(--accent) 10%,transparent) 1px,transparent 1px) 0 0/60px 60px,linear-gradient(90deg,color-mix(in srgb,var(--accent) 10%,transparent) 1px,transparent 1px) 0 0/60px 60px,linear-gradient(160deg,var(--bg),var(--bg2));color-scheme:dark}
+
+/* Mono Light (light) */
+[data-theme="mono-light"]{--bg:#ffffff;--bg2:#f4f4f5;--fg:#09090b;--muted:#71717a;--accent:#09090b;--accent2:#52525b;--card:#fafafa;--border:rgba(9,9,11,.14);
+  --font-head:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:10px;--shadow:0 14px 36px rgba(15,23,42,.10);--head-weight:800;--head-transform:none;
+  --bg-image:linear-gradient(var(--bg),var(--bg));color-scheme:light}
+
+/* Mono Dark (dark) */
+[data-theme="mono-dark"]{--bg:#09090b;--bg2:#18181b;--fg:#fafafa;--muted:#a1a1aa;--accent:#fafafa;--accent2:#a1a1aa;--card:rgba(255,255,255,.05);--border:rgba(255,255,255,.14);
+  --font-head:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:10px;--shadow:0 20px 50px rgba(0,0,0,.28);--head-weight:800;--head-transform:none;
+  --bg-image:linear-gradient(var(--bg),var(--bg));color-scheme:dark}
+
+/* Solarized Light (light) */
+[data-theme="solarized-light"]{--bg:#fdf6e3;--bg2:#eee8d5;--fg:#073642;--muted:#657b83;--accent:#268bd2;--accent2:#2aa198;--card:#fffaf0;--border:rgba(7,54,66,.15);
+  --font-head:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:14px;--shadow:0 14px 36px rgba(15,23,42,.10);--head-weight:700;--head-transform:none;
+  --bg-image:linear-gradient(var(--bg),var(--bg));color-scheme:light}
+
+/* Solarized Dark (dark) */
+[data-theme="solarized-dark"]{--bg:#002b36;--bg2:#073642;--fg:#eee8d5;--muted:#93a1a1;--accent:#b58900;--accent2:#2aa198;--card:rgba(255,255,255,.05);--border:rgba(147,161,161,.25);
+  --font-head:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:14px;--shadow:0 20px 50px rgba(0,0,0,.28);--head-weight:700;--head-transform:none;
+  --bg-image:linear-gradient(var(--bg),var(--bg));color-scheme:dark}
+
+/* Dracula (dark) */
+[data-theme="dracula"]{--bg:#282a36;--bg2:#343746;--fg:#f8f8f2;--muted:#9aa0c0;--accent:#bd93f9;--accent2:#ff79c6;--card:rgba(255,255,255,.06);--border:rgba(255,255,255,.14);
+  --font-head:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:16px;--shadow:0 20px 50px rgba(0,0,0,.28);--head-weight:800;--head-transform:none;
+  --bg-image:linear-gradient(160deg,var(--bg),var(--bg2));color-scheme:dark}
+
+/* Nord (dark) */
+[data-theme="nord"]{--bg:#2e3440;--bg2:#3b4252;--fg:#eceff4;--muted:#a9b4c8;--accent:#88c0d0;--accent2:#81a1c1;--card:rgba(255,255,255,.06);--border:rgba(216,222,233,.18);
+  --font-head:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:16px;--shadow:0 20px 50px rgba(0,0,0,.28);--head-weight:700;--head-transform:none;
+  --bg-image:linear-gradient(160deg,var(--bg),var(--bg2));color-scheme:dark}
+
+/* Rosé (light) */
+[data-theme="rose"]{--bg:#fff1f2;--bg2:#ffe4e6;--fg:#4c0519;--muted:#9f5b6b;--accent:#e11d48;--accent2:#fb7185;--card:#ffffff;--border:rgba(76,5,25,.12);
+  --font-head:Georgia,"Iowan Old Style","Songti SC","Noto Serif SC",serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:28px;--shadow:0 18px 44px rgba(225,29,72,.12);--head-weight:700;--head-transform:none;
+  --bg-image:linear-gradient(160deg,var(--bg),var(--bg2));color-scheme:light}
+
+/* Lavender (light) */
+[data-theme="lavender"]{--bg:#f5f3ff;--bg2:#ede9fe;--fg:#2e1065;--muted:#7c6aa8;--accent:#7c3aed;--accent2:#db2777;--card:#ffffff;--border:rgba(46,16,101,.12);
+  --font-head:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:26px;--shadow:0 18px 44px rgba(124,58,237,.14);--head-weight:800;--head-transform:none;
+  --bg-image:linear-gradient(160deg,var(--bg),var(--bg2));color-scheme:light}
+
+/* Mint (light) */
+[data-theme="mint"]{--bg:#f0fdf9;--bg2:#ccfbef;--fg:#022c22;--muted:#4b8070;--accent:#0d9488;--accent2:#0ea5e9;--card:#ffffff;--border:rgba(2,44,34,.12);
+  --font-head:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:24px;--shadow:0 16px 40px rgba(13,148,136,.14);--head-weight:800;--head-transform:none;
+  --bg-image:linear-gradient(160deg,var(--bg),var(--bg2));color-scheme:light}
+
+/* Coffee (dark) */
+[data-theme="coffee"]{--bg:#1c1410;--bg2:#2d211a;--fg:#f5ebe0;--muted:#b9a595;--accent:#d4a373;--accent2:#e9c46a;--card:rgba(255,255,255,.06);--border:rgba(245,235,224,.15);
+  --font-head:Georgia,"Iowan Old Style","Songti SC","Noto Serif SC",serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:14px;--shadow:0 20px 50px rgba(0,0,0,.28);--head-weight:700;--head-transform:none;
+  --bg-image:linear-gradient(160deg,var(--bg),var(--bg2));color-scheme:dark}
+
+/* Terminal Green (dark) */
+[data-theme="terminal-green"]{--bg:#020a04;--bg2:#041a09;--fg:#b6ffc4;--muted:#4fae66;--accent:#39ff6a;--accent2:#b6ff3a;--card:rgba(57,255,106,.05);--border:rgba(57,255,106,.35);
+  --font-head:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--font-body:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--radius:2px;--shadow:0 0 40px rgba(57,255,106,.15);--head-weight:700;--head-transform:none;
+  --bg-image:linear-gradient(color-mix(in srgb,var(--accent) 10%,transparent) 1px,transparent 1px) 0 0/60px 60px,linear-gradient(90deg,color-mix(in srgb,var(--accent) 10%,transparent) 1px,transparent 1px) 0 0/60px 60px,linear-gradient(160deg,var(--bg),var(--bg2));color-scheme:dark}
+
+/* Corporate Blue (light) */
+[data-theme="corporate-blue"]{--bg:#ffffff;--bg2:#eef4fb;--fg:#0b2545;--muted:#5b7089;--accent:#1d4ed8;--accent2:#0891b2;--card:#ffffff;--border:rgba(11,37,69,.13);
+  --font-head:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:10px;--shadow:0 14px 36px rgba(15,23,42,.10);--head-weight:800;--head-transform:none;
+  --bg-image:linear-gradient(var(--bg),var(--bg));color-scheme:light}
+
+/* Swiss (light) */
+[data-theme="swiss"]{--bg:#f4f4f0;--bg2:#e9e9e3;--fg:#111111;--muted:#6b6b66;--accent:#e60012;--accent2:#111111;--card:#ffffff;--border:rgba(0,0,0,.2);
+  --font-head:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:0px;--shadow:none;--head-weight:900;--head-transform:none;
+  --bg-image:linear-gradient(var(--bg),var(--bg));color-scheme:light}
+
+/* Brutalist (light) */
+[data-theme="brutalist"]{--bg:#fff200;--bg2:#ffe600;--fg:#000000;--muted:#2b2b2b;--accent:#ff3b00;--accent2:#0033ff;--card:#ffffff;--border:#000000;
+  --font-head:"Arial Black",Impact,"Helvetica Neue",sans-serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:0px;--shadow:10px 10px 0 #000;--head-weight:900;--head-transform:uppercase;
+  --bg-image:linear-gradient(var(--bg),var(--bg));color-scheme:light}
+
+/* Retro 80s (dark) */
+[data-theme="retro-80s"]{--bg:#1a0933;--bg2:#3a0f5e;--fg:#fff0ff;--muted:#d7a8ee;--accent:#ff6ec7;--accent2:#27e8ff;--card:rgba(255,255,255,.07);--border:rgba(255,110,199,.4);
+  --font-head:"Arial Black",Impact,"Helvetica Neue",sans-serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:12px;--shadow:0 0 40px rgba(255,110,199,.22);--head-weight:900;--head-transform:uppercase;
+  --bg-image:radial-gradient(1100px 700px at 88% -8%,color-mix(in srgb,var(--accent) 30%,transparent),transparent 62%),radial-gradient(900px 600px at -5% 105%,color-mix(in srgb,var(--accent2) 24%,transparent),transparent 60%),linear-gradient(160deg,var(--bg),var(--bg2));color-scheme:dark}
+
+/* Glass (dark) */
+[data-theme="glass"]{--bg:#1b1f3b;--bg2:#3d2c6b;--fg:#ffffff;--muted:#c3c8ee;--accent:#7dd3fc;--accent2:#f0abfc;--card:rgba(255,255,255,.12);--border:rgba(255,255,255,.28);
+  --font-head:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:32px;--shadow:0 24px 60px rgba(0,0,0,.3);--head-weight:800;--head-transform:none;
+  --bg-image:radial-gradient(1100px 700px at 88% -8%,color-mix(in srgb,var(--accent) 30%,transparent),transparent 62%),radial-gradient(900px 600px at -5% 105%,color-mix(in srgb,var(--accent2) 24%,transparent),transparent 60%),linear-gradient(160deg,var(--bg),var(--bg2));color-scheme:dark}
+
+/* Gold Luxe (dark) */
+[data-theme="gold-luxe"]{--bg:#0c0a08;--bg2:#1c1610;--fg:#f7efe0;--muted:#b8a98a;--accent:#d4af37;--accent2:#f1d27a;--card:rgba(212,175,55,.07);--border:rgba(212,175,55,.35);
+  --font-head:Georgia,"Iowan Old Style","Songti SC","Noto Serif SC",serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:6px;--shadow:0 20px 50px rgba(0,0,0,.4);--head-weight:700;--head-transform:none;
+  --bg-image:linear-gradient(160deg,var(--bg),var(--bg2));color-scheme:dark}
+
+[data-theme="brutalist"] .card,[data-theme="brutalist"] .chip{border-width:4px}
+[data-theme="swiss"] .card{border-width:0;border-top:6px solid var(--fg);box-shadow:none}
+[data-theme="glass"] .card{backdrop-filter:blur(18px)}
+[data-theme="neon-cyber"] h1,[data-theme="neon-cyber"] h2{text-shadow:0 0 24px color-mix(in srgb,var(--accent) 55%,transparent)}
+[data-theme="retro-80s"] h1,[data-theme="retro-80s"] h2{text-shadow:6px 6px 0 var(--accent2)}

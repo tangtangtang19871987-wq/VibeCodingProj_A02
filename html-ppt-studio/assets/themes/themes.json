@@ -1,0 +1,122 @@
+[
+ {
+  "name": "aurora",
+  "label": "Aurora",
+  "mode": "dark"
+ },
+ {
+  "name": "midnight",
+  "label": "Midnight",
+  "mode": "dark"
+ },
+ {
+  "name": "paper",
+  "label": "Paper",
+  "mode": "light"
+ },
+ {
+  "name": "sunset",
+  "label": "Sunset",
+  "mode": "dark"
+ },
+ {
+  "name": "forest",
+  "label": "Forest",
+  "mode": "dark"
+ },
+ {
+  "name": "ocean",
+  "label": "Ocean",
+  "mode": "dark"
+ },
+ {
+  "name": "neon-cyber",
+  "label": "Neon Cyber",
+  "mode": "dark"
+ },
+ {
+  "name": "mono-light",
+  "label": "Mono Light",
+  "mode": "light"
+ },
+ {
+  "name": "mono-dark",
+  "label": "Mono Dark",
+  "mode": "dark"
+ },
+ {
+  "name": "solarized-light",
+  "label": "Solarized Light",
+  "mode": "light"
+ },
+ {
+  "name": "solarized-dark",
+  "label": "Solarized Dark",
+  "mode": "dark"
+ },
+ {
+  "name": "dracula",
+  "label": "Dracula",
+  "mode": "dark"
+ },
+ {
+  "name": "nord",
+  "label": "Nord",
+  "mode": "dark"
+ },
+ {
+  "name": "rose",
+  "label": "Ros\u00e9",
+  "mode": "light"
+ },
+ {
+  "name": "lavender",
+  "label": "Lavender",
+  "mode": "light"
+ },
+ {
+  "name": "mint",
+  "label": "Mint",
+  "mode": "light"
+ },
+ {
+  "name": "coffee",
+  "label": "Coffee",
+  "mode": "dark"
+ },
+ {
+  "name": "terminal-green",
+  "label": "Terminal Green",
+  "mode": "dark"
+ },
+ {
+  "name": "corporate-blue",
+  "label": "Corporate Blue",
+  "mode": "light"
+ },
+ {
+  "name": "swiss",
+  "label": "Swiss",
+  "mode": "light"
+ },
+ {
+  "name": "brutalist",
+  "label": "Brutalist",
+  "mode": "light"
+ },
+ {
+  "name": "retro-80s",
+  "label": "Retro 80s",
+  "mode": "dark"
+ },
+ {
+  "name": "glass",
+  "label": "Glass",
+  "mode": "dark"
+ },
+ {
+  "name": "gold-luxe",
+  "label": "Gold Luxe",
+  "mode": "dark"
+ }
+]

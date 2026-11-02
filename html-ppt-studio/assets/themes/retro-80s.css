@@ -1,0 +1,4 @@
+/* Retro 80s (dark) */
+[data-theme="retro-80s"]{--bg:#1a0933;--bg2:#3a0f5e;--fg:#fff0ff;--muted:#d7a8ee;--accent:#ff6ec7;--accent2:#27e8ff;--card:rgba(255,255,255,.07);--border:rgba(255,110,199,.4);
+  --font-head:"Arial Black",Impact,"Helvetica Neue",sans-serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:12px;--shadow:0 0 40px rgba(255,110,199,.22);--head-weight:900;--head-transform:uppercase;
+  --bg-image:radial-gradient(1100px 700px at 88% -8%,color-mix(in srgb,var(--accent) 30%,transparent),transparent 62%),radial-gradient(900px 600px at -5% 105%,color-mix(in srgb,var(--accent2) 24%,transparent),transparent 60%),linear-gradient(160deg,var(--bg),var(--bg2));color-scheme:dark}

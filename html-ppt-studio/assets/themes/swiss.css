@@ -1,0 +1,4 @@
+/* Swiss (light) */
+[data-theme="swiss"]{--bg:#f4f4f0;--bg2:#e9e9e3;--fg:#111111;--muted:#6b6b66;--accent:#e60012;--accent2:#111111;--card:#ffffff;--border:rgba(0,0,0,.2);
+  --font-head:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:0px;--shadow:none;--head-weight:900;--head-transform:none;
+  --bg-image:linear-gradient(var(--bg),var(--bg));color-scheme:light}

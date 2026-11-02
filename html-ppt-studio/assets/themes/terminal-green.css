@@ -1,0 +1,4 @@
+/* Terminal Green (dark) */
+[data-theme="terminal-green"]{--bg:#020a04;--bg2:#041a09;--fg:#b6ffc4;--muted:#4fae66;--accent:#39ff6a;--accent2:#b6ff3a;--card:rgba(57,255,106,.05);--border:rgba(57,255,106,.35);
+  --font-head:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--font-body:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--radius:2px;--shadow:0 0 40px rgba(57,255,106,.15);--head-weight:700;--head-transform:none;
+  --bg-image:linear-gradient(color-mix(in srgb,var(--accent) 10%,transparent) 1px,transparent 1px) 0 0/60px 60px,linear-gradient(90deg,color-mix(in srgb,var(--accent) 10%,transparent) 1px,transparent 1px) 0 0/60px 60px,linear-gradient(160deg,var(--bg),var(--bg2));color-scheme:dark}

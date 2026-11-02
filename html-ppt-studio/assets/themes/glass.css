@@ -1,0 +1,4 @@
+/* Glass (dark) */
+[data-theme="glass"]{--bg:#1b1f3b;--bg2:#3d2c6b;--fg:#ffffff;--muted:#c3c8ee;--accent:#7dd3fc;--accent2:#f0abfc;--card:rgba(255,255,255,.12);--border:rgba(255,255,255,.28);
+  --font-head:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:32px;--shadow:0 24px 60px rgba(0,0,0,.3);--head-weight:800;--head-transform:none;
+  --bg-image:radial-gradient(1100px 700px at 88% -8%,color-mix(in srgb,var(--accent) 30%,transparent),transparent 62%),radial-gradient(900px 600px at -5% 105%,color-mix(in srgb,var(--accent2) 24%,transparent),transparent 60%),linear-gradient(160deg,var(--bg),var(--bg2));color-scheme:dark}

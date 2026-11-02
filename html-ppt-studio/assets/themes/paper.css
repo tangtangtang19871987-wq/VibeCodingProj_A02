@@ -1,0 +1,4 @@
+/* Paper (light) */
+[data-theme="paper"]{--bg:#faf7f2;--bg2:#f1ebe0;--fg:#262320;--muted:#7a7066;--accent:#c2410c;--accent2:#b45309;--card:#ffffff;--border:rgba(38,35,32,.12);
+  --font-head:Georgia,"Iowan Old Style","Songti SC","Noto Serif SC",serif;--font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:12px;--shadow:0 14px 36px rgba(15,23,42,.10);--head-weight:700;--head-transform:none;
+  --bg-image:linear-gradient(var(--bg),var(--bg));color-scheme:light}
