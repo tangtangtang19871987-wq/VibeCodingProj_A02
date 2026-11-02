@@ -28,5 +28,5 @@ Set with `<body data-theme="NAME">`. Press `T` while presenting to cycle.
 | 22 | `retro-80s` | Retro 80s | dark | `#ff6ec7` |
 | 23 | `glass` | Glass | dark | `#7dd3fc` |
 | 24 | `gold-luxe` | Gold Luxe | dark | `#d4af37` |
-| 25 | `modern-tech` | Modern Tech (style `vivid`) | light | true blue `#2F6BFF` / violet `#7C4DFF` / green `#16A06B` / amber `#F08A1C` / pink `#E83E8C` on pure white — **default** |
+| 25 | `modern-tech` | Modern Tech (style `vivid`) | light | true blue #226EF4 / violet #7444F6 / green #0F9A68 / amber #F08A1C / pink #E83E80 on pure white — **default** |
 | 26 | `modern-tech-flat` | Modern Tech Flat (style `flat`) | light | Tailwind indigo/violet/emerald/amber/rose, no gradients — only on request |

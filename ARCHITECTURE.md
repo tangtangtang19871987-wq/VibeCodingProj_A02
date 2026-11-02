@@ -60,7 +60,7 @@ intake (≤5 questions, defaults offered) → storyboard table → **gate A** �
 A look is a JSON file: tones (fill / border / solid), cycle order, gradients on/off, shadow kind, gradient heading, glass-cube gradients. Renderers call `G.use_for_theme(theme)`; `theme_tokens` reads `--deck-style` from the theme CSS. Adding a look = new JSON + `python3 html-ppt-studio/scripts/gen_modern_themes.py`. `evals/selftest.py` guards the default look: blue must be a real blue (hue 195–235°, ≥25° from purple), all five hues present, and the colour-mix of a rendered deck must stay within 0.25 of `evals/golden/vivid-reference.png` (flat scores 0.43).
 
 ## 6. Quality gates
-`deck_check` (input) → `deck_build` (refuses on errors) → `deck_verify` (editable + style) → `deck_lint` (layout) → visual inspection → reviewer. `python3 evals/selftest.py` runs 44 checks incl. negative cases and colour-regression guards; `evals/cases.md` holds 8 behaviour evals with a rubric.
+`deck_check` (input) → `deck_build` (refuses on errors) → `deck_verify` (editable + style) → `deck_lint` (layout) → visual inspection → reviewer. `python3 evals/selftest.py` runs 45 checks incl. negative cases and colour-regression guards (two golden reference renders in `evals/golden/`); `evals/cases.md` holds 8 behaviour evals with a rubric.
 
 ## 7. Known limits (be honest with users)
 - **Not exercised inside a real opencode session** (not installed in the dev sandbox). Verified instead: the Python CLI end-to-end, and the TypeScript tools executed through a shim that stubs `tool()` and `Bun.spawn`. Directory names follow current opencode conventions (`agents/ commands/ tools/ skills/`); if your version expects singular names, rename.

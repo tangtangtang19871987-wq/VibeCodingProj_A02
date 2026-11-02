@@ -55,8 +55,9 @@ try:
         rc, out = run(DECK, "edit", op, *args); check("edit " + args[0], rc == 0, out[-150:])
     o = json.load(open(op, encoding="utf-8")); check("edit result consistent", len(o["slides"]) == 2 and o["meta"]["theme"] == "paper", str(o["meta"]))
     # --- colour measuring
-    im = Image.new("RGB", (200, 100), (255, 255, 255)); im.paste((238, 242, 255), (0, 0, 100, 100)); ip = os.path.join(tmp, "swatch.png"); im.save(ip)
-    rc, out = run(DECK, "colors", ip); check("colors maps #EEF2FF to blue fill", rc == 0 and "blue" in out and "fill" in out, out[-200:])
+    sys.path.insert(0, PP); import diagram_geom as _G; _G.use("vivid"); bf = _G.TONES["blue"]["fill"]
+    im = Image.new("RGB", (200, 100), (255, 255, 255)); im.paste(bf, (0, 0, 100, 100)); ip = os.path.join(tmp, "swatch.png"); im.save(ip)
+    rc, out = run(DECK, "colors", ip); check("colors maps the blue tint %s to 'blue fill'" % (bf,), rc == 0 and re.search(r"->\s+blue\s+fill", out), out[-200:])
     # --- style profiles (data-driven look) + regression guards against the "indigo looks purple / flat look" drift
     sys.path.insert(0, PP); import diagram_geom as G, colorsys
     for name in G.style_names():
@@ -88,16 +89,18 @@ try:
                         if ss >= .45 and vv >= .45: h[int(hh * bins) % bins] += 1; n += 1
                 return [c / max(n, 1) for c in h]
             l1 = lambda a, b: sum(abs(x - y) for x, y in zip(a, b)) / 2
-            gold = sig(Image.open(os.path.join(ROOT, "evals", "golden", "vivid-reference.png")))
-            def deck_sig(dd):
-                rc, _ = run(DECK, "preview", os.path.join(dd, "deck.pptx"), "--dpi", "60"); ims = [Image.open(p) for p in sorted(__import__("glob").glob(os.path.join(dd, "preview", "slide-*.png")))]
-                tot = [0] * 12
-                for im in ims:
-                    for i, v in enumerate(sig(im)): tot[i] += v / len(ims)
+            gX = sig(Image.open(os.path.join(ROOT, "evals", "golden", "vivid-reference.png")))        # glass-gradient look (hero + LangGraph slides)
+            gY = sig(Image.open(os.path.join(ROOT, "evals", "golden", "liked-diagram-render.png")))   # measured-palette look (Context / LangGraph / lanes slides)
+            def deck_sig(dd, ids):
+                rc, _ = run(DECK, "preview", os.path.join(dd, "deck.pptx"), "--dpi", "100"); tot = [0] * 12
+                for i in ids:
+                    for k, v in enumerate(sig(Image.open(os.path.join(dd, "preview", "slide-%d.png" % i)))): tot[k] += v / len(ids)
                 return tot
-            dv = l1(gold, deck_sig(os.path.join(tmp, "diagrams"))); df = l1(gold, deck_sig(os.path.join(tmp, "flatstyle")))
-            check("golden: default render matches the reference image's colour mix (distance %.2f < 0.25)" % dv, dv < 0.25)
-            check("golden is discriminative: flat style is farther (%.2f) than vivid (%.2f)" % (df, dv), df > dv + 0.15)
+            dd0 = os.path.join(tmp, "diagrams"); dfl = os.path.join(tmp, "flatstyle")
+            dX, dY = l1(gX, deck_sig(dd0, [1, 3])), l1(gY, deck_sig(dd0, [2, 3, 4])); fX, fY = l1(gX, deck_sig(dfl, [1, 3])), l1(gY, deck_sig(dfl, [2, 3, 4]))
+            check("golden X (glass reference): default render colour mix distance %.2f < 0.20" % dX, dX < 0.20)
+            check("golden Y (liked measured-palette render): distance %.2f < 0.20" % dY, dY < 0.20)
+            check("goldens are discriminative: flat style is much farther (X %.2f, Y %.2f)" % (fX, fY), fX > dX + 0.15 and fY > dY + 0.15)
         except ImportError: print("SKIP golden image test (Pillow missing)")
     else: print("SKIP golden image test (needs LibreOffice + pdftoppm)")
     # --- other themes still build, still native
