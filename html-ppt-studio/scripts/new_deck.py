@@ -42,6 +42,7 @@ def main():
     ap.add_argument("--transition", default="fade", choices=["fade", "slide", "zoom", "none"])
     ap.add_argument("--lang", default="en"); ap.add_argument("--inline", action="store_true")
     ap.add_argument("--list", action="store_true")
+    ap.add_argument("--extra-css", help="extra CSS file appended after the built-in styles (custom layouts)")
     a = ap.parse_args()
 
     layouts, themes = load_layouts(), load_themes()
@@ -70,6 +71,8 @@ def main():
         rel = os.path.relpath(A, out_dir).replace(os.sep, "/")
         head = "\n".join('<link rel="stylesheet" href="%s/%s">' % (rel, f) for f in css_files)
         tail = '<script src="%s/runtime.js"></script>' % rel
+    if a.extra_css:
+        head += "\n<style>\n" + read(a.extra_css) + "\n</style>"
     html = f"""<!doctype html>
 <html lang="{a.lang}">
 <head>

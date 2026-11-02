@@ -1,0 +1,5 @@
+vendor/
+.opencode/skills/ppt-master
+*_render/
+__pycache__/
+output/
