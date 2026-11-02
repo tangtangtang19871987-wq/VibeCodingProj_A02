@@ -9,18 +9,9 @@ An AgentSkill for building professional HTML presentations — **25 themes, 34 l
 
 ## Technical-report PPTX agent (opencode)
 
-An opencode agent that fuses three engines around one `outline.json`:
+An agent *system* (not just a script): primary agent + 3 subagents + 5 slash commands + 9 typed tools + 4 skills, producing a **native, editable .pptx** (zero pictures) and a presentable HTML draft from one `outline.json`, in a pure-white house style with indigo / violet / emerald / amber / rose pale fills and deep borders.
 
-| Engine | Role |
-|---|---|
-| `html-ppt-studio` | HTML design draft / live presenter; theme source of truth (25 themes) |
-| `python-pptx` skill | deterministic native PPTX (charts, tables, code, architecture layers) + lint/render QA |
-| [`ppt-master`](https://github.com/hugohe3/ppt-master) (third-party, MIT) | high-design native PPTX route (templates, imagery, animation, narration) |
-
-```
-./setup.sh            # installs python deps, fetches ppt-master (unmodified) into vendor/, links it as a skill
-opencode              # agent `tech-report-pptx` is the default (see opencode.json)
-```
-Pipeline: intake → `outline.json` → HTML draft → ⛔ your approval → Route A (python-pptx) or B (ppt-master) → lint + render QA → deliver.
-Without `setup.sh` Route A and the HTML draft still work; Route B is reported as unavailable.
-See `.opencode/agents/tech-report-pptx.md`, `.opencode/skills/tech-report-pptx/SKILL.md`.
+- Design, requirements→mechanisms, tool inventory, limits: [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- Check it works: `python3 evals/selftest.py` (35 deterministic checks) · behaviour evals: [`evals/cases.md`](evals/cases.md)
+- Use it: `./setup.sh` (installs python-pptx; fetches optional ppt-master) → `opencode` → `/deck <your topic or materials>`
+- Without opencode, the same pipeline: `python3 .opencode/skills/tech-report-pptx/scripts/deck.py build output/<slug>/outline.json`

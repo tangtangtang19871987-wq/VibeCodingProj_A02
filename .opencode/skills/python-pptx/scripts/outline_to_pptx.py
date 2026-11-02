@@ -19,8 +19,7 @@ from pptx.oxml.ns import qn
 from lxml import etree
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _fit, theme_tokens, diagram_geom as G
-ICON_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "icons"))
+import _fit, theme_tokens, svgpath, diagram_geom as G
 NAVY, SUBT = (22, 50, 92), (92, 106, 128)
 
 W, H = 13.333, 7.5
@@ -286,6 +285,17 @@ class Deck:
             f = self.poly(sl, pts, cs[0], (255, 255, 255), 2.0, name="CubeFace"); self.gfill(f, cs, ang)
         core = self.poly(sl, C((280, 215), (340, 250), (280, 285), (220, 250)), (255, 255, 255), (255, 255, 255), 1.5, name="CubeCore"); self.gfill(core, [(255, 255, 255), (255, 255, 255)], 0, [45, 25])
 
+    def draw_icon(self, sl, name, cx, cy, d, color=(255, 255, 255)):
+        """Icon as a group of NATIVE freeform strokes (editable / recolourable in PowerPoint) — never a picture."""
+        subs = svgpath.parse(G.ICONS.get(name) or G.ICONS["cube"]); k = d / 24.0; ox, oy = cx - d / 2, cy - d / 2
+        grp = sl.shapes.add_group_shape(); grp.name = "Icon:" + name; lw = max(1.0, d * 72 * 2 / 24); E = lambda v: int(Inches(v))
+        for pts, closed in subs:
+            P = [(ox + x * k, oy + y * k) for x, y in pts]
+            fb = grp.shapes.build_freeform(E(P[0][0]), E(P[0][1]), scale=1.0); fb.add_line_segments([(E(a), E(b)) for a, b in P[1:]], close=closed)
+            sh = fb.convert_to_shape(); sh.fill.background(); sh.line.color.rgb = rgb(color); sh.line.width = Pt(lw); sh.shadow.inherit = False
+            ln = sh.line._get_or_add_ln(); ln.set("cap", "rnd"); etree.SubElement(ln, qn("a:round"))
+        return grp
+
     def draw_cubes(self, sl, bx, by, bw, bh):
         """Three soft flat isometric cubes (native freeform faces); box in inches."""
         for fx, fy, fe, cols in G.CUBE_SET:
@@ -358,8 +368,7 @@ class Deck:
         def badge(cx, cy, d, tn, icon=None, txt=None):
             tc = G.tone(tn)["solid"]; b = self.rect(sl, cx - d / 2, cy - d / 2, d, d, tc, shape=MSO_SHAPE.OVAL, name="Badge")
             self.gfill(b, [tc, self._mix(tc, white, .28)], 45)
-            if icon and os.path.exists(os.path.join(ICON_DIR, icon + ".png")):
-                p = sl.shapes.add_picture(os.path.join(ICON_DIR, icon + ".png"), Inches(cx - d * .29), Inches(cy - d * .29), Inches(d * .58), Inches(d * .58)); p.name = "Icon"
+            if icon: self.draw_icon(sl, icon, cx, cy, d * 0.58)
             elif txt is not None: self.text(sl, 0, 0, 0, 0, str(txt), max(10, d * 72 * .5), white, True, shape=b, align="c", anchor="m", fit=False)
 
         def lines_block(x, y, w, h, label, sub, lsz, ssz, align="l", anchor="t", lcol=NAVY, scol=SUBT, lbold=True):
