@@ -787,7 +787,8 @@
      "w": 485,
      "h": 318,
      "tone": "blue",
-     "label": "当前线程的执行状态"
+     "label": "当前线程的执行状态",
+     "scale": 1.4
     },
     {
      "kind": "group",
@@ -796,7 +797,8 @@
      "w": 485,
      "h": 318,
      "tone": "green",
-     "label": "跨线程复用的长期信息"
+     "label": "跨线程复用的长期信息",
+     "scale": 1.4
     },
     {
      "kind": "node",
@@ -808,7 +810,8 @@
      "label": "当前线程的执行状态",
      "tone": "blue",
      "sub": "包括：对话进度、工具调用状态、中间结果、临时变量等",
-     "icon": "chat"
+     "icon": "chat",
+     "scale": 1.45
     },
     {
      "kind": "node",
@@ -820,7 +823,8 @@
      "label": "Checkpointer",
      "tone": "blue",
      "sub": "保存当前执行状态，支持断点续用",
-     "icon": "history"
+     "icon": "history",
+     "scale": 1.45
     },
     {
      "kind": "node",
@@ -832,7 +836,8 @@
      "label": "跨线程的长期信息",
      "tone": "green",
      "sub": "包括：用户画像、偏好、历史行为、长期记忆等",
-     "icon": "database"
+     "icon": "database",
+     "scale": 1.45
     },
     {
      "kind": "node",
@@ -844,7 +849,8 @@
      "label": "Store",
      "tone": "green",
      "sub": "将长期信息存入持久化存储",
-     "icon": "cube"
+     "icon": "cube",
+     "scale": 1.45
     },
     {
      "kind": "node",
@@ -856,7 +862,8 @@
      "label": "Agent Runtime",
      "tone": "purple",
      "sub": "统一管理执行状态与长期记忆，支撑 Agent 稳定运行",
-     "icon": "robot"
+     "icon": "robot",
+     "scale": 1.45
     }
    ],
    "edges": [

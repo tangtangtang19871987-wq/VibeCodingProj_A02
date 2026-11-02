@@ -5,7 +5,7 @@ Logical canvas: 1000 x 490 units. Every element has x,y,(w,h) in units.
 
 element kinds
   node    id,x,y,w,h, shape(round|pill|diamond), tone, icon?, label, sub?, layout(row|stack), dashed?
-  group   x,y,w,h, tone, label                 (lane container with header pill)
+  group   x,y,w,h, tone, label, scale?                 (lane container with header pill)
   note    x,y,w,h, n, text, tone?              (numbered annotation card)
   chip    x,y, text, tone                      (small label pill; w auto)
   panel   x,y,w,h, tone, title?, icon?, in?, dashed?, body: one of
@@ -28,12 +28,12 @@ CW, CH = 1000, 490
 #   green  = tools / storage / success                       orange = state / progress / answer / retry
 #   pink   = memory / long-term knowledge                    gray   = start / end / neutral          dark = navy lines
 TONES = {  # border, tint (fill), solid (icon / label / line)
-    "blue":   {"border": (140, 184, 236), "fill": (236, 244, 253), "solid": (20, 112, 232)},
-    "purple": {"border": (172, 160, 232), "fill": (237, 231, 253), "solid": (108, 60, 236)},
-    "green":  {"border": (56, 180, 124),  "fill": (229, 246, 237), "solid": (8, 148, 100)},
-    "orange": {"border": (250, 150, 70),  "fill": (254, 240, 227), "solid": (240, 138, 28)},
-    "pink":   {"border": (240, 140, 175), "fill": (254, 237, 243), "solid": (232, 62, 116)},
-    "gray":   {"border": (168, 178, 202), "fill": (232, 237, 247), "solid": (92, 108, 142)},
+    "blue":   {"border": (140, 184, 236), "fill": (230, 241, 253), "solid": (20, 112, 232)},
+    "purple": {"border": (172, 160, 232), "fill": (233, 226, 252), "solid": (108, 60, 236)},
+    "green":  {"border": (56, 180, 124),  "fill": (224, 245, 234), "solid": (8, 148, 100)},
+    "orange": {"border": (250, 150, 70),  "fill": (254, 237, 221), "solid": (240, 138, 28)},
+    "pink":   {"border": (240, 140, 175), "fill": (254, 231, 239), "solid": (232, 62, 116)},
+    "gray":   {"border": (168, 178, 202), "fill": (224, 231, 245), "solid": (92, 108, 142)},
     "dark":   {"border": (16, 44, 88),    "fill": (238, 242, 249), "solid": (16, 44, 88)},
 }
 NEUTRAL = {"gray", "dark"}

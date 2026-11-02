@@ -381,9 +381,9 @@ class Deck:
             t = G.tone(e.get("tone", "blue")); x, y, w, h = X(e["x"]), Y(e["y"]), Lg(e["w"]), Lg(e["h"])
             g = self.rect(sl, x, y, w, h, self._mix(t["fill"], white, .62), t["border"], MSO_SHAPE.ROUNDED_RECTANGLE, lw=1.5, name="Lane")
             g.adjustments[0] = min(0.5, 18 * u / max(min(w, h), .1))
-            lw_ = Lg(max(120, sum(18 if ord(c) > 255 else 10 for c in e.get("label", "")) + 56)); pill = self.rect(sl, x + Lg(18), y - Lg(15), lw_, Lg(30), t["solid"], shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=99, name="LaneLabel")
+            gk = float(e.get("scale", 1)); lw_ = Lg(max(120, sum(18 if ord(c) > 255 else 10 for c in e.get("label", "")) * gk + 56)); pill = self.rect(sl, x + Lg(18), y - Lg(15 * gk), lw_, Lg(30 * gk), t["solid"], shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=99, name="LaneLabel")
             pill.adjustments[0] = .5; self.gfill(pill, [t["solid"], self._mix(t["solid"], white, .22)], 0); self.soft_shadow(pill, 10, 3, 25, t["solid"])
-            self.text(sl, 0, 0, 0, 0, e.get("label", ""), F(16), white, True, shape=pill, align="c", anchor="m", fit=False)
+            self.text(sl, 0, 0, 0, 0, e.get("label", ""), F(16 * gk), white, True, shape=pill, align="c", anchor="m", fit=False)
         for e in [e for e in els if e["kind"] == "cubes"]:
             self.draw_cubes(sl, X(e["x"]), Y(e["y"]), Lg(e["w"]), Lg(e["h"]))
         ec = s.get("edge_color", "source"); lab_later = []
@@ -395,7 +395,7 @@ class Deck:
             k = e["kind"]; tn = e.get("tone", "blue"); t = G.tone(tn)
             if k == "node":
                 x, y, w, h = X(e["x"]), Y(e["y"]), Lg(e["w"]), Lg(e["h"]); shp = e.get("shape", "round"); sub = e.get("sub"); icon = e.get("icon")
-                lay = "stack" if (e.get("layout") == "stack" or (shp == "diamond" and icon)) else "row"
+                lay = "stack" if (e.get("layout") == "stack" or (shp == "diamond" and icon)) else "row"; k_ = float(e.get("scale", 1))
                 if shp == "diamond":
                     d_ = self.rect(sl, x, y, w, h, t["fill"], t["border"], MSO_SHAPE.DIAMOND, lw=1.75, name="Node"); self.gfill(d_, [t["fill"], self._mix(t["fill"], white, .55)], 45); self.soft_shadow(d_, 14, 4, 14, t["solid"])
                 elif shp == "pill":
@@ -404,12 +404,12 @@ class Deck:
                 if e.get("key"): d_.line.width = Pt(2.75); d_.line.color.rgb = rgb(t["solid"])
                 if lay == "row" and shp != "diamond":
                     if icon:
-                        bd = Lg(30); badge(x + Lg(12) + bd / 2, y + h / 2, bd, tn, icon); tx = x + Lg(12 + 30 + 10)
-                        lines_block(tx, y + Lg(2), x + w - tx - Lg(8), h - Lg(4), e.get("label", ""), sub, F(16), F(12.2), "l", "m", t["solid"] if e.get("key") else NAVY)
+                        bd = Lg(34 * k_); badge(x + Lg(12) + bd / 2, y + h / 2, bd, tn, icon); tx = x + Lg(12 + 34 * k_ + 10)
+                        lines_block(tx, y + Lg(2), x + w - tx - Lg(8), h - Lg(4), e.get("label", ""), sub, F(16 * k_), F(12.2 * k_), "l", "m", t["solid"] if e.get("key") else NAVY)
                     else:
-                        lines_block(x + Lg(6), y, w - Lg(12), h, e.get("label", ""), sub, F(16), F(12.2), "c", "m")
+                        lines_block(x + Lg(6), y, w - Lg(12), h, e.get("label", ""), sub, F(16 * k_), F(12.2 * k_), "c", "m")
                 else:
-                    dd = Lg(26 if shp == "diamond" else 30); tw = w * (.6 if shp == "diamond" else .9); lsz = F(16) if shp != "diamond" else F(15.5)
+                    dd = Lg((26 if shp == "diamond" else 34) * k_); tw = w * (.6 if shp == "diamond" else .9); lsz = F(16) if shp != "diamond" else F(15.5)
                     nsub = len(sub.split("\n")) if sub else 0; ch = dd + Lg(4) + lsz * 1.2 / 72 + nsub * F(12.2) * 1.2 / 72
                     top_ = y + Lg(16) if e.get("valign") == "top" else y + (h - ch) / 2
                     if icon: badge(x + w / 2, top_ + dd / 2, dd, tn, icon)

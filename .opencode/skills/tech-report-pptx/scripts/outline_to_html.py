@@ -109,7 +109,7 @@ def _tv(tn):
 
 
 def _pos(e, extra=""):
-    x, y, w, h = G.rect(e); return 'style="left:%.1fpx;top:%.1fpx;width:%.1fpx;height:%.1fpx;--u:%spx;%s%s"' % (x * US, y * US, w * US, h * US, US, _tv(e.get("tone", "blue")), extra)
+    x, y, w, h = G.rect(e); return 'style="left:%.1fpx;top:%.1fpx;width:%.1fpx;height:%.1fpx;--u:%spx;%s;%s"' % (x * US, y * US, w * US, h * US, US, _tv(e.get("tone", "blue")), extra)
 
 
 def _cube_group(x, y, w, h, S):
@@ -136,12 +136,12 @@ def render_diagram(s):
         k = e["kind"]; tn = e.get("tone", "blue")
         if k == "group":
             x, y, w, h = G.rect(e); parts.append('<div class="grp" %s></div>' % _pos(e))
-            lw = max(120, sum(18 if ord(c) > 255 else 10 for c in e.get("label", "")) + 56)
-            parts.append('<div class="gh" style="left:%.1fpx;top:%.1fpx;width:%.1fpx;height:%.1fpx;--u:%spx;%s">%s</div>' % ((x + 18) * US, (y - 15) * US, lw * US, 30 * US, US, _tv(tn), html.escape(e.get("label", ""))))
+            gk = float(e.get("scale", 1)); lw = max(120, sum(18 if ord(c) > 255 else 10 for c in e.get("label", "")) * gk + 56)
+            parts.append('<div class="gh" style="left:%.1fpx;top:%.1fpx;width:%.1fpx;height:%.1fpx;--u:%spx;--k:%s;%s">%s</div>' % ((x + 18) * US, (y - 15 * gk) * US, lw * US, 30 * gk * US, US, gk, _tv(tn), html.escape(e.get("label", ""))))
         elif k == "node":
             shp = e.get("shape", "round"); lay = "stack" if (e.get("layout") == "stack" or (shp == "diamond" and e.get("icon"))) else "row"
-            x, y, w, h = G.rect(e); isz = 30 if lay == "row" else 30
-            ic = '<span class="ico" style="width:calc(var(--u)*%d);height:calc(var(--u)*%d)">%s</span>' % (isz, isz, _svgicon(e["icon"])) if e.get("icon") else ""
+            x, y, w, h = G.rect(e); k_ = float(e.get("scale", 1)); isz = 34 * k_
+            ic = '<span class="ico" style="width:calc(var(--u)*%.1f);height:calc(var(--u)*%.1f)">%s</span>' % (isz, isz, _svgicon(e["icon"])) if e.get("icon") else ""
             tx = '<div class="tx"><b>%s</b>%s</div>' % (html.escape(e.get("label", "")), "<small>%s</small>" % html.escape(e["sub"]) if e.get("sub") else "")
             if shp == "diamond":
                 W_, H_ = w * US, h * US; poly = "%.0f,2 %.0f,%.0f %.0f,%.0f 2,%.0f" % (W_ / 2, W_ - 2, H_ / 2, W_ / 2, H_ - 2, H_ / 2); t = G.tone(tn)
@@ -149,7 +149,7 @@ def render_diagram(s):
                 parts.append('<div class="dn diamond" %s>%s<div class="tx" style="position:relative;display:flex;flex-direction:column;align-items:center">%s%s</div></div>' % (_pos(e), bg, ic, tx.replace('<div class="tx">', '<div style="text-align:center">', 1)))
             else:
                 cls = "dn %s%s%s%s%s" % ("pill " if shp == "pill" else "", "stack " if lay == "stack" else "", "top " if e.get("valign") == "top" else "", "key " if e.get("key") else "", "dashed" if e.get("dashed") else "")
-                parts.append('<div class="%s" %s>%s%s</div>' % (cls, _pos(e), ic, tx))
+                parts.append('<div class="%s" %s>%s%s</div>' % (cls, _pos(e, "--k:%s;" % k_), ic, tx))
         elif k == "note":
             n = e.get("n"); badge = '<span class="ico">%s</span>' % n if n is not None else ""
             parts.append('<div class="note" %s>%s<span>%s</span></div>' % (_pos(e), badge, html.escape(e["text"])))

@@ -261,3 +261,6 @@
 .layout-diagram .slide-head h2{font-size:54px}.layout-diagram .sub{font-size:26px}
 .dg .dn.key{border-width:3px}.dg .dn.key b{color:var(--ts)}
 .dg .note,.dg .chip2{box-shadow:none}
+.dg .dn b{font-size:calc(var(--u)*16*var(--k,1))}.dg .dn small{font-size:calc(var(--u)*12.2*var(--k,1))}
+.dg .gh{font-size:calc(var(--u)*16*var(--k,1))}
+.dg .dn.diamond .ico,.dg .dn.stack .ico{}
