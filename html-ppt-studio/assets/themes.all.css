@@ -126,18 +126,32 @@
 [data-theme="neon-cyber"] h1,[data-theme="neon-cyber"] h2{text-shadow:0 0 24px color-mix(in srgb,var(--accent) 55%,transparent)}
 [data-theme="retro-80s"] h1,[data-theme="retro-80s"] h2{text-shadow:6px 6px 0 var(--accent2)}
 
-/* Modern Tech (light) — Tech Blue / AI Purple / Mint Green gradients, glass cards, soft shadows */
-[data-theme="modern-tech"]{--bg:#f5f8fd;--bg2:#e8eefa;--fg:#0f1b3d;--muted:#5d6b8c;--accent:#2f7bff;--accent2:#7c4dff;--accent3:#1fd6a0;
-  --card:rgba(255,255,255,.66);--border:rgba(255,255,255,.95);--radius:28px;
-  --shadow:0 18px 50px rgba(60,90,200,.14),0 2px 6px rgba(60,90,200,.06);--head-weight:800;--head-transform:none;--style:glass;
-  --bg-image:radial-gradient(900px 620px at 92% -8%,rgba(47,123,255,.20),transparent 62%),radial-gradient(800px 600px at -6% 108%,rgba(124,77,255,.16),transparent 60%),radial-gradient(700px 480px at 100% 100%,rgba(31,214,160,.15),transparent 62%),linear-gradient(160deg,#f9fbff,#edf2fc);color-scheme:light}
-[data-theme="modern-tech"] .card,[data-theme="modern-tech"] .chip{backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
-  background:linear-gradient(135deg,rgba(255,255,255,.88),rgba(255,255,255,.52));box-shadow:var(--shadow),inset 0 1px 0 #fff}
-[data-theme="modern-tech"] .grad-text{background-image:linear-gradient(90deg,var(--accent),var(--accent2) 55%,var(--accent3))}
-[data-theme="modern-tech"] .kicker{background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
-[data-theme="modern-tech"] .icon,[data-theme="modern-tech"] .layout-team .avatar{background:linear-gradient(135deg,var(--accent),var(--accent2) 60%,var(--accent3));color:#fff;box-shadow:0 10px 24px rgba(47,123,255,.3)}
-[data-theme="modern-tech"] hr.rule{background:linear-gradient(90deg,var(--accent),var(--accent2),var(--accent3))}
-[data-theme="modern-tech"] .layout-table th{background:linear-gradient(90deg,var(--accent),var(--accent2));color:#fff}
-[data-theme="modern-tech"] .layout-bar-chart .fill,[data-theme="modern-tech"] .layout-funnel .lv{background:linear-gradient(90deg,var(--accent),var(--accent2) 60%,var(--accent3))}
-[data-theme="modern-tech"] .layout-roadmap .q header{background:linear-gradient(90deg,var(--accent),var(--accent2));color:#fff}
-[data-theme="modern-tech"] .layout-pricing .plan.hot{border:2px solid var(--accent2)}
+/* Modern Tech (clean light) — see themes/modern-tech.css */
+[data-theme="modern-tech"]{--bg:#f7f9fc;--bg2:#eff3f9;--fg:#2f3a4c;--head-color:#16325c;--muted:#6b7a90;--accent:#3b7ddd;--accent2:#7c6bd6;--accent3:#2eaa82;
+  --card:#ffffff;--border:#dde5ef;--radius:20px;--shadow:0 2px 10px rgba(30,60,120,.07);--head-weight:800;--head-transform:none;--style:clean;
+  --font-head:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;
+  --font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;
+  --bg-image:linear-gradient(180deg,#fbfcfe,#f4f7fb);color-scheme:light}
+[data-theme="modern-tech"] h1,[data-theme="modern-tech"] h2,[data-theme="modern-tech"] h3,[data-theme="modern-tech"] h4{color:var(--head-color)}
+[data-theme="modern-tech"] .card,[data-theme="modern-tech"] .chip{background:#fff;border:1.5px solid var(--border);box-shadow:var(--shadow);backdrop-filter:none;-webkit-backdrop-filter:none}
+[data-theme="modern-tech"] .grad-text{background:none;-webkit-text-fill-color:currentColor;color:var(--accent)}
+[data-theme="modern-tech"] .kicker{background:none;-webkit-text-fill-color:currentColor;color:var(--accent)}
+[data-theme="modern-tech"] .icon,[data-theme="modern-tech"] .layout-team .avatar{background:var(--accent);color:#fff;box-shadow:none}
+[data-theme="modern-tech"] hr.rule,[data-theme="modern-tech"] .hud-progress{background:var(--accent)}
+[data-theme="modern-tech"] .layout-cover .deco{background:#e9f0fa;filter:none;opacity:1}
+[data-theme="modern-tech"] .layout-table th{background:#edf3fb;color:var(--head-color)}
+[data-theme="modern-tech"] .layout-bar-chart .fill{background:var(--accent)}
+[data-theme="modern-tech"] .layout-funnel .lv{background:#eaf1fb;color:var(--head-color);border:1.5px solid #c9daf1}
+[data-theme="modern-tech"] .layout-roadmap .q header{background:#edf3fb;color:var(--head-color)}
+[data-theme="modern-tech"] .layout-pricing .plan.hot{border:2px solid var(--accent);background:#fff}
+[data-theme="modern-tech"] .dag .node{background:#fff;backdrop-filter:none;-webkit-backdrop-filter:none}
+[data-theme="modern-tech"] .dag .node .ni{background:var(--accent)}
+[data-theme="modern-tech"] .layout-process .step{background:#fff}
+[data-theme="modern-tech"] .layout-layers .lab{background:#edf3fb;color:var(--accent);border:1.5px solid #c9daf1}
+[data-theme="modern-tech"] .layout-layers .row-l:nth-child(4n+3) .lab{background:#f3f0fb;color:var(--accent2);border-color:#d6cdf1}
+[data-theme="modern-tech"] .layout-code .win{background:#f6f8fc;border:1.5px solid var(--border);box-shadow:var(--shadow)}
+[data-theme="modern-tech"] .layout-code .win header{background:#eaeff7;color:#7886a0}
+[data-theme="modern-tech"] .layout-code pre{color:#2f3a4c}
+[data-theme="modern-tech"] .layout-code pre .k{color:#7c6bd6}[data-theme="modern-tech"] .layout-code pre .s{color:#2eaa82}[data-theme="modern-tech"] .layout-code pre .c{color:#8a97ab}[data-theme="modern-tech"] .layout-code pre .f{color:#3b7ddd}[data-theme="modern-tech"] .layout-code pre .n{color:#e68c3a}
+[data-theme="modern-tech"] .layout-process .step{border:1.5px solid #c9daf1;background:#f3f7fd}
+[data-theme="modern-tech"] .layout-process .step .n{color:var(--accent)}

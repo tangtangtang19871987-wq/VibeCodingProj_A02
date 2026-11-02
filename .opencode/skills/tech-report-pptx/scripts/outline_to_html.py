@@ -112,16 +112,17 @@ def _pos(e, extra=""):
     x, y, w, h = G.rect(e); return 'style="left:%.1fpx;top:%.1fpx;width:%.1fpx;height:%.1fpx;--u:%spx;%s%s"' % (x * US, y * US, w * US, h * US, US, _tv(e.get("tone", "blue")), extra)
 
 
+def _cube_group(x, y, w, h, S):
+    out = []
+    for fx, fy, fe, cols in G.CUBE_SET:
+        for fi, (fname, pts) in enumerate(G.cube_faces(x + fx * w, y + fy * h, fe * w).items()):
+            out.append('<polygon points="%s" fill="%s" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/>' % (" ".join("%.1f,%.1f" % (a * S, b * S) for a, b in pts), G.rgbhex(cols[fi])))
+    for fx, fy, fr, col in G.CUBE_DOTS: out.append('<circle cx="%.1f" cy="%.1f" r="%.1f" fill="%s"/>' % ((x + fx * w) * S, (y + fy * h) * S, fr * w * S, G.rgbhex(col)))
+    return "".join(out)
+
+
 def _cubes_svg(e):
-    x, y, w, h = G.rect(e); S = US; uid = "cb%d" % id(e); defs = []; out = []
-    for ci, (fx, fy, fe, cols) in enumerate(G.CUBE_SET):
-        faces = G.cube_faces(x + fx * w, y + fy * h, fe * w)
-        for fi, (fname, pts) in enumerate(faces.items()):
-            gid = "%s-%d-%d" % (uid, ci, fi); c0, c1 = cols[fi]
-            defs.append('<linearGradient id="%s" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="%s"/><stop offset="1" stop-color="%s"/></linearGradient>' % (gid, G.rgbhex(c0), G.rgbhex(c1)))
-            out.append('<polygon points="%s" fill="url(#%s)" fill-opacity=".86" stroke="#fff" stroke-opacity=".9" stroke-width="2"/>' % (" ".join("%.1f,%.1f" % (a * S, b * S) for a, b in pts), gid))
-    for fx, fy, fr, col in G.CUBE_DOTS: out.append('<circle cx="%.1f" cy="%.1f" r="%.1f" fill="%s" fill-opacity=".85"/>' % ((x + fx * w) * S, (y + fy * h) * S, fr * w * S, G.rgbhex(col)))
-    return '<g data-anim="float" style="--t:6s"><defs>%s</defs>%s</g>' % ("".join(defs), "".join(out))
+    x, y, w, h = G.rect(e); return '<g data-anim="float" style="--t:6s">%s</g>' % _cube_group(x, y, w, h, US)
 
 
 _DG_N = [0]
@@ -147,7 +148,7 @@ def render_diagram(s):
                 bg = '<svg class="bg" viewBox="0 0 %.0f %.0f"><polygon points="%s" fill="%s" stroke="%s" stroke-width="2.5"/></svg>' % (W_, H_, poly, G.rgbhex(t["fill"]), G.rgbhex(t["border"]))
                 parts.append('<div class="dn diamond" %s>%s<div class="tx" style="position:relative;display:flex;flex-direction:column;align-items:center">%s%s</div></div>' % (_pos(e), bg, ic, tx.replace('<div class="tx">', '<div style="text-align:center">', 1)))
             else:
-                cls = "dn %s%s%s%s" % ("pill " if shp == "pill" else "", "stack " if lay == "stack" else "", "top " if e.get("valign") == "top" else "", "dashed" if e.get("dashed") else "")
+                cls = "dn %s%s%s%s%s" % ("pill " if shp == "pill" else "", "stack " if lay == "stack" else "", "top " if e.get("valign") == "top" else "", "key " if e.get("key") else "", "dashed" if e.get("dashed") else "")
                 parts.append('<div class="%s" %s>%s%s</div>' % (cls, _pos(e), ic, tx))
         elif k == "note":
             n = e.get("n"); badge = '<span class="ico">%s</span>' % n if n is not None else ""
@@ -179,7 +180,7 @@ def render_diagram(s):
         pts, lab = G.route(ed, M); col = G.edge_color(ed, M, ec); hx = G.rgbhex(col); cols[hx] = 1
         rp = G.round_poly(pts, 9 if ed.get("round", True) else 0)
         d = "M" + " L".join("%.1f %.1f" % (a * US, b * US) for a, b in rp)
-        edge_svg.append('<path d="%s" fill="none" stroke="%s" stroke-width="3" %s marker-end="url(#%s%s)"/>' % (d, hx, 'stroke-dasharray="10 7"' if ed.get("style") == "dashed" else "", pre, hx[1:]))
+        edge_svg.append('<path d="%s" fill="none" stroke="%s" stroke-width="2.6" %s marker-end="url(#%s%s)"/>' % (d, hx, 'stroke-dasharray="10 7"' if ed.get("style") == "dashed" else "", pre, hx[1:]))
         if ed.get("label"):
             cw = G.chip_w({"text": ed["label"]}); lt = ed.get("label_tone") or ed.get("tone") or (M[ed["from"]].get("tone") or "blue")
             labels.append('<div class="chip2" style="left:%.1fpx;top:%.1fpx;width:%.1fpx;height:%.1fpx;--u:%spx;%s">%s</div>' % ((lab[0] - cw / 2) * US, (lab[1] - 11) * US, cw * US, 22 * US, US, _tv(lt), html.escape(ed["label"])))
@@ -293,7 +294,7 @@ def render(o):
             right = dag([dict(n) for n in s.get("nodes", [])], s.get("edges", []), 620, 520, 175, 84, "sm") if s.get("nodes") else ""
             out.append(sec("hero", '<div class="h-left"><div class="kicker" data-anim="fade-down">%s</div><h1 data-anim="fade-up">%s</h1><p class="tag" data-anim="fade-up" style="--d:.2s">%s</p></div>'
                            '<div class="cube" data-anim="zoom-in" style="--t:1.1s">%s</div><div class="h-right" data-anim="fade-left" style="--d:.3s">%s</div><div class="concepts" data-anim-stagger="fade-up" style="--d:.5s">%s</div>' % (
-                           e(s.get("kicker", "")), e(s.get("title", "")).replace("\n", "<br>"), e(s.get("tagline", s.get("subtitle", ""))), CUBE, right, cons), s))
+                           e(s.get("kicker", "")), e(s.get("title", "")).replace("\n", "<br>"), e(s.get("tagline", s.get("subtitle", ""))), '<svg viewBox="0 0 560 620">%s</svg>' % _cube_group(20, 20, 520, 580, 1), right, cons), s))
         elif t == "workflow":
             leg = '<div class="legend"><span><i></i>顺序 Sequential</span><span><i class="d"></i>条件 / 循环 Conditional · Loop</span></div>'
             out.append(sec("workflow", head(s) + '<div class="dag-wrap" data-anim="fade-up"><div style="padding-bottom:64px">%s%s</div></div>%s' % (dag([dict(n) for n in s["nodes"]], s.get("edges", []), 1680, 500, 310, 116), leg, take(s)), s))

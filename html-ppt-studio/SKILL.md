@@ -20,7 +20,7 @@ examples/          demo-all-layouts.html (every layout; press T to flip themes)
 1. **Clarify** only what you can't infer: topic, audience, length, tone. Default 8–12 slides.
 2. **Outline** one message per slide (the headline is the takeaway, not a topic label). Open with `cover`, end with `closing`; use `section` to break up 10+ slide decks.
 3. **Pick layouts** from `reference/layouts.md` — match the content shape (numbers → `kpi-row`/`big-number`/`bar-chart`; sequence → `timeline`/`process`/`roadmap`; contrast → `comparison`/`pros-cons`). Vary layouts; don't use `bullets` more than 2–3 times.
-4. **Pick a theme** — default is **`modern-tech`** (light, Tech-Blue / AI-Purple / Mint gradients, glass cards, soft shadows, 3D-cube `hero` + `workflow` DAG layouts). Only change it if the user asks; other options in `reference/themes.md`.
+4. **Pick a theme** — default is **`modern-tech`** (clean light: white / light blue-grey, deep-blue titles, flat low-saturation cards, soft blue + mint / purple / orange function colours, no gradients or glows; `hero`, `workflow`, `diagram` layouts). Only change it if the user asks; other options in `reference/themes.md`.
 5. **Scaffold**: `python3 scripts/new_deck.py --out deck/index.html --theme aurora --title "…" --layouts cover,agenda,bullets,kpi-row,closing`
    Add `--inline` for a single self-contained file to hand over. `--list` prints all layouts, themes and animations.
 6. **Replace placeholder content** by editing the generated HTML (keep the classes). Write real speaker notes in each section's `data-notes="…"`. Or write your own `<section>`s using the snippets as models and pass `--slides-file`.
@@ -51,7 +51,7 @@ Use 1–2 animation styles per deck for consistency; reserve loops (`float`, `pu
 | Situation | Try |
 |---|---|
 | **Default / AI-tech / modern SaaS look** | **`modern-tech`** |
-| Tech / product launch (dark) | `aurora`, `midnight`, `glass`, `neon-cyber` |
+| Dark themes (only if the user asks) | `aurora`, `midnight`, `glass`, `neon-cyber` |
 | Corporate / finance | `corporate-blue`, `mono-light`, `swiss`, `solarized-light` |
 | Editorial / storytelling | `paper`, `coffee`, `rose`, `gold-luxe` |
 | Developer talk | `dracula`, `nord`, `terminal-green`, `solarized-dark` |

@@ -200,7 +200,7 @@
 .layout-workflow .dag-wrap{flex:1;display:grid;place-items:center;min-height:0}
 .dag{position:relative}
 .dag svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
-.dag .node{position:absolute;display:flex;align-items:center;gap:18px;padding:0 22px;border-radius:22px;background:linear-gradient(135deg,rgba(255,255,255,.9),rgba(255,255,255,.55));
+.dag .node{position:absolute;display:flex;align-items:center;gap:18px;padding:0 22px;border-radius:22px;background:#fff;
   border:1.5px solid var(--border);box-shadow:var(--shadow);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);color:var(--fg)}
 [data-theme]:not([data-theme="modern-tech"]) .dag .node{background:var(--card);border-color:var(--border)}
 .dag .node .ni{flex:none;width:62px;height:62px;border-radius:50%;display:grid;place-items:center;font-size:30px;color:#fff;background:linear-gradient(135deg,var(--accent),var(--accent2) 60%,var(--accent3))}
@@ -223,22 +223,22 @@
 .dg > *{position:absolute}
 .dg .ico{display:inline-grid;place-items:center;flex:none;border-radius:50%;background:var(--ts);color:#fff}
 .dg .ico svg{width:58%;height:58%;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.dg .dn{display:flex;align-items:center;gap:calc(var(--u)*10);padding:0 calc(var(--u)*12);border-radius:calc(var(--u)*13);background:linear-gradient(135deg,var(--tf),color-mix(in srgb,var(--tf) 55%,#fff));border:2px solid var(--tb);box-shadow:0 8px 22px color-mix(in srgb,var(--ts) 14%,transparent);color:#15214a}
+.dg .dn{display:flex;align-items:center;gap:calc(var(--u)*10);padding:0 calc(var(--u)*12);border-radius:calc(var(--u)*13);background:var(--tf);border:1.5px solid var(--tb);box-shadow:0 2px 8px rgba(30,60,120,.06);color:var(--head-color,#16325c)}
 .dg .dn.pill{border-radius:999px;justify-content:center}
 .dg .dn.stack{flex-direction:column;justify-content:center;text-align:center;gap:calc(var(--u)*4);padding:calc(var(--u)*8) calc(var(--u)*10)}
 .dg .dn.diamond{background:none;border:0;box-shadow:none;justify-content:center;padding:0}
-.dg .dn.diamond svg.bg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;filter:drop-shadow(0 8px 14px color-mix(in srgb,var(--ts) 18%,transparent))}
+.dg .dn.diamond svg.bg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;filter:drop-shadow(0 2px 5px rgba(30,60,120,.07))}
 .dg .dn .tx{position:relative;line-height:1.2;white-space:pre-line}
 .dg .dn.diamond .tx{display:flex;flex-direction:column;align-items:center;text-align:center;gap:calc(var(--u)*2)}
 .dg .dn b{font-size:calc(var(--u)*16);display:block}.dg .dn small{font-size:calc(var(--u)*12.2);color:#5b6788;display:block;margin-top:2px}
 .dg .dn.dashed{border-style:dashed}
-.dg .grp{border-radius:calc(var(--u)*18);border:2px solid var(--tb);background:color-mix(in srgb,var(--tf) 45%,transparent)}
-.dg .gh{display:flex;align-items:center;justify-content:center;border-radius:999px;background:var(--ts);color:#fff;font-weight:800;font-size:calc(var(--u)*16);box-shadow:0 6px 14px color-mix(in srgb,var(--ts) 30%,transparent)}
+.dg .grp{border-radius:calc(var(--u)*18);border:1.5px solid var(--tb);background:color-mix(in srgb,var(--tf) 38%,#fff)}
+.dg .gh{display:flex;align-items:center;justify-content:center;border-radius:999px;background:var(--ts);color:#fff;font-weight:800;font-size:calc(var(--u)*16)}
 .dg .note{display:flex;gap:calc(var(--u)*8);align-items:center;padding:0 calc(var(--u)*10);border-radius:calc(var(--u)*9);background:color-mix(in srgb,var(--tf) 70%,#fff);font-size:calc(var(--u)*12.2);color:#35416b;line-height:1.3}
 .dg .note .ico{width:calc(var(--u)*20);height:calc(var(--u)*20);font-size:calc(var(--u)*12);font-weight:800}
 .dg .chip2{display:flex;align-items:center;justify-content:center;border-radius:999px;background:var(--tf);color:var(--ts);border:1.5px solid var(--tb);font-weight:700;font-size:calc(var(--u)*12.5);white-space:nowrap}
-.dg .pn{border-radius:calc(var(--u)*13);background:linear-gradient(135deg,rgba(255,255,255,.92),color-mix(in srgb,var(--tf) 75%,#fff));border:2px solid var(--tb);box-shadow:0 8px 22px color-mix(in srgb,var(--ts) 12%,transparent);padding:calc(var(--u)*10) calc(var(--u)*12);overflow:hidden;color:#1e2a55}
-.dg .pn.dashed{border-style:dashed;box-shadow:none;background:rgba(255,255,255,.55)}
+.dg .pn{border-radius:calc(var(--u)*13);background:color-mix(in srgb,var(--tf) 55%,#fff);border:1.5px solid var(--tb);box-shadow:0 2px 8px rgba(30,60,120,.05);padding:calc(var(--u)*10) calc(var(--u)*12);overflow:hidden;color:#2f3a4c}
+.dg .pn.dashed{border-style:dashed;box-shadow:none;background:#fff}
 .dg .pn h4{display:flex;align-items:center;gap:calc(var(--u)*7);font-size:calc(var(--u)*14);color:var(--ts);margin-bottom:calc(var(--u)*6);letter-spacing:0}
 .dg .pn h4 .ico{width:calc(var(--u)*22);height:calc(var(--u)*22)}
 .dg .pn pre{font:calc(var(--u)*12)/1.22 var(--font-mono);white-space:pre;color:#26335f}
@@ -253,9 +253,11 @@
 .dg .pn .lg i{display:inline-block;width:calc(var(--u)*34);border-top:3px solid var(--ts)}.dg .pn .lg i.d{border-top-style:dashed}
 .dg .pn p{font-size:calc(var(--u)*12.2);line-height:1.35;color:#5b6788}
 .dg .pn.stk{display:flex;flex-direction:column;align-items:center;text-align:center;justify-content:center}
-.dg .pn.stk .ico{width:calc(var(--u)*40);height:calc(var(--u)*40);margin-bottom:calc(var(--u)*5)}.dg .pn.stk h4{display:block;margin:0 0 4px;font-size:calc(var(--u)*15);color:#1e2a55}
+.dg .pn.stk .ico{width:calc(var(--u)*40);height:calc(var(--u)*40);margin-bottom:calc(var(--u)*5)}.dg .pn.stk h4{display:block;margin:0 0 4px;font-size:calc(var(--u)*15);color:#2f3a4c}
 .dg .hd .k{font-size:calc(var(--u)*13);letter-spacing:.2em;text-transform:uppercase;font-weight:800;color:var(--accent);margin-bottom:calc(var(--u)*6)}
-.dg .hd h1{font-size:calc(var(--u)*37);line-height:1.08;white-space:pre-line}.dg .hd p{font-size:calc(var(--u)*14.5);color:var(--muted);margin-top:calc(var(--u)*12);line-height:1.4}
+.dg .hd h1{font-size:calc(var(--u)*37);line-height:1.08;white-space:pre-line;color:var(--head-color,#16325c)}.dg .hd p{font-size:calc(var(--u)*14.5);color:var(--muted);margin-top:calc(var(--u)*12);line-height:1.4}
 .dg .txt{font-size:calc(var(--u)*13);color:#35416b;line-height:1.35}
 .dg .dn.top{justify-content:flex-start;padding-top:calc(var(--u)*16)}
 .layout-diagram .slide-head h2{font-size:54px}.layout-diagram .sub{font-size:26px}
+.dg .dn.key{border-width:3px}.dg .dn.key b{color:var(--ts)}
+.dg .note,.dg .chip2{box-shadow:none}

@@ -1,6 +1,6 @@
-/* Modern Tech (light) — Tech Blue / AI Purple / Mint Green gradients, glass cards, soft shadows */
-[data-theme="modern-tech"]{--bg:#f5f8fd;--bg2:#e8eefa;--fg:#0f1b3d;--muted:#5d6b8c;--accent:#2f7bff;--accent2:#7c4dff;--accent3:#1fd6a0;
-  --card:rgba(255,255,255,.66);--border:rgba(255,255,255,.95);--font-head:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;
-  --font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;--radius:28px;
-  --shadow:0 18px 50px rgba(60,90,200,.14),0 2px 6px rgba(60,90,200,.06);--head-weight:800;--head-transform:none;--style:glass;
-  --bg-image:radial-gradient(900px 620px at 92% -8%,rgba(47,123,255,.20),transparent 62%),radial-gradient(800px 600px at -6% 108%,rgba(124,77,255,.16),transparent 60%),radial-gradient(700px 480px at 100% 100%,rgba(31,214,160,.15),transparent 62%),linear-gradient(160deg,#f9fbff,#edf2fc);color-scheme:light}
+/* Modern Tech (clean light) — white / light blue-grey, deep-blue titles, dark-grey body, soft blue / mint / purple / orange function colours, flat cards, hairline borders, very light shadows. No gradients, no glows, no dark backgrounds. */
+[data-theme="modern-tech"]{--bg:#f7f9fc;--bg2:#eff3f9;--fg:#2f3a4c;--head-color:#16325c;--muted:#6b7a90;--accent:#3b7ddd;--accent2:#7c6bd6;--accent3:#2eaa82;
+  --card:#ffffff;--border:#dde5ef;--radius:20px;--shadow:0 2px 10px rgba(30,60,120,.07);--head-weight:800;--head-transform:none;--style:clean;
+  --font-head:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;
+  --font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;
+  --bg-image:linear-gradient(180deg,#fbfcfe,#f4f7fb);color-scheme:light}

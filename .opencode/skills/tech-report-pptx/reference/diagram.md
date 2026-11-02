@@ -1,6 +1,6 @@
 # `diagram` slide — authoring manual
 
-For architecture / flow / concept-map slides in the user's reference style: **semantic pastel nodes with vector icons, coloured rounded arrows, lanes, numbered notes, code / list / legend panels, 3D glass cubes**. Same JSON renders to HTML (`outline_to_html.py`) and to *native editable* PPTX (`outline_to_pptx.py`). Working examples: `examples/diagrams.example.json` (4 slides reproducing the reference images: cover+flow, context-builder, LangGraph flow, two-lane memory).
+For architecture / flow / concept-map slides in the user's reference style: **semantic pastel-tint nodes with vector icons, coloured rounded arrows, lanes, numbered notes, code / list / legend panels, soft flat 3D cubes**. Same JSON renders to HTML (`outline_to_html.py`) and to *native editable* PPTX (`outline_to_pptx.py`). Working examples: `examples/diagrams.example.json` (4 slides reproducing the reference images: cover+flow, context-builder, LangGraph flow, two-lane memory).
 
 ```json
 {"type":"diagram","kicker":"…","title":"…","subtitle":"…","edge_color":"source|dark","cover":false,
@@ -21,7 +21,7 @@ Everything is placed in **1000 × 490 units** (x→right, y→down, origin top-l
 | `panel` | `x,y,w,h,tone,title?,icon?,id?,in?,dashed?,stack?,body` — body is ONE of `{"code":"…"}` · `{"bullets":[…]}` · `{"items":[{icon,tone,title,sub?}]}` (icon list) · `{"rows":[{chip,tone,text:[…]}]}` (framework chips + bullets) · `{"legend":[{style,tone,text}]}` · `{"text":"…"}`. `in:"<node id>"` = sits inside that node (skip overlap check). `stack:true` = concept card (big icon on top, title, text) |
 | `text` | `x,y,w,h,text,size?,bold?,tone?` |
 | `heading` | `x,y,w,h?,kicker?,title (\\n for lines),tagline?` — gradient headline for opening slides |
-| `cubes` | `x,y,w,h` — cluster of three glass 3D cubes + dots (≈ 190×250 looks right) |
+| `cubes` | `x,y,w,h` — cluster of three soft flat 3D cubes + dots (≈ 190×250 looks right) |
 
 ## Edges
 `{"from":id,"to":id,"style":"solid|dashed","tone":…,"fs":"l|r|t|b","ts":"l|r|t|b","fo":0..1,"ti":0..1,"mid":0..1,"via":[[x,y],…],"bulge":30,"label":"…","label_tone":…,"label_at":[x,y]}`
@@ -30,8 +30,12 @@ Everything is placed in **1000 × 490 units** (x→right, y→down, origin top-l
 - **Loop back** (dashed): `fs:"l", ts:"l", bulge:30` (goes around the left side) or explicit `via` waypoints (`via` points must be orthogonal).
 - Colour: `tone` per edge, else the source node's tone (`edge_color:"source"`); `edge_color:"dark"` = navy for all (LangGraph style). Convention: **solid = sequential, dashed = conditional / loop**; label branches with chips (`需要调用工具` green, `无需调用工具` orange / `YES` `NO`).
 
-## Tones (semantic colour — use consistently)
-`blue` general / input · `purple` LLM / agent / runtime · `green` tools / success / storage · `orange` decision / answer / state · `pink` memory / retry · `teal` edges / graph · `gray` start / end / neutral · `dark` navy lines.
+## Colour rules (house style — clean, professional, never flashy)
+White / light blue-grey page; **low-saturation tints for card fills**; saturated colour only for titles, labels, icons, edges and (small) key nodes. **≤ 3 non-neutral colours per slide** (one main + one or two secondary). No neon, no dark tech background, no gradients, no strong shadows. Same component type ⇒ same colour on every slide.
+
+Tones: `blue` main accent — input / data / general / output · `purple` — model / agent / runtime · `green` (mint) — tools / storage / success · `orange` — decision / branch / warning · `gray` — start / end / neutral panels · `dark` — navy lines. (`pink` and `teal` are retired — `check_outline.py` errors on them.)
+`key:true` on a **small** node = heavier border + coloured label for the one node the audience must look at (warns if the node is large).
+Icon ⇒ colour is fixed across the deck (e.g. `robot` always purple, `wrench` always green, `split`/`filter`/`refresh` orange); the checker warns when an icon changes colour.
 
 ## Icons
 `bolt`, `bulb`, `chat`, `check`, `cloud`, `code`, `cube`, `database`, `doc`, `filter`, `flag`, `gear`, `globe`, `history`, `layers`, `link`, `lock`, `memory`, `play`, `refresh`, `robot`, `search`, `server`, `share`, `shield`, `split`, `terminal`, `user`, `wrench`

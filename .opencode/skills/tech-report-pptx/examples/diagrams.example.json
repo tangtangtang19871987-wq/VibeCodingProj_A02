@@ -39,7 +39,7 @@
       "text": "在图中共享并管理的状态"
      },
      "title": "State",
-     "icon": "database",
+     "icon": "memory",
      "stack": true
     },
     {
@@ -53,7 +53,7 @@
       "text": "执行任务、操作或 LLM 调用"
      },
      "title": "Nodes",
-     "icon": "cube",
+     "icon": "layers",
      "stack": true
     },
     {
@@ -62,12 +62,12 @@
      "y": 330,
      "w": 138,
      "h": 150,
-     "tone": "teal",
+     "tone": "orange",
      "body": {
       "text": "定义流程与节点间的转移"
      },
      "title": "Edges",
-     "icon": "share",
+     "icon": "split",
      "stack": true
     },
     {
@@ -78,7 +78,7 @@
      "w": 110,
      "h": 34,
      "label": "START",
-     "tone": "green",
+     "tone": "gray",
      "shape": "pill"
     },
     {
@@ -89,7 +89,7 @@
      "w": 230,
      "h": 46,
      "label": "Load Input",
-     "tone": "green",
+     "tone": "blue",
      "sub": "Node",
      "icon": "doc"
     },
@@ -115,7 +115,7 @@
      "label": "Generate Response",
      "tone": "purple",
      "sub": "Node",
-     "icon": "chat"
+     "icon": "robot"
     },
     {
      "kind": "node",
@@ -138,7 +138,7 @@
      "w": 110,
      "h": 72,
      "label": "Refine / Retry",
-     "tone": "pink",
+     "tone": "orange",
      "icon": "refresh",
      "layout": "stack"
     },
@@ -150,7 +150,7 @@
      "w": 110,
      "h": 34,
      "label": "END",
-     "tone": "green",
+     "tone": "gray",
      "shape": "pill"
     },
     {
@@ -169,7 +169,7 @@
        },
        {
         "style": "dashed",
-        "tone": "green",
+        "tone": "orange",
         "text": "Conditional Edge"
        },
        {
@@ -216,9 +216,9 @@
      "from": "dc",
      "to": "en",
      "style": "dashed",
-     "tone": "green",
+     "tone": "orange",
      "label": "YES",
-     "label_tone": "green",
+     "label_tone": "orange",
      "label_at": [
       752,
       388
@@ -251,7 +251,7 @@
      "w": 280,
      "h": 54,
      "label": "System Prompt",
-     "tone": "purple",
+     "tone": "blue",
      "sub": "角色、目标、指令、行为约束",
      "icon": "doc"
     },
@@ -287,9 +287,9 @@
      "w": 280,
      "h": 54,
      "label": "当前执行状态",
-     "tone": "orange",
+     "tone": "blue",
      "sub": "任务进度、已完成步骤、临时变量等",
-     "icon": "database"
+     "icon": "history"
     },
     {
      "kind": "node",
@@ -299,7 +299,7 @@
      "w": 280,
      "h": 54,
      "label": "相关记忆",
-     "tone": "pink",
+     "tone": "blue",
      "sub": "用户偏好、历史知识、长期信息等",
      "icon": "memory"
     },
@@ -336,10 +336,11 @@
        },
        {
         "icon": "wrench",
+        "tone": "green",
         "title": "工具定义"
        },
        {
-        "icon": "database",
+        "icon": "memory",
         "title": "相关信息"
        }
       ]
@@ -380,7 +381,7 @@
      "y": 330,
      "w": 270,
      "h": 158,
-     "tone": "blue",
+     "tone": "gray",
      "body": {
       "bullets": [
        "State：保存执行过程中的数据",
@@ -533,9 +534,9 @@
      "w": 240,
      "h": 124,
      "label": "tools_condition",
-     "tone": "blue",
+     "tone": "orange",
      "sub": "判断是否需要工具调用",
-     "icon": "share",
+     "icon": "split",
      "shape": "diamond"
     },
     {
@@ -558,9 +559,9 @@
      "w": 200,
      "h": 58,
      "label": "最终回答",
-     "tone": "orange",
+     "tone": "purple",
      "sub": "生成最终结果",
-     "icon": "chat"
+     "icon": "bolt"
     },
     {
      "kind": "node",
@@ -570,9 +571,9 @@
      "w": 200,
      "h": 58,
      "label": "tools 节点",
-     "tone": "purple",
+     "tone": "green",
      "sub": "将工具结果写入 State",
-     "icon": "gear"
+     "icon": "terminal"
     },
     {
      "kind": "node",
@@ -592,7 +593,7 @@
      "w": 210,
      "h": 38,
      "n": 1,
-     "tone": "blue",
+     "tone": "gray",
      "text": "从 START 开始，进入 agent 节点"
     },
     {
@@ -612,7 +613,7 @@
      "w": 190,
      "h": 48,
      "n": 3,
-     "tone": "blue",
+     "tone": "orange",
      "text": "根据模型返回，判断是否有工具调用"
     },
     {
@@ -632,7 +633,7 @@
      "w": 110,
      "h": 58,
      "n": 5,
-     "tone": "orange",
+     "tone": "purple",
      "text": "无工具调用时直接结束"
     },
     {
@@ -642,7 +643,7 @@
      "w": 400,
      "h": 34,
      "n": 6,
-     "tone": "blue",
+     "tone": "green",
      "text": "工具执行完成后，返回 agent 节点进行下一轮模型调用"
     },
     {
@@ -651,7 +652,7 @@
      "y": 0,
      "w": 325,
      "h": 190,
-     "tone": "blue",
+     "tone": "gray",
      "body": {
       "code": "from langgraph.graph import StateGraph\nb = StateGraph(AgentState)\nb.add_node(\"agent\", call_model)\nb.add_node(\"tools\", ToolNode(tools))\nb.add_edge(START, \"agent\")\nb.add_conditional_edges(\"agent\",\n  tools_condition, {\"tools\": \"tools\"})\nb.add_edge(\"tools\", \"agent\")\ngraph = b.compile()"
      },
@@ -673,8 +674,8 @@
         "sub": "调用模型，生成回复"
        },
        {
-        "icon": "share",
-        "tone": "blue",
+        "icon": "split",
+        "tone": "orange",
         "title": "tools_condition",
         "sub": "判断是否需要工具调用"
        },
@@ -685,8 +686,8 @@
         "sub": "执行工具，获取结果"
        },
        {
-        "icon": "chat",
-        "tone": "orange",
+        "icon": "bolt",
+        "tone": "purple",
         "title": "最终回答",
         "sub": "生成最终结果"
        }
@@ -700,7 +701,7 @@
      "y": 392,
      "w": 325,
      "h": 96,
-     "tone": "blue",
+     "tone": "gray",
      "body": {
       "bullets": [
        "循环由图的回边表达",
@@ -743,7 +744,7 @@
      "ts": "t",
      "tone": "dark",
      "label": "无需调用工具",
-     "label_tone": "orange",
+     "label_tone": "purple",
      "label_at": [
       502,
       195

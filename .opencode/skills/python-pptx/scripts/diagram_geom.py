@@ -21,16 +21,20 @@ import math
 
 CW, CH = 1000, 490
 
-TONES = {  # border, tint (fill), solid (icon / text accent)
-    "blue":   {"border": (96, 150, 250), "fill": (234, 242, 255), "solid": (47, 107, 255)},
-    "purple": {"border": (160, 125, 250), "fill": (241, 235, 255), "solid": (124, 77, 255)},
-    "green":  {"border": (60, 190, 140), "fill": (230, 248, 239), "solid": (22, 160, 107)},
-    "orange": {"border": (247, 178, 70), "fill": (255, 241, 224), "solid": (240, 138, 28)},
-    "pink":   {"border": (240, 110, 170), "fill": (255, 232, 242), "solid": (232, 62, 140)},
-    "teal":   {"border": (45, 200, 185), "fill": (225, 247, 245), "solid": (13, 148, 136)},
-    "gray":   {"border": (160, 174, 196), "fill": (238, 241, 248), "solid": (100, 116, 139)},
-    "dark":   {"border": (42, 58, 122), "fill": (238, 241, 250), "solid": (42, 58, 122)},
+# Semantic palette (low-saturation tints; high saturation only for icons / labels / emphasis).
+#   blue   = main accent: input, data, general flow, output, decisions
+#   purple = model / agent / runtime        green = tools / storage / success        orange = decision / warning / branch
+#   gray   = start / end / neutral          dark  = navy lines & titles
+TONES = {  # border, tint (fill), solid (icon / label / line)
+    "blue":   {"border": (186, 206, 238), "fill": (238, 244, 252), "solid": (59, 125, 221)},
+    "purple": {"border": (203, 194, 238), "fill": (244, 241, 252), "solid": (124, 107, 214)},
+    "green":  {"border": (172, 222, 204), "fill": (234, 247, 242), "solid": (46, 170, 130)},
+    "orange": {"border": (240, 206, 168), "fill": (254, 246, 237), "solid": (230, 140, 58)},
+    "gray":   {"border": (203, 211, 222), "fill": (242, 245, 249), "solid": (107, 122, 144)},
+    "dark":   {"border": (22, 50, 92),    "fill": (240, 243, 248), "solid": (22, 50, 92)},
 }
+NEUTRAL = {"gray", "dark"}
+RETIRED = {"pink": "purple", "teal": "blue"}   # removed from the palette — validate() tells the author what to use
 
 # 24x24 stroke icons (stroke-width 2, round caps). Own simple geometry.
 ICONS = {
@@ -161,13 +165,13 @@ def cube_faces(cx, cy, e):
     return {"top": [T, R, C, L], "left": [L, C, B, BL], "right": [C, R, BR, B]}
 
 
-# 3 glass cubes inside a w x h box: (cx frac, cy frac, edge frac of w, (top, left, right) gradient colours)
+# 3 soft flat cubes inside a w x h box: (cx frac, cy frac, edge frac of w, (top, left, right) flat colours)
 CUBE_SET = [
-    (0.34, 0.30, 0.17, [((31, 214, 160), (110, 231, 200)), ((16, 160, 120), (31, 214, 160)), ((60, 190, 150), (160, 235, 215))]),
-    (0.58, 0.64, 0.30, [((190, 160, 255), (230, 215, 255)), ((124, 77, 255), (95, 90, 245)), ((150, 120, 255), (200, 175, 255))]),
-    (0.18, 0.72, 0.12, [((130, 175, 255), (190, 215, 255)), ((80, 135, 240), (130, 175, 255)), ((105, 155, 250), (170, 200, 255))]),
+    (0.34, 0.30, 0.17, [(178, 230, 212), (140, 212, 188), (112, 196, 170)]),
+    (0.58, 0.64, 0.30, [(216, 209, 245), (180, 168, 232), (152, 138, 218)]),
+    (0.18, 0.72, 0.12, [(196, 218, 245), (156, 190, 238), (126, 168, 228)]),
 ]
-CUBE_DOTS = [(0.80, 0.34, 0.035, (124, 77, 255)), (0.12, 0.38, 0.02, (31, 214, 160)), (0.86, 0.80, 0.018, (47, 123, 255))]
+CUBE_DOTS = [(0.80, 0.34, 0.035, (150, 138, 218)), (0.12, 0.38, 0.02, (112, 196, 170)), (0.86, 0.80, 0.018, (126, 168, 228))]
 
 
 # ---------------------------------------------------------------- validation
@@ -180,7 +184,8 @@ def validate(s):
     for e in els:
         k = e.get("kind")
         if k not in ("node", "group", "note", "chip", "panel", "text", "heading", "cubes"): probs.append(("ERROR", "unknown element kind %r" % k)); continue
-        if e.get("tone") and e["tone"] not in TONES: probs.append(("ERROR", "unknown tone %r" % e["tone"]))
+        if e.get("tone") in RETIRED: probs.append(("ERROR", "tone %r is not in the palette — use %r (palette: blue, purple, green, orange, gray, dark)" % (e["tone"], RETIRED[e["tone"]])))
+        elif e.get("tone") and e["tone"] not in TONES: probs.append(("ERROR", "unknown tone %r" % e["tone"]))
         if e.get("icon") and e["icon"] not in ICONS: probs.append(("ERROR", "unknown icon %r (valid: %s)" % (e["icon"], ", ".join(sorted(ICONS)))))
         x, y, w, h = rect(e)
         if x < -0.5 or y < -0.5 or x + w > CW + 0.5 or y + h > CH + 0.5: probs.append(("ERROR", "%s %r out of canvas (%.0f,%.0f,%.0f,%.0f) — canvas is %dx%d" % (k, e.get("id") or e.get("label") or e.get("title") or e.get("text", "")[:12], x, y, w, h, CW, CH)))
@@ -204,3 +209,18 @@ def validate(s):
                 if lx1 > x + 3 and lx0 < x + w - 3 and ly1 > y + 3 and ly0 < y + h - 3:
                     probs.append(("WARN", "edge %s->%s crosses %s %r" % (ed["from"], ed["to"], e["kind"], e.get("id") or e.get("label") or e.get("title")))); break
     return probs
+
+
+def tones_used(s):
+    """Non-neutral tones used on one diagram slide."""
+    used = set()
+    def add(t):
+        if t and t not in NEUTRAL: used.add(t)
+    for e in s.get("elements", []):
+        if e.get("kind") in ("node", "group", "note", "chip", "panel"): add(e.get("tone", "blue"))
+        b = e.get("body", {})
+        for k in ("items", "rows", "legend"):
+            for it in b.get(k, []): add(it.get("tone", e.get("tone", "blue")))
+    for ed in s.get("edges", []):
+        for k in ("tone", "label_tone"): add(ed.get(k))
+    return used

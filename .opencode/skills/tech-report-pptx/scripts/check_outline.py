@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Validate outline.json BEFORE building: structure, slide types, and `diagram` geometry
-(unknown ids/icons/tones, out-of-canvas, element overlaps, edges crossing nodes).
+(unknown ids/icons/tones, out-of-canvas, element overlaps, edges crossing nodes)
+and the house colour rules (<=3 non-neutral colours per slide; same icon = same colour across the deck).
 
   python3 check_outline.py outline.json        # exit 1 on ERROR
 """
@@ -18,6 +19,7 @@ def main():
     def say(sev, i, msg):
         nonlocal errs, warns
         print("%-5s slide %s: %s" % (sev, i, msg)); errs += sev == "ERROR"; warns += sev == "WARN"
+    icon_tones = {}
     if "meta" not in o or "title" not in o.get("meta", {}): say("ERROR", "-", "meta.title missing")
     for i, s in enumerate(o.get("slides", []), 1):
         t = s.get("type")
@@ -28,6 +30,13 @@ def main():
         if not s.get("notes"): say("WARN", i, "no speaker notes")
         if t == "diagram":
             for sev, m in G.validate(s): say(sev, i, m)
+            u = G.tones_used(s)
+            if len(u) > 3: say("WARN", i, "uses %d colours (%s) — house style: one main accent + 1-2 secondary" % (len(u), ", ".join(sorted(u))))
+            for e in s.get("elements", []):
+                if e.get("kind") == "node" and e.get("key") and e.get("w", 0) * e.get("h", 0) > 16000: say("WARN", i, "key node %r is large — emphasis should stay small" % e.get("id"))
+                if e.get("icon"): icon_tones.setdefault(e["icon"], {}).setdefault(e.get("tone", "blue"), []).append(i)
+    for ic, tm in icon_tones.items():
+        if len(tm) > 1: say("WARN", "-", "icon %r used with different colours %s — same component type should keep the same semantic colour" % (ic, {k: v for k, v in tm.items()}))
     print("result: %d error(s), %d warning(s)" % (errs, warns)); sys.exit(1 if errs else 0)
 
 

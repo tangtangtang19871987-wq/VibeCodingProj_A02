@@ -21,7 +21,7 @@ from lxml import etree
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _fit, theme_tokens, diagram_geom as G
 ICON_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "icons"))
-NAVY, SUBT = (21, 33, 74), (91, 103, 136)
+NAVY, SUBT = (22, 50, 92), (92, 106, 128)
 
 W, H = 13.333, 7.5
 MX, MY = 0.85, 0.7
@@ -46,9 +46,6 @@ class Deck:
         self.n += 1
         bg = sl.background.fill; bg.solid(); bg.fore_color.rgb = rgb(self.t["bg"])
         if s.get("notes"): sl.notes_slide.notes_text_frame.text = s["notes"]
-        if self.t["glass"]:   # soft light gradient background (renders identically in PowerPoint / LibreOffice)
-            bgf = sl.background.fill; bgf.gradient(); bgf.gradient_angle = 35
-            bgf.gradient_stops[0].color.rgb = RGBColor(250, 252, 255); bgf.gradient_stops[1].color.rgb = RGBColor(232, 239, 252)
         if footer:
             self.text(sl, MX, H - 0.5, 8, 0.3, self.meta.get("title", ""), 10, self.t["muted"], name="Footer")
             self.text(sl, W - MX - 1, H - 0.5, 1, 0.3, str(self.n), 10, self.t["muted"], align="r", name="PageNo")
@@ -134,7 +131,7 @@ class Deck:
             self.text(sl, MX, MY + 0.12, 8, 0.35, (kicker or s["kicker"]).upper(), 13, self.t["accent"], True, name="Kicker")
         t = s.get("title", "")
         th = 0.7 if compact else 0.95
-        self.text(sl, MX, MY + 0.45, W - 2 * MX, th, t.upper() if self.t["upper"] else t, 34, self.t["fg"], True,
+        self.text(sl, MX, MY + 0.45, W - 2 * MX, th, t.upper() if self.t["upper"] else t, 34, self.t["head"], True,
                   font=self.t["font_head"], anchor="m", name="Title", min_size=22)
         return MY + (1.3 if compact else 1.6)   # y where body starts
 
@@ -144,6 +141,14 @@ class Deck:
         """Gradient fill (any number of stops). alphas in percent per stop. Replaces existing fill."""
         colors = colors or [self.t["accent"], self.t["accent2"], self.t["accent3"]]
         spPr = sh._element.spPr
+        if self.t.get("flat"):   # clean style: no gradients — solid colour of the first stop
+            for tag in ("a:solidFill", "a:gradFill", "a:noFill", "a:pattFill", "a:blipFill"):
+                for el in spPr.findall(qn(tag)): spPr.remove(el)
+            sf = etree.Element(qn("a:solidFill")); sc = etree.SubElement(sf, qn("a:srgbClr")); sc.set("val", "%02X%02X%02X" % tuple(colors[0]))
+            if alphas and alphas[0] < 100: etree.SubElement(sc, qn("a:alpha")).set("val", str(int(alphas[0] * 1000)))
+            geom = spPr.find(qn("a:prstGeom"))
+            if geom is None: geom = spPr.find(qn("a:custGeom"))
+            geom.addnext(sf); return sh
         for tag in ("a:solidFill", "a:gradFill", "a:noFill", "a:pattFill", "a:blipFill"):
             for el in spPr.findall(qn(tag)): spPr.remove(el)
         g = etree.Element(qn("a:gradFill")); g.set("rotWithShape", "1"); lst = etree.SubElement(g, qn("a:gsLst"))
@@ -171,6 +176,7 @@ class Deck:
         spPr.find(qn("a:prstGeom")).addnext(g)
 
     def soft_shadow(self, sh, blur=30, dist=8, alpha=14, color=(60, 90, 200)):
+        if self.t.get("flat"): blur, dist, alpha, color = min(blur, 8), min(dist, 2), 7, (30, 60, 120)   # clean style: hairline-light shadow
         spPr = sh._element.spPr
         for el in spPr.findall(qn("a:effectLst")): spPr.remove(el)
         ef = etree.SubElement(spPr, qn("a:effectLst")); o = etree.SubElement(ef, qn("a:outerShdw"))
@@ -269,13 +275,21 @@ class Deck:
             f = self.poly(sl, pts, cs[0], (255, 255, 255), 2.0, name="CubeFace"); self.gfill(f, cs, ang)
         core = self.poly(sl, C((280, 215), (340, 250), (280, 285), (220, 250)), (255, 255, 255), (255, 255, 255), 1.5, name="CubeCore"); self.gfill(core, [(255, 255, 255), (255, 255, 255)], 0, [45, 25])
 
+    def draw_cubes(self, sl, bx, by, bw, bh):
+        """Three soft flat isometric cubes (native freeform faces); box in inches."""
+        for fx, fy, fe, cols in G.CUBE_SET:
+            for fi, (fname, pts) in enumerate(G.cube_faces(bx + fx * bw, by + fy * bh, fe * bw).items()):
+                self.poly(sl, pts, cols[fi], (255, 255, 255), 1.75, name="Cube")
+        for fx, fy, fr, col in G.CUBE_DOTS:
+            r_ = fr * bw; self.rect(sl, bx + fx * bw - r_, by + fy * bh - r_, 2 * r_, 2 * r_, col, shape=MSO_SHAPE.OVAL, name="Dot")
+
     def hero(self, s):
         sl = self.new_slide(s, footer=False)
         lx, lw_ = MX, 3.9
         self.text(sl, lx, 1.35, lw_, 0.4, s.get("kicker", ""), 14, self.t["accent"], True, name="Kicker")
-        self.text(sl, lx, 1.8, lw_, 1.9, (s.get("title", "")).split("\n"), 40, self.t["fg"], True, self.t["font_head"], name="Title", min_size=26, spacing=1.0)
+        self.text(sl, lx, 1.8, lw_, 1.9, (s.get("title", "")).split("\n"), 40, self.t["head"], True, self.t["font_head"], name="Title", min_size=26, spacing=1.0)
         self.text(sl, lx, 3.75, lw_, 1.0, s.get("tagline", s.get("subtitle", "")), 17, self.t["muted"], name="Tagline")
-        self.cube(sl, 4.95, 0.7, 3.5)
+        self.draw_cubes(sl, 4.9, 0.9, 3.5, 4.0)
         if s.get("nodes"): self.dag(sl, s["nodes"], s.get("edges", []), 8.85, 1.2, 3.65, 3.7, 1.4, 0.74, 12)
         cons = s.get("concepts", [])[:3]
         if cons:
@@ -323,7 +337,7 @@ class Deck:
             bar = self.rect(sl, 0.6, 0.24, 0.9, 0.06, T["accent"], name="AccentBar")
             if T["glass"]: self.gfill(bar)
             if s.get("kicker"): self.text(sl, 0.55, 0.3, 8, 0.3, s["kicker"].upper(), 12, T["accent"], True, name="Kicker", fit=False)
-            self.text(sl, 0.55, 0.55, W - 1.1, 0.62, s.get("title", ""), 28, T["fg"], True, T["font_head"], anchor="m", name="Title", min_size=20)
+            self.text(sl, 0.55, 0.55, W - 1.1, 0.62, s.get("title", ""), 28, T["head"], True, T["font_head"], anchor="m", name="Title", min_size=20)
             if s.get("subtitle"): self.text(sl, 0.55, 1.14, W - 1.1, 0.34, s["subtitle"], 13, T["muted"], name="Subtitle", min_size=10)
             top = 1.62 if s.get("subtitle") else 1.4; u = (H - top - 0.3) / G.CH; ox = (W - G.CW * u) / 2; oy = top
         X = lambda v: ox + v * u; Y = lambda v: oy + v * u; Lg = lambda v: v * u; F = lambda v: max(10.0, v * u * 72)
@@ -353,7 +367,7 @@ class Deck:
             return tb
 
         def tint_card(x, y, w, h, tn, radius=13, shadow=True, dashed=False, alpha=None, name="Node", fill_t=None):
-            t = G.tone(tn); sh = self.rect(sl, x, y, w, h, t["fill"], t["border"], MSO_SHAPE.ROUNDED_RECTANGLE, radius=radius * u * 100 / 100, lw=1.5, name=name)
+            t = G.tone(tn); sh = self.rect(sl, x, y, w, h, t["fill"], t["border"], MSO_SHAPE.ROUNDED_RECTANGLE, radius=radius * u * 100 / 100, lw=1.25, name=name)
             sh.adjustments[0] = min(0.5, radius * u / max(min(w, h), 0.1))
             self.gfill(sh, [t["fill"], self._mix(t["fill"], white, .55)], 45, alpha)
             if shadow: self.soft_shadow(sh, 18, 5, 13, t["solid"])
@@ -365,22 +379,17 @@ class Deck:
         # 1 groups  2 art  3 edges  4 everything else  5 edge labels
         for e in [e for e in els if e["kind"] == "group"]:
             t = G.tone(e.get("tone", "blue")); x, y, w, h = X(e["x"]), Y(e["y"]), Lg(e["w"]), Lg(e["h"])
-            g = self.rect(sl, x, y, w, h, self._mix(t["fill"], white, .45), t["border"], MSO_SHAPE.ROUNDED_RECTANGLE, lw=1.5, name="Lane")
+            g = self.rect(sl, x, y, w, h, self._mix(t["fill"], white, .62), t["border"], MSO_SHAPE.ROUNDED_RECTANGLE, lw=1.5, name="Lane")
             g.adjustments[0] = min(0.5, 18 * u / max(min(w, h), .1))
             lw_ = Lg(max(120, sum(18 if ord(c) > 255 else 10 for c in e.get("label", "")) + 56)); pill = self.rect(sl, x + Lg(18), y - Lg(15), lw_, Lg(30), t["solid"], shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=99, name="LaneLabel")
             pill.adjustments[0] = .5; self.gfill(pill, [t["solid"], self._mix(t["solid"], white, .22)], 0); self.soft_shadow(pill, 10, 3, 25, t["solid"])
             self.text(sl, 0, 0, 0, 0, e.get("label", ""), F(16), white, True, shape=pill, align="c", anchor="m", fit=False)
         for e in [e for e in els if e["kind"] == "cubes"]:
-            bx, by, bw, bh = e["x"], e["y"], e["w"], e["h"]
-            for fx, fy, fe, cols in G.CUBE_SET:
-                for fi, (fname, pts) in enumerate(G.cube_faces(bx + fx * bw, by + fy * bh, fe * bw).items()):
-                    f = self.poly(sl, [(X(a), Y(b)) for a, b in pts], cols[fi][0], white, 1.5, name="Cube"); self.gfill(f, list(cols[fi]), 60, [88, 88])
-            for fx, fy, fr, col in G.CUBE_DOTS:
-                r_ = Lg(fr * bw); self.rect(sl, X(bx + fx * bw) - r_, Y(by + fy * bh) - r_, 2 * r_, 2 * r_, col, shape=MSO_SHAPE.OVAL, name="Dot")
+            self.draw_cubes(sl, X(e["x"]), Y(e["y"]), Lg(e["w"]), Lg(e["h"]))
         ec = s.get("edge_color", "source"); lab_later = []
         for ed in s.get("edges", []):
             pts, lab = G.route(ed, M); col = G.edge_color(ed, M, ec); rp = G.round_poly(pts, 9)
-            self.arrow_line(sl, [(X(a), Y(b)) for a, b in rp], col, ed.get("style") == "dashed", lw=2.25, name="Edge")
+            self.arrow_line(sl, [(X(a), Y(b)) for a, b in rp], col, ed.get("style") == "dashed", lw=2.0, name="Edge")
             if ed.get("label"): lab_later.append((ed, lab))
         for e in els:
             k = e["kind"]; tn = e.get("tone", "blue"); t = G.tone(tn)
@@ -392,10 +401,11 @@ class Deck:
                 elif shp == "pill":
                     d_ = tint_card(x, y, w, h, tn, radius=99); d_.adjustments[0] = .5
                 else: d_ = tint_card(x, y, w, h, tn, dashed=bool(e.get("dashed")))
+                if e.get("key"): d_.line.width = Pt(2.75); d_.line.color.rgb = rgb(t["solid"])
                 if lay == "row" and shp != "diamond":
                     if icon:
                         bd = Lg(30); badge(x + Lg(12) + bd / 2, y + h / 2, bd, tn, icon); tx = x + Lg(12 + 30 + 10)
-                        lines_block(tx, y + Lg(2), x + w - tx - Lg(8), h - Lg(4), e.get("label", ""), sub, F(16), F(12.2), "l", "m")
+                        lines_block(tx, y + Lg(2), x + w - tx - Lg(8), h - Lg(4), e.get("label", ""), sub, F(16), F(12.2), "l", "m", t["solid"] if e.get("key") else NAVY)
                     else:
                         lines_block(x + Lg(6), y, w - Lg(12), h, e.get("label", ""), sub, F(16), F(12.2), "c", "m")
                 else:
@@ -403,7 +413,7 @@ class Deck:
                     nsub = len(sub.split("\n")) if sub else 0; ch = dd + Lg(4) + lsz * 1.2 / 72 + nsub * F(12.2) * 1.2 / 72
                     top_ = y + Lg(16) if e.get("valign") == "top" else y + (h - ch) / 2
                     if icon: badge(x + w / 2, top_ + dd / 2, dd, tn, icon)
-                    lines_block(x + (w - tw) / 2, top_ + (dd + Lg(4) if icon else 0), tw, ch - (dd + Lg(4) if icon else 0) + 0.16, e.get("label", ""), sub, lsz, F(12.2), "c", "t")
+                    lines_block(x + (w - tw) / 2, top_ + (dd + Lg(4) if icon else 0), tw, ch - (dd + Lg(4) if icon else 0) + 0.16, e.get("label", ""), sub, lsz, F(12.2), "c", "t", t["solid"] if e.get("key") else NAVY)
             elif k == "note":
                 x, y, w, h = X(e["x"]), Y(e["y"]), Lg(e["w"]), Lg(e["h"]); c = self.rect(sl, x, y, w, h, self._mix(t["fill"], white, .3), shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=9, name="Note"); c.adjustments[0] = min(.5, 9 * u / max(min(w, h), .1))
                 tx = x + Lg(8)
@@ -415,7 +425,7 @@ class Deck:
             elif k == "panel":
                 x, y, w, h = X(e["x"]), Y(e["y"]), Lg(e["w"]), Lg(e["h"]); b = e.get("body", {}); dashed = bool(e.get("dashed")); pad = Lg(12)
                 c = self.rect(sl, x, y, w, h, white, t["border"], MSO_SHAPE.ROUNDED_RECTANGLE, lw=1.5, name="Panel"); c.adjustments[0] = min(.5, 13 * u / max(min(w, h), .1))
-                self.gfill(c, [white, self._mix(t["fill"], white, .5 if dashed else .25)], 45, [100 if dashed else 94, 100 if dashed else 80])
+                self.gfill(c, [white if dashed else self._mix(t["fill"], white, .55), white], 45, [100 if dashed else 94, 100 if dashed else 80])
                 if dashed:
                     from pptx.enum.dml import MSO_LINE
                     c.line.dash_style = MSO_LINE.DASH
@@ -463,9 +473,7 @@ class Deck:
                 x, w = X(e["x"]), Lg(e["w"]); y = Y(e["y"])
                 if e.get("kicker"): self.text(sl, x, y, w, Lg(22), e["kicker"].upper(), F(13), T["accent"], True, fit=False, name="Kicker"); y += Lg(24)
                 tl = e["title"].split("\n"); th = Lg(37 * 1.12 * len(tl))
-                tb = self.text(sl, x, y, w, th, tl, F(37), T["accent"], True, T["font_head"], name="Title", min_size=24, spacing=1.0)
-                for p_ in tb.text_frame.paragraphs:
-                    for r_ in p_.runs: self.grad_text(r_, [T["accent"], T["accent2"]])
+                tb = self.text(sl, x, y, w, th, tl, F(37), T["head"], True, T["font_head"], name="Title", min_size=24, spacing=1.0)
                 if e.get("tagline"): self.text(sl, x, y + th + Lg(12), w, Lg(70), e["tagline"], F(14.5), T["muted"], min_size=11, name="Tagline")
         for ed, lab in lab_later:
             lt = G.tone(ed.get("label_tone") or ed.get("tone") or (M[ed["from"]].get("tone") or "blue")); cw_ = G.chip_w({"text": ed["label"]})
@@ -480,7 +488,7 @@ class Deck:
         deco.fill.transparency = 0.0
         self._alpha(deco, 28)
         self.rect(sl, MX, 2.35, 1.2, 0.09, self.t["accent"])
-        self.text(sl, MX, 2.55, 10.5, 2.0, s.get("title", self.meta.get("title", "")), 54, self.t["fg"], True, self.t["font_head"], anchor="t", name="Title", min_size=32)
+        self.text(sl, MX, 2.55, 10.5, 2.0, s.get("title", self.meta.get("title", "")), 54, self.t["head"], True, self.t["font_head"], anchor="t", name="Title", min_size=32)
         if s.get("subtitle"): self.text(sl, MX, 4.55, 9.5, 0.9, s["subtitle"], 22, self.t["muted"], name="Subtitle")
         meta = " · ".join(x for x in [self.meta.get("author"), self.meta.get("org"), self.meta.get("date")] if x)
         if meta: self.text(sl, MX, 6.2, 10, 0.4, meta, 14, self.t["muted"], name="Meta")
@@ -488,7 +496,7 @@ class Deck:
     def section(self, s):
         sl = self.new_slide(s)
         self.text(sl, MX, 1.6, 6, 2.6, s.get("number", ""), 150, self.t["accent"], True, self.t["font_head"], name="Number", fit=False)
-        self.text(sl, MX, 4.1, W - 2 * MX, 1.2, s.get("title", ""), 44, self.t["fg"], True, self.t["font_head"], name="Title", min_size=28)
+        self.text(sl, MX, 4.1, W - 2 * MX, 1.2, s.get("title", ""), 44, self.t["head"], True, self.t["font_head"], name="Title", min_size=28)
         if s.get("subtitle"): self.text(sl, MX, 5.3, 10, 0.8, s["subtitle"], 20, self.t["muted"])
 
     def agenda(self, s):
@@ -521,7 +529,7 @@ class Deck:
         for i, it in enumerate(items):
             x = MX + i * (cw + gap); self.card(sl, x, y0 + 0.2, cw, ch)
             self.text(sl, x + 0.2, y0 + 0.4, cw - 0.4, 0.4, it["label"], 16, self.t["muted"])
-            self.text(sl, x + 0.2, y0 + 0.95, cw - 0.4, 1.2, str(it["value"]), kfs, self.t["fg"], True, self.t["font_head"], anchor="m", name="KPI", min_size=24, fit=False)
+            self.text(sl, x + 0.2, y0 + 0.95, cw - 0.4, 1.2, str(it["value"]), kfs, self.t["head"], True, self.t["font_head"], anchor="m", name="KPI", min_size=24, fit=False)
             if it.get("delta"):
                 bad = str(it["delta"]).strip().startswith(("▼", "-", "−")) and not it.get("good_down")
                 self.text(sl, x + 0.2, y0 + 2.25, cw - 0.4, 0.5, it["delta"], 16, self.t["bad"] if bad else self.t["good"], True)
@@ -576,10 +584,11 @@ class Deck:
             tbl.rows[ri].height = Inches(rh)
             for ci in range(len(cols)):
                 cell = tbl.cell(ri, ci); head = ri == 0
-                cell.fill.solid(); cell.fill.fore_color.rgb = rgb(self.t["accent"] if head else (self.t["card"] if ri % 2 else self.t["bg"]))
+                hdr_fill = (237, 243, 251) if self.t["flat"] else self.t["accent"]
+                cell.fill.solid(); cell.fill.fore_color.rgb = rgb(hdr_fill if head else (self.t["card"] if ri % 2 else self.t["bg"]))
                 cell.vertical_anchor = MSO_ANCHOR.MIDDLE; cell.margin_left = cell.margin_right = Inches(0.15)
                 tf = cell.text_frame; tf.word_wrap = True; p = tf.paragraphs[0]; r = p.add_run(); r.text = str(cols[ci] if head else rows[ri - 1][ci])
-                r.font.size = Pt(fs); r.font.bold = head; r.font.name = self.t["font_body"]; r.font.color.rgb = rgb(self.t["on_accent"] if head else self.t["fg"])
+                r.font.size = Pt(fs); r.font.bold = head; r.font.name = self.t["font_body"]; r.font.color.rgb = rgb((self.t["head"] if self.t["flat"] else self.t["on_accent"]) if head else self.t["fg"])
                 p.alignment = PP_ALIGN.RIGHT if ci in num else PP_ALIGN.LEFT
         if s.get("takeaway"): self._takeaway(sl, s["takeaway"], H - 1.75)
 
@@ -599,8 +608,10 @@ class Deck:
         for i, e in enumerate(st):
             x = MX + i * (cw + gap)
             sh = self.rect(sl, x, y0 + 0.3, cw, 1.15, self.t["accent"] if i % 2 == 0 else self.t["accent2"], shape=MSO_SHAPE.PENTAGON, name="Step")
-            if self.t["glass"]: self.gfill(sh, [self.t["accent"], self.t["accent2"]] if i % 2 == 0 else [self.t["accent2"], self.t["accent3"]], 0)
-            self.text(sl, 0, 0, 0, 0, "%d  %s" % (i + 1, e["title"]), 20, self.t["on_accent"], True, shape=sh, anchor="m")
+            scol = self.t["on_accent"]
+            if self.t["flat"]:
+                st = G.tone(("blue", "purple")[i % 2]); sh.fill.solid(); sh.fill.fore_color.rgb = rgb(st["fill"]); sh.line.color.rgb = rgb(st["border"]); sh.line.width = Pt(1.25); scol = st["solid"]
+            self.text(sl, 0, 0, 0, 0, "%d  %s" % (i + 1, e["title"]), 20, scol, True, shape=sh, anchor="m")
             sh.text_frame.margin_right = Inches(0.35)
             self.text(sl, x, y0 + 1.7, cw - 0.15, 2.8, e.get("text", ""), 16, self.t["muted"])
 
@@ -620,9 +631,11 @@ class Deck:
         lh = (avail - gap * (n - 1)) / n; lw = 2.3
         for i, layer in enumerate(L):
             y = y0 + i * (lh + gap)
-            lab = self.rect(sl, MX, y, lw, lh, self.palette[i % 2], shape=MSO_SHAPE.ROUNDED_RECTANGLE, name="LayerLabel")
-            if self.t["glass"]: self.gfill(lab, None, 20)
-            self.text(sl, 0, 0, 0, 0, layer["name"], 18, self.t["on_accent"], True, shape=lab, align="c", anchor="m")
+            if self.t["flat"]:   # tint + coloured label (no saturated block)
+                lt = G.tone(("blue", "purple")[i % 2]); lab = self.rect(sl, MX, y, lw, lh, lt["fill"], lt["border"], MSO_SHAPE.ROUNDED_RECTANGLE, lw=1.25, name="LayerLabel"); lcol = lt["solid"]
+            else:
+                lab = self.rect(sl, MX, y, lw, lh, self.palette[i % 2], shape=MSO_SHAPE.ROUNDED_RECTANGLE, name="LayerLabel"); lcol = self.t["on_accent"]
+            self.text(sl, 0, 0, 0, 0, layer["name"], 18, lcol, True, shape=lab, align="c", anchor="m")
             items = layer["items"]; k = len(items); iw = (W - 2 * MX - lw - 0.25 - 0.18 * (k - 1)) / k
             for j, it in enumerate(items):
                 x = MX + lw + 0.25 + j * (iw + 0.18)
@@ -633,12 +646,13 @@ class Deck:
 
     def code(self, s):
         sl = self.new_slide(s); y0 = self.title(sl, s); bh = H - y0 - (1.7 if s.get("caption") else 1.15)
-        box = self.rect(sl, MX, y0, W - 2 * MX, bh, (11, 16, 32), self.t["border"], MSO_SHAPE.ROUNDED_RECTANGLE, radius=14, name="CodeBox")
+        cfill, ctext, cmut = ((246, 248, 252), (38, 51, 95), (120, 134, 158)) if self.t["flat"] else ((11, 16, 32), (230, 237, 247), (154, 164, 191))
+        box = self.rect(sl, MX, y0, W - 2 * MX, bh, cfill, self.t["border"], MSO_SHAPE.ROUNDED_RECTANGLE, radius=14, name="CodeBox")
         for k, c in enumerate([(255, 95, 86), (255, 189, 46), (39, 201, 63)]):
             self.rect(sl, MX + 0.25 + k * 0.28, y0 + 0.2, 0.17, 0.17, c, shape=MSO_SHAPE.OVAL)
-        if s.get("language"): self.text(sl, W - MX - 2.5, y0 + 0.1, 2.3, 0.35, s["language"], 12, (154, 164, 191), align="r", fit=False)
+        if s.get("language"): self.text(sl, W - MX - 2.5, y0 + 0.1, 2.3, 0.35, s["language"], 12, cmut, align="r", fit=False)
         lines = s["code"].rstrip("\n").split("\n")
-        self.text(sl, MX + 0.2, y0 + 0.6, W - 2 * MX - 0.4, bh - 0.75, lines, 18, (230, 237, 247), font=self.t["font_mono"], name="Code", spacing=1.15, min_size=10)
+        self.text(sl, MX + 0.2, y0 + 0.6, W - 2 * MX - 0.4, bh - 0.75, lines, 18, ctext, font=self.t["font_mono"], name="Code", spacing=1.15, min_size=10)
         if s.get("caption"): self._takeaway(sl, s["caption"], H - 1.65)
 
     def closing(self, s):
