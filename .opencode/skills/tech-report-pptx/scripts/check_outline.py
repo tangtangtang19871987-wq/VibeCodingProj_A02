@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Validate outline.json BEFORE building: structure, slide types, and `diagram` geometry
 (unknown ids/icons/tones, out-of-canvas, element overlaps, edges crossing nodes)
-and the house colour rules (<=3 non-neutral colours per slide; same icon = same colour across the deck).
+and the house colour rules (colour-count hint per slide; same icon = same colour across the deck).
 
   python3 check_outline.py outline.json        # exit 1 on ERROR
 """
@@ -31,7 +31,8 @@ def main():
         if t == "diagram":
             for sev, m in G.validate(s): say(sev, i, m)
             u = G.tones_used(s)
-            if len(u) > 3: say("WARN", i, "uses %d colours (%s) — house style: one main accent + 1-2 secondary" % (len(u), ", ".join(sorted(u))))
+            if len(u) > 5: say("WARN", i, "uses %d colours (%s) — usually 3-4 is enough" % (len(u), ", ".join(sorted(u))))
+            elif len(u) == 5: say("INFO", i, "5 colours in use (%s) — fine for a dense architecture map, otherwise reduce" % ", ".join(sorted(u)))
             for e in s.get("elements", []):
                 if e.get("kind") == "node" and e.get("key") and e.get("w", 0) * e.get("h", 0) > 16000: say("WARN", i, "key node %r is large — emphasis should stay small" % e.get("id"))
                 if e.get("icon"): icon_tones.setdefault(e["icon"], {}).setdefault(e.get("tone", "blue"), []).append(i)

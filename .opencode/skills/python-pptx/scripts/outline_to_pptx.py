@@ -367,7 +367,7 @@ class Deck:
             return tb
 
         def tint_card(x, y, w, h, tn, radius=13, shadow=True, dashed=False, alpha=None, name="Node", fill_t=None):
-            t = G.tone(tn); sh = self.rect(sl, x, y, w, h, t["fill"], t["border"], MSO_SHAPE.ROUNDED_RECTANGLE, radius=radius * u * 100 / 100, lw=1.25, name=name)
+            t = G.tone(tn); sh = self.rect(sl, x, y, w, h, t["fill"], t["border"], MSO_SHAPE.ROUNDED_RECTANGLE, radius=radius * u * 100 / 100, lw=1.75, name=name)
             sh.adjustments[0] = min(0.5, radius * u / max(min(w, h), 0.1))
             self.gfill(sh, [t["fill"], self._mix(t["fill"], white, .55)], 45, alpha)
             if shadow: self.soft_shadow(sh, 18, 5, 13, t["solid"])

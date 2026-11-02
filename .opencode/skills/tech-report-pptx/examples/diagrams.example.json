@@ -34,12 +34,12 @@
      "y": 330,
      "w": 138,
      "h": 150,
-     "tone": "blue",
+     "tone": "orange",
      "body": {
       "text": "在图中共享并管理的状态"
      },
      "title": "State",
-     "icon": "memory",
+     "icon": "sliders",
      "stack": true
     },
     {
@@ -62,7 +62,7 @@
      "y": 330,
      "w": 138,
      "h": 150,
-     "tone": "orange",
+     "tone": "blue",
      "body": {
       "text": "定义流程与节点间的转移"
      },
@@ -91,7 +91,7 @@
      "label": "Load Input",
      "tone": "blue",
      "sub": "Node",
-     "icon": "doc"
+     "icon": "globe"
     },
     {
      "kind": "node",
@@ -251,7 +251,7 @@
      "w": 280,
      "h": 54,
      "label": "System Prompt",
-     "tone": "blue",
+     "tone": "purple",
      "sub": "角色、目标、指令、行为约束",
      "icon": "doc"
     },
@@ -287,9 +287,9 @@
      "w": 280,
      "h": 54,
      "label": "当前执行状态",
-     "tone": "blue",
+     "tone": "orange",
      "sub": "任务进度、已完成步骤、临时变量等",
-     "icon": "history"
+     "icon": "sliders"
     },
     {
      "kind": "node",
@@ -299,7 +299,7 @@
      "w": 280,
      "h": 54,
      "label": "相关记忆",
-     "tone": "blue",
+     "tone": "pink",
      "sub": "用户偏好、历史知识、长期信息等",
      "icon": "memory"
     },
@@ -328,6 +328,7 @@
       "items": [
        {
         "icon": "doc",
+        "tone": "purple",
         "title": "指令"
        },
        {
@@ -341,6 +342,7 @@
        },
        {
         "icon": "memory",
+        "tone": "pink",
         "title": "相关信息"
        }
       ]
@@ -381,7 +383,7 @@
      "y": 330,
      "w": 270,
      "h": 158,
-     "tone": "gray",
+     "tone": "blue",
      "body": {
       "bullets": [
        "State：保存执行过程中的数据",
@@ -534,7 +536,7 @@
      "w": 240,
      "h": 124,
      "label": "tools_condition",
-     "tone": "orange",
+     "tone": "blue",
      "sub": "判断是否需要工具调用",
      "icon": "split",
      "shape": "diamond"
@@ -559,7 +561,7 @@
      "w": 200,
      "h": 58,
      "label": "最终回答",
-     "tone": "purple",
+     "tone": "orange",
      "sub": "生成最终结果",
      "icon": "bolt"
     },
@@ -593,7 +595,7 @@
      "w": 210,
      "h": 38,
      "n": 1,
-     "tone": "gray",
+     "tone": "blue",
      "text": "从 START 开始，进入 agent 节点"
     },
     {
@@ -613,7 +615,7 @@
      "w": 190,
      "h": 48,
      "n": 3,
-     "tone": "orange",
+     "tone": "blue",
      "text": "根据模型返回，判断是否有工具调用"
     },
     {
@@ -633,7 +635,7 @@
      "w": 110,
      "h": 58,
      "n": 5,
-     "tone": "purple",
+     "tone": "orange",
      "text": "无工具调用时直接结束"
     },
     {
@@ -652,7 +654,7 @@
      "y": 0,
      "w": 325,
      "h": 190,
-     "tone": "gray",
+     "tone": "blue",
      "body": {
       "code": "from langgraph.graph import StateGraph\nb = StateGraph(AgentState)\nb.add_node(\"agent\", call_model)\nb.add_node(\"tools\", ToolNode(tools))\nb.add_edge(START, \"agent\")\nb.add_conditional_edges(\"agent\",\n  tools_condition, {\"tools\": \"tools\"})\nb.add_edge(\"tools\", \"agent\")\ngraph = b.compile()"
      },
@@ -664,7 +666,7 @@
      "y": 198,
      "w": 325,
      "h": 186,
-     "tone": "gray",
+     "tone": "blue",
      "body": {
       "items": [
        {
@@ -675,7 +677,7 @@
        },
        {
         "icon": "split",
-        "tone": "orange",
+        "tone": "blue",
         "title": "tools_condition",
         "sub": "判断是否需要工具调用"
        },
@@ -701,7 +703,7 @@
      "y": 392,
      "w": 325,
      "h": 96,
-     "tone": "gray",
+     "tone": "blue",
      "body": {
       "bullets": [
        "循环由图的回边表达",
@@ -744,7 +746,7 @@
      "ts": "t",
      "tone": "dark",
      "label": "无需调用工具",
-     "label_tone": "purple",
+     "label_tone": "orange",
      "label_at": [
       502,
       195

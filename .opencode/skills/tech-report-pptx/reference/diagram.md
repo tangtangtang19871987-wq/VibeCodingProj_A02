@@ -30,12 +30,13 @@ Everything is placed in **1000 × 490 units** (x→right, y→down, origin top-l
 - **Loop back** (dashed): `fs:"l", ts:"l", bulge:30` (goes around the left side) or explicit `via` waypoints (`via` points must be orthogonal).
 - Colour: `tone` per edge, else the source node's tone (`edge_color:"source"`); `edge_color:"dark"` = navy for all (LangGraph style). Convention: **solid = sequential, dashed = conditional / loop**; label branches with chips (`需要调用工具` green, `无需调用工具` orange / `YES` `NO`).
 
-## Colour rules (house style — clean, professional, never flashy)
-White / light blue-grey page; **low-saturation tints for card fills**; saturated colour only for titles, labels, icons, edges and (small) key nodes. **≤ 3 non-neutral colours per slide** (one main + one or two secondary). No neon, no dark tech background, no gradients, no strong shadows. Same component type ⇒ same colour on every slide.
+## Colour rules (measured from the user's reference images — clean, professional, never flashy)
+Page: near-white (`#fdfdfe`). Titles: deep navy. Body: dark grey. Cards/nodes: **pale tint fills** (e.g. green `#e5f6ed`, orange `#fef0e3`, purple `#ede7fd`) with a **clear 1.5px tone-coloured border**; **vivid tone colour only for icons, labels, lane header pills, edges and (small) key nodes**. Never: large saturated blocks, neon, dark backgrounds, gradients, strong shadows. Same component type ⇒ same colour on every slide.
 
-Tones: `blue` main accent — input / data / general / output · `purple` — model / agent / runtime · `green` (mint) — tools / storage / success · `orange` — decision / branch / warning · `gray` — start / end / neutral panels · `dark` — navy lines. (`pink` and `teal` are retired — `check_outline.py` errors on them.)
+Tones: `blue` input / data / general flow / branching · `purple` model / agent / runtime / instructions · `green` tools / storage / success · `orange` state / progress / answer / retry · `pink` memory / long-term knowledge · `gray` start / end / neutral · `dark` navy lines. (`teal` is retired — `check_outline.py` errors on it.)
+Colour count: usually a main colour + 1–2 secondary; a dense architecture map may use 4–5 semantic tones (the checker only hints at 5 and warns above).
 `key:true` on a **small** node = heavier border + coloured label for the one node the audience must look at (warns if the node is large).
-Icon ⇒ colour is fixed across the deck (e.g. `robot` always purple, `wrench` always green, `split`/`filter`/`refresh` orange); the checker warns when an icon changes colour.
+Icon ⇒ colour is fixed across the deck (e.g. `robot` always purple, `wrench` green, `sliders` orange, `memory` pink, `split` blue); the checker warns when an icon changes colour.
 
 ## Icons
 `bolt`, `bulb`, `chat`, `check`, `cloud`, `code`, `cube`, `database`, `doc`, `filter`, `flag`, `gear`, `globe`, `history`, `layers`, `link`, `lock`, `memory`, `play`, `refresh`, `robot`, `search`, `server`, `share`, `shield`, `split`, `terminal`, `user`, `wrench`

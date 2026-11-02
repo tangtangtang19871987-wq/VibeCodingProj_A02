@@ -21,23 +21,27 @@ import math
 
 CW, CH = 1000, 490
 
-# Semantic palette (low-saturation tints; high saturation only for icons / labels / emphasis).
-#   blue   = main accent: input, data, general flow, output, decisions
-#   purple = model / agent / runtime        green = tools / storage / success        orange = decision / warning / branch
-#   gray   = start / end / neutral          dark  = navy lines & titles
+# Semantic palette — MEASURED from the user's reference images:
+#   page #fdfdfe (near white) · titles deep navy · card fills = pale tints · borders = clear mid/vivid tone colour (1.5px)
+#   icons / labels / edges = vivid tone colour · lane header pills = solid tone with white text.
+#   blue   = input / data / general flow / branching         purple = model / agent / runtime / instructions
+#   green  = tools / storage / success                       orange = state / progress / answer / retry
+#   pink   = memory / long-term knowledge                    gray   = start / end / neutral          dark = navy lines
 TONES = {  # border, tint (fill), solid (icon / label / line)
-    "blue":   {"border": (186, 206, 238), "fill": (238, 244, 252), "solid": (59, 125, 221)},
-    "purple": {"border": (203, 194, 238), "fill": (244, 241, 252), "solid": (124, 107, 214)},
-    "green":  {"border": (172, 222, 204), "fill": (234, 247, 242), "solid": (46, 170, 130)},
-    "orange": {"border": (240, 206, 168), "fill": (254, 246, 237), "solid": (230, 140, 58)},
-    "gray":   {"border": (203, 211, 222), "fill": (242, 245, 249), "solid": (107, 122, 144)},
-    "dark":   {"border": (22, 50, 92),    "fill": (240, 243, 248), "solid": (22, 50, 92)},
+    "blue":   {"border": (140, 184, 236), "fill": (236, 244, 253), "solid": (20, 112, 232)},
+    "purple": {"border": (172, 160, 232), "fill": (237, 231, 253), "solid": (108, 60, 236)},
+    "green":  {"border": (56, 180, 124),  "fill": (229, 246, 237), "solid": (8, 148, 100)},
+    "orange": {"border": (250, 150, 70),  "fill": (254, 240, 227), "solid": (240, 138, 28)},
+    "pink":   {"border": (240, 140, 175), "fill": (254, 237, 243), "solid": (232, 62, 116)},
+    "gray":   {"border": (168, 178, 202), "fill": (232, 237, 247), "solid": (92, 108, 142)},
+    "dark":   {"border": (16, 44, 88),    "fill": (238, 242, 249), "solid": (16, 44, 88)},
 }
 NEUTRAL = {"gray", "dark"}
-RETIRED = {"pink": "purple", "teal": "blue"}   # removed from the palette — validate() tells the author what to use
+RETIRED = {"teal": "blue"}   # not in the reference palette — validate() tells the author what to use
 
 # 24x24 stroke icons (stroke-width 2, round caps). Own simple geometry.
 ICONS = {
+    "sliders": "M4 6h9 M17 6h3 M13 4v4 M4 12h3 M11 12h9 M7 10v4 M4 18h11 M19 18h1 M15 16v4",
     "doc": "M6 3h8l4 4v14H6z M14 3v4h4 M9 12h6 M9 16h6",
     "chat": "M4 5h16v11H9l-5 4z M8 10.5h.01 M12 10.5h.01 M16 10.5h.01",
     "wrench": "M14.5 6.5a4 4 0 0 0-5 5L4 17l3 3 5.5-5.5a4 4 0 0 0 5-5l-2.5 2.5-2.5-.5-.5-2.5z",
