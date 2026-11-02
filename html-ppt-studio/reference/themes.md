@@ -1,4 +1,4 @@
-# Themes (24)
+# Themes (25)
 
 Set with `<body data-theme="NAME">`. Press `T` while presenting to cycle.
 
@@ -28,3 +28,4 @@ Set with `<body data-theme="NAME">`. Press `T` while presenting to cycle.
 | 22 | `retro-80s` | Retro 80s | dark | `#ff6ec7` |
 | 23 | `glass` | Glass | dark | `#7dd3fc` |
 | 24 | `gold-luxe` | Gold Luxe | dark | `#d4af37` |
+| 25 | `modern-tech` | Modern Tech | light | `#2f7bff` (+ AI purple `#7c4dff`, mint `#1fd6a0`) — **default** |

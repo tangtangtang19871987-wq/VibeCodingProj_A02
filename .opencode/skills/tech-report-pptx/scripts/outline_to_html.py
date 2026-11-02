@@ -28,6 +28,73 @@ EXTRA_CSS = """
 PAL = ["var(--accent)", "var(--accent2)", "var(--good)", "var(--warn)", "var(--muted)"]
 
 
+
+CUBE = """<svg viewBox="0 0 560 620" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<linearGradient id="gt" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1fd6a0"/><stop offset="1" stop-color="#2f7bff"/></linearGradient>
+<linearGradient id="gl" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2f7bff"/><stop offset="1" stop-color="#7c4dff"/></linearGradient>
+<linearGradient id="gr" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c4dff"/><stop offset="1" stop-color="#b38cff"/></linearGradient>
+<radialGradient id="sh"><stop offset="0" stop-color="#3c5ac8" stop-opacity=".30"/><stop offset="1" stop-color="#3c5ac8" stop-opacity="0"/></radialGradient>
+</defs>
+<ellipse cx="280" cy="560" rx="170" ry="30" fill="url(#sh)"/>
+<g stroke="#8aa0e6" stroke-width="2.5" stroke-dasharray="9 8" fill="none" opacity=".75">
+<path d="M150 260 L40 170"/><path d="M410 260 L520 160"/><path d="M410 380 L525 470"/><path d="M150 380 L45 480"/><path d="M280 140 L280 40"/></g>
+<g fill="rgba(255,255,255,.9)" stroke="#9fb3f0" stroke-width="2">
+<circle cx="40" cy="170" r="20"/><circle cx="520" cy="160" r="20"/><circle cx="525" cy="470" r="20"/><circle cx="45" cy="480" r="20"/><circle cx="280" cy="40" r="20"/></g>
+<g fill="#2f7bff"><circle cx="40" cy="170" r="8"/><circle cx="520" cy="160" r="8" fill="#7c4dff"/><circle cx="525" cy="470" r="8" fill="#1fd6a0"/><circle cx="45" cy="480" r="8" fill="#7c4dff"/><circle cx="280" cy="40" r="8" fill="#1fd6a0"/></g>
+<g data-anim="float" style="--t:5s">
+<polygon points="280,150 410,225 280,300 150,225" fill="url(#gt)" fill-opacity=".92" stroke="#fff" stroke-opacity=".85" stroke-width="3"/>
+<polygon points="150,225 280,300 280,455 150,380" fill="url(#gl)" fill-opacity=".90" stroke="#fff" stroke-opacity=".7" stroke-width="3"/>
+<polygon points="410,225 280,300 280,455 410,380" fill="url(#gr)" fill-opacity=".88" stroke="#fff" stroke-opacity=".7" stroke-width="3"/>
+<polygon points="280,215 340,250 280,285 220,250" fill="#fff" fill-opacity=".28" stroke="#fff" stroke-opacity=".8" stroke-width="2"/>
+<path d="M280 300 V455" stroke="#fff" stroke-opacity=".6" stroke-width="2"/></g>
+</svg>"""
+
+
+def _anchor(n, side, nw, nh):
+    x, y = n["_x"], n["_y"]
+    return {"r": (x + nw, y + nh / 2), "l": (x, y + nh / 2), "t": (x + nw / 2, y), "b": (x + nw / 2, y + nh)}[side]
+
+
+_DAG_N = [0]
+
+
+def dag(nodes, edges, W, H, nw, nh, cls=""):
+    _DAG_N[0] += 1; uid = _DAG_N[0]
+    """Positioned glass nodes + SVG edges. nodes: id,label,icon?,sub?,x,y in 0..1 ; edges: from,to,style(solid|dashed),label?,route(above|below)?"""
+    byid = {}
+    for n in nodes:
+        n["_x"] = n.get("x", 0) * (W - nw); n["_y"] = n.get("y", 0.5) * (H - nh); byid[n["id"]] = n
+    paths, labels = [], []
+    for ed in edges:
+        a, b = byid[ed["from"]], byid[ed["to"]]; st = ed.get("style", "solid"); route = ed.get("route")
+        if route in ("above", "below"):
+            s_, t_ = ("t", "t") if route == "above" else ("b", "b"); (x1, y1), (x2, y2) = _anchor(a, s_, nw, nh), _anchor(b, t_, nw, nh)
+            off = -46 if route == "above" else 46; d = "M%.0f %.0f V%.0f H%.0f V%.0f" % (x1, y1, y1 + off, x2, y2); lx, ly = (x1 + x2) / 2, y1 + off
+        elif ed.get("fs") and ed.get("ts"):   # explicit sides: orthogonal elbow
+            s_, t_ = ed["fs"], ed["ts"]; (x1, y1), (x2, y2) = _anchor(a, s_, nw, nh), _anchor(b, t_, nw, nh)
+            if s_ in "tb" and t_ in "lr": d = "M%.0f %.0f V%.0f H%.0f" % (x1, y1, y2, x2)
+            elif s_ in "lr" and t_ in "tb": d = "M%.0f %.0f H%.0f V%.0f" % (x1, y1, x2, y2)
+            else: d = "M%.0f %.0f L%.0f %.0f" % (x1, y1, x2, y2)
+            lx, ly = (x1 + x2) / 2, (y1 + y2) / 2
+        else:
+            dx, dy = (b["_x"] - a["_x"]), (b["_y"] - a["_y"])
+            if abs(dx) >= abs(dy) * 0.6 or abs(dx) > nw:
+                s_, t_ = ("r", "l") if dx >= 0 else ("l", "r"); (x1, y1), (x2, y2) = _anchor(a, s_, nw, nh), _anchor(b, t_, nw, nh); xm = (x1 + x2) / 2
+                d = "M%.0f %.0f L%.0f %.0f" % (x1, y1, x2, y2) if abs(y1 - y2) < 2 else "M%.0f %.0f H%.0f V%.0f H%.0f" % (x1, y1, xm, y2, x2)
+            else:
+                s_, t_ = ("b", "t") if dy >= 0 else ("t", "b"); (x1, y1), (x2, y2) = _anchor(a, s_, nw, nh), _anchor(b, t_, nw, nh); ym = (y1 + y2) / 2
+                d = "M%.0f %.0f L%.0f %.0f" % (x1, y1, x2, y2) if abs(x1 - x2) < 2 else "M%.0f %.0f V%.0f H%.0f V%.0f" % (x1, y1, ym, x2, y2)
+            lx, ly = (x1 + x2) / 2, (y1 + y2) / 2
+        paths.append('<path class="e-%s" d="%s" marker-end="url(#ah%d-%s)"/>' % (st, d, uid, st))
+        if ed.get("label"): labels.append('<div class="elabel" style="left:%.0fpx;top:%.0fpx">%s</div>' % (lx, ly, e(ed["label"])))
+    defs = ('<defs><marker id="ah%d-solid" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" style="fill:var(--accent)"/></marker>'
+            '<marker id="ah%d-dashed" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" style="fill:var(--accent2)"/></marker></defs>') % (uid, uid)
+    nd = "".join('<div class="node" style="left:%.0fpx;top:%.0fpx;width:%dpx;height:%dpx"><div class="ni">%s</div><div><b>%s</b>%s</div></div>' % (
+        n["_x"], n["_y"], nw, nh, e(n.get("icon", "◆")), e(n["label"]), "<small>%s</small>" % e(n["sub"]) if n.get("sub") else "") for n in nodes)
+    return '<div class="dag %s" style="width:%dpx;height:%dpx"><svg viewBox="0 0 %d %d">%s%s</svg>%s%s</div>' % (cls, W, H, W, H, defs, "".join(paths), nd, "".join(labels))
+
+
 def sec(cls, inner, s):
     notes = e(s.get("notes", ""))
     src = '<div class="src">来源 / Source: %s</div>' % e(s["source"]) if s.get("source") else ""
@@ -121,6 +188,15 @@ def render(o):
             out.append(sec("layers", head(s) + '<div class="ly slide-body" data-anim-stagger="fade-up" data-stagger=".15">%s</div>' % "".join(rows), s))
         elif t == "code":
             out.append(sec("code", head(s) + '<div class="win" data-anim="fade-up"><header><i></i><i></i><i></i><span style="margin-left:16px">%s</span></header><pre>%s</pre></div>%s' % (e(s.get("language", "")), e(s["code"]), take(s, "caption")), s))
+        elif t == "hero":
+            cons = "".join('<div class="card"><div class="icon">%s</div><div><h3>%s</h3><p>%s</p></div></div>' % (e(c.get("icon", "◆")), e(c["name"]), e(c.get("desc", ""))) for c in s.get("concepts", [])[:3])
+            right = dag([dict(n) for n in s.get("nodes", [])], s.get("edges", []), 620, 520, 175, 84, "sm") if s.get("nodes") else ""
+            out.append(sec("hero", '<div class="h-left"><div class="kicker" data-anim="fade-down">%s</div><h1 data-anim="fade-up">%s</h1><p class="tag" data-anim="fade-up" style="--d:.2s">%s</p></div>'
+                           '<div class="cube" data-anim="zoom-in" style="--t:1.1s">%s</div><div class="h-right" data-anim="fade-left" style="--d:.3s">%s</div><div class="concepts" data-anim-stagger="fade-up" style="--d:.5s">%s</div>' % (
+                           e(s.get("kicker", "")), e(s.get("title", "")).replace("\n", "<br>"), e(s.get("tagline", s.get("subtitle", ""))), CUBE, right, cons), s))
+        elif t == "workflow":
+            leg = '<div class="legend"><span><i></i>顺序 Sequential</span><span><i class="d"></i>条件 / 循环 Conditional · Loop</span></div>'
+            out.append(sec("workflow", head(s) + '<div class="dag-wrap" data-anim="fade-up"><div style="padding-bottom:64px">%s%s</div></div>%s' % (dag([dict(n) for n in s["nodes"]], s.get("edges", []), 1680, 500, 310, 116), leg, take(s)), s))
         elif t == "closing":
             ct = "".join('<span class="chip">%s</span>' % e(c) for c in s.get("contact", []))
             out.append(sec("closing", '<h1 class="grad-text" data-anim="bounce-in">%s</h1><p class="lead" data-anim="fade-up" style="--d:.4s">%s</p><div class="contact" data-anim-stagger="fade-up" style="--d:.6s">%s</div>' % (e(s.get("title", "Thank you")), e(s.get("subtitle", "")), ct), s))
@@ -136,7 +212,7 @@ def main():
         sf, cf = os.path.join(d, "slides.html"), os.path.join(d, "extra.css")
         open(sf, "w", encoding="utf-8").write(render(o)); open(cf, "w").write(EXTRA_CSS)
         subprocess.check_call([sys.executable, os.path.join(STUDIO, "scripts", "new_deck.py"), "--out", a.out, "--inline", "--slides-file", sf, "--extra-css", cf,
-                               "--theme", a.theme or m.get("theme", "midnight"), "--title", m.get("title", "Deck"), "--lang", m.get("lang", "en"), "--transition", a.transition])
+                               "--theme", a.theme or m.get("theme", "modern-tech"), "--title", m.get("title", "Deck"), "--lang", m.get("lang", "en"), "--transition", a.transition])
 
 
 if __name__ == "__main__":

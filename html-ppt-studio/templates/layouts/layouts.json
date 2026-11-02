@@ -153,5 +153,15 @@
   "name": "closing",
   "file": "31-closing.html",
   "description": "Thank-you / contact slide"
+ },
+ {
+  "name": "hero",
+  "file": "32-hero.html",
+  "description": "Hero: left concept + title, centre 3D cube, right mini workflow, 3 concept cards (cover / architecture opener)"
+ },
+ {
+  "name": "workflow",
+  "file": "33-workflow.html",
+  "description": "Workflow / DAG: glass icon nodes, solid (sequential) and dashed (conditional / loop) edges, legend"
  }
 ]

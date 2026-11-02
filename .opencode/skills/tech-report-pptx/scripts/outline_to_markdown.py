@@ -42,6 +42,12 @@ def main():
             for k in ("a", "b"): L += ["**%s** (%s)" % (s[k]["name"], s[k].get("tag", ""))] + bl(s[k]["points"]) + [""]
         elif t == "layers": L += ["Layered architecture diagram (top → bottom):"] + ["- **%s**: %s" % (x["name"], ", ".join(x["items"])) for x in s["layers"]]
         elif t == "code": L += ["```%s" % s.get("language", ""), s["code"], "```"]
+        elif t == "hero":
+            L += [s.get("tagline", "")] + ["- **%s**: %s" % (c["name"], c.get("desc", "")) for c in s.get("concepts", [])] + ["", "Mini workflow: " + ", ".join(n["label"] for n in s.get("nodes", []))]
+        elif t == "workflow":
+            L += ["Workflow / DAG diagram. Nodes: " + ", ".join(n["label"] for n in s["nodes"]), "Edges (solid = sequential, dashed = conditional/loop):"]
+            idn = {n["id"]: n["label"] for n in s["nodes"]}
+            L += ["- %s -> %s [%s]%s" % (idn[e_["from"]], idn[e_["to"]], e_.get("style", "solid"), " " + e_["label"] if e_.get("label") else "") for e_ in s.get("edges", [])]
         elif t == "closing": L += bl(s.get("contact", []))
         if s.get("takeaway") or s.get("caption"): L += ["", "Takeaway: " + (s.get("takeaway") or s["caption"])]
         if s.get("source"): L += ["", "Source: " + s["source"]]

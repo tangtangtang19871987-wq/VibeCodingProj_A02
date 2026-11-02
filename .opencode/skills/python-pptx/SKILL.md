@@ -9,10 +9,12 @@ Scripts (run with `python3`, paths relative to this skill dir):
 
 | script | purpose |
 |---|---|
-| `scripts/outline_to_pptx.py outline.json out.pptx [--theme NAME]` | Build a 16:9 deck. 14 slide types: cover, section, agenda, bullets, two-col, kpi, chart (bar/hbar/stacked/line/pie), table, timeline, process, comparison, layers (architecture), code, closing. |
+| `scripts/outline_to_pptx.py outline.json out.pptx [--theme NAME]` | Build a 16:9 deck. 16 slide types: hero (left concept / centre 3D cube / right mini-workflow), workflow (DAG with solid/dashed edges, icon nodes), cover, section, agenda, bullets, two-col, kpi, chart (bar/hbar/stacked/line/pie), table, timeline, process, comparison, layers (architecture), code, closing. |
 | `scripts/lint_pptx.py deck.pptx [--render]` | QA any pptx. Exit 1 on ERROR. `--render` → `<deck>_render/slide-NN.png` via LibreOffice for visual review. |
 | `scripts/theme_tokens.py` | Reads `html-ppt-studio/assets/themes/NAME.css` → RGB tokens (so PPTX == HTML theme). |
 | `scripts/_fit.py` | Text-fit estimator used by builder and linter (CJK-aware). |
+
+Glass themes (`--style:glass` in the theme CSS, e.g. `modern-tech`): gradient bars/badges (blue→purple→mint), translucent cards with soft drop shadow, light gradient background. Cube = native freeform faces; workflow edges = freeform polylines with arrowheads (editable, not glued to nodes — move a node ⇒ re-run the builder). Icons are Unicode glyphs (font "Segoe UI Symbol").
 
 ## Guarantees of the builder
 Native objects only (editable text, real `buChar` bullets, native charts/tables, no images of text); titles are shapes named `Title`; speaker notes from `notes`; auto-shrinks text (min 11–12pt) instead of overflowing; document properties filled; theme colors from the chosen html-ppt-studio theme.

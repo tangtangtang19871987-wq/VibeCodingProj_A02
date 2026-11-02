@@ -2,17 +2,96 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "tech-report outline",
   "type": "object",
-  "required": ["meta", "slides"],
+  "required": [
+    "meta",
+    "slides"
+  ],
   "properties": {
-    "meta": {"type": "object", "required": ["title"], "properties": {
-      "title": {"type": "string"}, "subtitle": {"type": "string"}, "author": {"type": "string"}, "org": {"type": "string"}, "date": {"type": "string"},
-      "lang": {"type": "string"}, "theme": {"type": "string", "description": "html-ppt-studio theme name (24 available)"},
-      "audience": {"type": "string"}, "duration_min": {"type": "number"}}},
-    "slides": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["type"], "properties": {
-      "type": {"enum": ["cover", "section", "agenda", "bullets", "two-col", "kpi", "chart", "table", "timeline", "process", "comparison", "layers", "code", "closing"]},
-      "kicker": {"type": "string"}, "title": {"type": "string", "description": "A full-sentence takeaway, <= 10 words / 24 CJK chars"},
-      "notes": {"type": "string", "description": "Speaker notes (what to say, not what is on the slide)"},
-      "source": {"type": "string", "description": "Citation for any number on the slide"},
-      "takeaway": {"type": "string"}}}}
+    "meta": {
+      "type": "object",
+      "required": [
+        "title"
+      ],
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "subtitle": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        },
+        "org": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string"
+        },
+        "lang": {
+          "type": "string"
+        },
+        "theme": {
+          "type": "string",
+          "description": "html-ppt-studio theme name (24 available)"
+        },
+        "audience": {
+          "type": "string"
+        },
+        "duration_min": {
+          "type": "number"
+        }
+      }
+    },
+    "slides": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "enum": [
+              "cover",
+              "section",
+              "agenda",
+              "bullets",
+              "two-col",
+              "kpi",
+              "chart",
+              "table",
+              "timeline",
+              "process",
+              "comparison",
+              "layers",
+              "code",
+              "closing",
+              "hero",
+              "workflow"
+            ]
+          },
+          "kicker": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "description": "A full-sentence takeaway, <= 10 words / 24 CJK chars"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Speaker notes (what to say, not what is on the slide)"
+          },
+          "source": {
+            "type": "string",
+            "description": "Citation for any number on the slide"
+          },
+          "takeaway": {
+            "type": "string"
+          }
+        }
+      }
+    }
   }
 }

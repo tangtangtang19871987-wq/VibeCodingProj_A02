@@ -9,7 +9,7 @@
    Slides are authored on a fixed 1920x1080 stage and scaled to fit the viewport. */
 :root{
   --bg:#0f172a; --bg2:#1e293b; --fg:#f8fafc; --muted:#94a3b8;
-  --accent:#38bdf8; --accent2:#a78bfa; --card:rgba(255,255,255,.06); --border:rgba(255,255,255,.12);
+  --accent:#38bdf8; --accent2:#a78bfa; --accent3:#34d399; --card:rgba(255,255,255,.06); --border:rgba(255,255,255,.12);
   --font-head:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;
   --font-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans SC",sans-serif;
   --font-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
@@ -289,6 +289,36 @@ body.overview .hud-progress,body.overview .hud-count{display:none}
 .layout-pros-cons .pc{align-items:start}
 .layout-table th{background:var(--accent)}
 
+/* 32 hero — left concept · centre 3D cube · right workflow */
+.layout-hero{padding:80px 90px;display:grid;grid-template-columns:600px 1fr 620px;grid-template-rows:1fr auto;gap:0 20px;align-items:center}
+.layout-hero .h-left{grid-column:1;grid-row:1}
+.layout-hero h1{font-size:92px;line-height:1.05;margin:6px 0 28px}
+.layout-hero .tag{font-size:34px;color:var(--muted);line-height:1.4;max-width:560px}
+.layout-hero .cube{grid-column:2;grid-row:1;width:100%;height:760px}
+.layout-hero .h-right{grid-column:3;grid-row:1}
+.layout-hero .concepts{grid-column:1/4;grid-row:2;display:grid;grid-template-columns:repeat(3,1fr);gap:28px;margin-top:10px}
+.layout-hero .concepts .card{padding:26px 32px;display:flex;gap:22px;align-items:center}
+.layout-hero .concepts .card h3{font-size:34px;margin:0}.layout-hero .concepts .card p{font-size:24px;margin-top:4px}
+.layout-hero .concepts .icon{width:72px;height:72px;font-size:34px;margin:0}
+.cube svg{width:100%;height:100%;overflow:visible}
+
+/* 33 workflow — DAG with glass nodes, solid (sequential) and dashed (conditional / loop) edges */
+.layout-workflow .dag-wrap{flex:1;display:grid;place-items:center;min-height:0}
+.dag{position:relative}
+.dag svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.dag .node{position:absolute;display:flex;align-items:center;gap:18px;padding:0 22px;border-radius:22px;background:linear-gradient(135deg,rgba(255,255,255,.9),rgba(255,255,255,.55));
+  border:1.5px solid var(--border);box-shadow:var(--shadow);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);color:var(--fg)}
+[data-theme]:not([data-theme="modern-tech"]) .dag .node{background:var(--card);border-color:var(--border)}
+.dag .node .ni{flex:none;width:62px;height:62px;border-radius:50%;display:grid;place-items:center;font-size:30px;color:#fff;background:linear-gradient(135deg,var(--accent),var(--accent2) 60%,var(--accent3))}
+.dag .node b{font-size:30px;line-height:1.15;display:block}.dag .node small{font-size:20px;color:var(--muted);display:block;margin-top:2px}
+.dag .elabel{position:absolute;transform:translate(-50%,-50%);font-size:20px;padding:2px 12px;border-radius:999px;background:var(--bg);color:var(--muted);border:1px solid var(--border);white-space:nowrap}
+.dag .e-solid{stroke:var(--accent);stroke-width:3.5;fill:none}
+.dag .e-dashed{stroke:var(--accent2);stroke-width:3.5;fill:none;stroke-dasharray:12 9}
+.layout-workflow .legend{display:flex;gap:40px;font-size:24px;color:var(--muted);margin-top:14px}
+.layout-workflow .legend i{display:inline-block;width:56px;border-top:4px solid var(--accent);vertical-align:middle;margin-right:12px}
+.layout-workflow .legend i.d{border-top:4px dashed var(--accent2)}
+.dag.sm .node{padding:0 16px;gap:12px;border-radius:18px}.dag.sm .node .ni{width:48px;height:48px;font-size:23px}.dag.sm .node b{font-size:22px}.dag.sm .node small{font-size:17px}.dag.sm .elabel{font-size:16px}
+
 /* HTML PPT Studio — animations.
    Usage: <h2 data-anim="fade-up" style="--d:.2s;--t:.7s">…</h2>
    Animations replay every time the slide becomes active.
@@ -485,9 +515,25 @@ body.overview .slide [data-anim]{opacity:1!important;animation:none!important}
 [data-theme="neon-cyber"] h1,[data-theme="neon-cyber"] h2{text-shadow:0 0 24px color-mix(in srgb,var(--accent) 55%,transparent)}
 [data-theme="retro-80s"] h1,[data-theme="retro-80s"] h2{text-shadow:6px 6px 0 var(--accent2)}
 
+/* Modern Tech (light) — Tech Blue / AI Purple / Mint Green gradients, glass cards, soft shadows */
+[data-theme="modern-tech"]{--bg:#f5f8fd;--bg2:#e8eefa;--fg:#0f1b3d;--muted:#5d6b8c;--accent:#2f7bff;--accent2:#7c4dff;--accent3:#1fd6a0;
+  --card:rgba(255,255,255,.66);--border:rgba(255,255,255,.95);--radius:28px;
+  --shadow:0 18px 50px rgba(60,90,200,.14),0 2px 6px rgba(60,90,200,.06);--head-weight:800;--head-transform:none;--style:glass;
+  --bg-image:radial-gradient(900px 620px at 92% -8%,rgba(47,123,255,.20),transparent 62%),radial-gradient(800px 600px at -6% 108%,rgba(124,77,255,.16),transparent 60%),radial-gradient(700px 480px at 100% 100%,rgba(31,214,160,.15),transparent 62%),linear-gradient(160deg,#f9fbff,#edf2fc);color-scheme:light}
+[data-theme="modern-tech"] .card,[data-theme="modern-tech"] .chip{backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  background:linear-gradient(135deg,rgba(255,255,255,.88),rgba(255,255,255,.52));box-shadow:var(--shadow),inset 0 1px 0 #fff}
+[data-theme="modern-tech"] .grad-text{background-image:linear-gradient(90deg,var(--accent),var(--accent2) 55%,var(--accent3))}
+[data-theme="modern-tech"] .kicker{background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
+[data-theme="modern-tech"] .icon,[data-theme="modern-tech"] .layout-team .avatar{background:linear-gradient(135deg,var(--accent),var(--accent2) 60%,var(--accent3));color:#fff;box-shadow:0 10px 24px rgba(47,123,255,.3)}
+[data-theme="modern-tech"] hr.rule{background:linear-gradient(90deg,var(--accent),var(--accent2),var(--accent3))}
+[data-theme="modern-tech"] .layout-table th{background:linear-gradient(90deg,var(--accent),var(--accent2));color:#fff}
+[data-theme="modern-tech"] .layout-bar-chart .fill,[data-theme="modern-tech"] .layout-funnel .lv{background:linear-gradient(90deg,var(--accent),var(--accent2) 60%,var(--accent3))}
+[data-theme="modern-tech"] .layout-roadmap .q header{background:linear-gradient(90deg,var(--accent),var(--accent2));color:#fff}
+[data-theme="modern-tech"] .layout-pricing .plan.hot{border:2px solid var(--accent2)}
+
 </style>
 </head>
-<body data-theme="aurora" data-themes="aurora,midnight,paper,sunset,forest,ocean,neon-cyber,mono-light,mono-dark,solarized-light,solarized-dark,dracula,nord,rose,lavender,mint,coffee,terminal-green,corporate-blue,swiss,brutalist,retro-80s,glass,gold-luxe">
+<body data-theme="modern-tech" data-themes="modern-tech,aurora,midnight,paper,sunset,forest,ocean,neon-cyber,mono-light,mono-dark,solarized-light,solarized-dark,dracula,nord,rose,lavender,mint,coffee,terminal-green,corporate-blue,swiss,brutalist,retro-80s,glass,gold-luxe">
 <main class="deck" data-transition="fade">
 <section class="slide layout-cover" data-notes="Speaker notes go here.">
 <div class="deco" data-anim="zoom-out" style="--t:1.4s"></div>
@@ -610,6 +656,33 @@ d.<span class="f">go</span>(<span class="n">3</span>);</pre></div>
 <h1 class="grad-text" data-anim="bounce-in">Thank you</h1>
 <p class="lead" data-anim="fade-up" style="--d:.4s">Questions, ideas, pushback — all welcome.</p>
 <div class="contact" data-anim-stagger="fade-up" style="--d:.6s"><span class="chip">you@example.com</span><span class="chip">@yourhandle</span><span class="chip">example.com</span></div>
+</section>
+<section class="slide layout-hero" data-notes="开场：说明本次评审要拿到的决定——是否在 Q1 全量切换。">
+<div class="h-left"><div class="kicker" data-anim="fade-down">架构评审 · 2026</div><h1 data-anim="fade-up">订单服务<br>事件驱动重构</h1><p class="tag" data-anim="fade-up" style="--d:.2s">让订单、库存、支付通过事件解耦：更快发布，更稳回滚。</p></div><div class="cube" data-anim="zoom-in" style="--t:1.1s"><svg viewBox="0 0 560 620" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<linearGradient id="gt" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1fd6a0"/><stop offset="1" stop-color="#2f7bff"/></linearGradient>
+<linearGradient id="gl" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2f7bff"/><stop offset="1" stop-color="#7c4dff"/></linearGradient>
+<linearGradient id="gr" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c4dff"/><stop offset="1" stop-color="#b38cff"/></linearGradient>
+<radialGradient id="sh"><stop offset="0" stop-color="#3c5ac8" stop-opacity=".30"/><stop offset="1" stop-color="#3c5ac8" stop-opacity="0"/></radialGradient>
+</defs>
+<ellipse cx="280" cy="560" rx="170" ry="30" fill="url(#sh)"/>
+<g stroke="#8aa0e6" stroke-width="2.5" stroke-dasharray="9 8" fill="none" opacity=".75">
+<path d="M150 260 L40 170"/><path d="M410 260 L520 160"/><path d="M410 380 L525 470"/><path d="M150 380 L45 480"/><path d="M280 140 L280 40"/></g>
+<g fill="rgba(255,255,255,.9)" stroke="#9fb3f0" stroke-width="2">
+<circle cx="40" cy="170" r="20"/><circle cx="520" cy="160" r="20"/><circle cx="525" cy="470" r="20"/><circle cx="45" cy="480" r="20"/><circle cx="280" cy="40" r="20"/></g>
+<g fill="#2f7bff"><circle cx="40" cy="170" r="8"/><circle cx="520" cy="160" r="8" fill="#7c4dff"/><circle cx="525" cy="470" r="8" fill="#1fd6a0"/><circle cx="45" cy="480" r="8" fill="#7c4dff"/><circle cx="280" cy="40" r="8" fill="#1fd6a0"/></g>
+<g data-anim="float" style="--t:5s">
+<polygon points="280,150 410,225 280,300 150,225" fill="url(#gt)" fill-opacity=".92" stroke="#fff" stroke-opacity=".85" stroke-width="3"/>
+<polygon points="150,225 280,300 280,455 150,380" fill="url(#gl)" fill-opacity=".90" stroke="#fff" stroke-opacity=".7" stroke-width="3"/>
+<polygon points="410,225 280,300 280,455 410,380" fill="url(#gr)" fill-opacity=".88" stroke="#fff" stroke-opacity=".7" stroke-width="3"/>
+<polygon points="280,215 340,250 280,285 220,250" fill="#fff" fill-opacity=".28" stroke="#fff" stroke-opacity=".8" stroke-width="2"/>
+<path d="M280 300 V455" stroke="#fff" stroke-opacity=".6" stroke-width="2"/></g>
+</svg></div><div class="h-right" data-anim="fade-left" style="--d:.3s"><div class="dag sm" style="width:620px;height:520px"><svg viewBox="0 0 620 520"><defs><marker id="ah1-solid" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" style="fill:var(--accent)"/></marker><marker id="ah1-dashed" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" style="fill:var(--accent2)"/></marker></defs><path class="e-solid" d="M175 260 H210 V86 H245" marker-end="url(#ah1-solid)"/><path class="e-solid" d="M175 260 H210 V434 H245" marker-end="url(#ah1-solid)"/><path class="e-dashed" d="M420 86 H432 V260 H445" marker-end="url(#ah1-dashed)"/><path class="e-solid" d="M420 434 H432 V260 H445" marker-end="url(#ah1-solid)"/></svg><div class="node" style="left:0px;top:218px;width:175px;height:84px"><div class="ni">⌕</div><div><b>API</b></div></div><div class="node" style="left:245px;top:44px;width:175px;height:84px"><div class="ni">▤</div><div><b>Order</b></div></div><div class="node" style="left:245px;top:392px;width:175px;height:84px"><div class="ni">⇄</div><div><b>Kafka</b></div></div><div class="node" style="left:445px;top:218px;width:175px;height:84px"><div class="ni">↻</div><div><b>Retry</b></div></div><div class="elabel" style="left:432px;top:173px">失败</div></div></div><div class="concepts" data-anim-stagger="fade-up" style="--d:.5s"><div class="card"><div class="icon">⚡</div><div><h3>Events</h3><p>不可变事实，全链路可回放</p></div></div><div class="card"><div class="icon">◈</div><div><h3>Services</h3><p>按领域拆分，独立发布</p></div></div><div class="card"><div class="icon">✦</div><div><h3>Contracts</h3><p>Schema 先行，向后兼容</p></div></div></div>
+
+</section>
+<section class="slide layout-workflow" data-notes="">
+<header class="slide-head"><div class="kicker" data-anim="fade-down">事件流</div><h2 data-anim="fade-up">下单成功路径与失败补偿路径</h2></header><div class="dag-wrap" data-anim="fade-up"><div style="padding-bottom:64px"><div class="dag " style="width:1680px;height:500px"><svg viewBox="0 0 1680 500"><defs><marker id="ah2-solid" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" style="fill:var(--accent)"/></marker><marker id="ah2-dashed" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" style="fill:var(--accent2)"/></marker></defs><path class="e-solid" d="M310 250 L370 250" marker-end="url(#ah2-solid)"/><path class="e-solid" d="M680 250 L754 250" marker-end="url(#ah2-solid)"/><path class="e-solid" d="M1064 250 H1217 V66 H1370" marker-end="url(#ah2-solid)"/><path class="e-solid" d="M1064 250 H1217 V296 H1370" marker-end="url(#ah2-solid)"/><path class="e-dashed" d="M1525 354 V442 H1064" marker-end="url(#ah2-dashed)"/><path class="e-dashed" d="M909 500 V546 H525 V308" marker-end="url(#ah2-dashed)"/></svg><div class="node" style="left:0px;top:192px;width:310px;height:116px"><div class="ni">⌕</div><div><b>API Gateway</b><small>鉴权 · 限流</small></div></div><div class="node" style="left:370px;top:192px;width:310px;height:116px"><div class="ni">▤</div><div><b>订单服务</b><small>创建 · 落库</small></div></div><div class="node" style="left:754px;top:192px;width:310px;height:116px"><div class="ni">⇄</div><div><b>Kafka</b><small>OrderCreated</small></div></div><div class="node" style="left:1370px;top:8px;width:310px;height:116px"><div class="ni">▽</div><div><b>库存</b><small>预占</small></div></div><div class="node" style="left:1370px;top:238px;width:310px;height:116px"><div class="ni">¥</div><div><b>支付</b><small>扣款</small></div></div><div class="node" style="left:754px;top:384px;width:310px;height:116px"><div class="ni">↻</div><div><b>补偿</b><small>回滚 / 重试</small></div></div><div class="elabel" style="left:1294px;top:398px">支付失败</div><div class="elabel" style="left:717px;top:546px">重试</div></div><div class="legend"><span><i></i>顺序 Sequential</span><span><i class="d"></i>条件 / 循环 Conditional · Loop</span></div></div></div><div class="takeaway" data-anim="fade-up" style="--d:.5s">实线是正常路径，虚线是条件 / 补偿路径；所有边都经过事件总线，便于回放。</div>
+
 </section>
 </main>
 <script>

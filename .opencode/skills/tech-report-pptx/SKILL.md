@@ -9,14 +9,14 @@ Three engines, one contract (`outline.json`, schema in `schema/outline.schema.js
 
 | Engine | Role in the pipeline |
 |---|---|
-| **html-ppt-studio** | *Design draft + live presenter.* 24 themes / 31 layouts / 26 animations. Instant visual review; also the theme source of truth for PPTX. |
+| **html-ppt-studio** | *Design draft + live presenter.* 25 themes / 33 layouts / 26 animations. Instant visual review; also the theme source of truth for PPTX. |
 | **python-pptx** | *Deterministic native PPTX.* Native charts, tables, code blocks, layered-architecture diagrams, notes; linter + render QA. Route A builder and universal QA. |
 | **ppt-master** | *High-design native PPTX.* Template/brand fidelity, imagery, animations/transitions, narration, beautify an existing deck. Route B builder. Has its own gated workflow. |
 
 ## Pipeline
 
 1. **Intake** (ask only what's missing, in ≤1 round): audience & decision wanted, duration (≈1.5 min/slide → slides), language, source material (files/repos/data), brand/template, must-have numbers. If the user gave data, never alter it; if a number is missing, put `TODO` in the slide and list it in the final report — do not invent figures or sources.
-2. **Storyboard → `outline.json`**. Technical-report arc: *Context & decision wanted → Problem (with evidence) → Approach/architecture → Results (numbers) → Trade-offs/risks → Plan → Ask/decision*. Rules: titles are full-sentence takeaways; one idea per slide; every number carries `source`; `notes` hold the spoken narrative (60–120 words/slide); ≤ 5 bullets, ≤ 30 words per card; pick the slide `type` by content shape (numbers→`kpi`/`chart`/`table`, sequence→`timeline`/`process`, system→`layers`, contrast→`comparison`, snippet→`code`). Save under `output/<slug>/outline.json`.
+2. **Storyboard → `outline.json`**. Technical-report arc: *Context & decision wanted → Problem (with evidence) → Approach/architecture → Results (numbers) → Trade-offs/risks → Plan → Ask/decision*. Rules: titles are full-sentence takeaways; one idea per slide; every number carries `source`; `notes` hold the spoken narrative (60–120 words/slide); ≤ 5 bullets, ≤ 30 words per card; pick the slide `type` by content shape (numbers→`kpi`/`chart`/`table`, sequence→`timeline`/`process`, system→`layers`/`hero`, flow with branches/loops→`workflow` (nodes: id,label,sub?,icon?,x,y∈0..1; edges: from,to,style solid|dashed,label?,route above|below?, fs/ts sides?), contrast→`comparison`, snippet→`code`). Save under `output/<slug>/outline.json`.
 3. **HTML draft** (always, it's cheap): `python3 .opencode/skills/tech-report-pptx/scripts/outline_to_html.py output/<slug>/outline.json output/<slug>/draft.html --theme <theme>`. Screenshot with Playwright overview (`PPT.overview(true)`) and review layout; iterate on the outline, not the HTML. Offer 2–3 themes if the user has no preference (guide in `html-ppt-studio/SKILL.md`).
 4. **⛔ Gate**: show the outline summary (slide titles) + draft path/screenshot; get the user's OK or edits before building the PPTX. Skip only if the user said "just do it".
 5. **Choose route** (state the choice and why in one line):
@@ -37,4 +37,5 @@ Three engines, one contract (`outline.json`, schema in `schema/outline.schema.js
 Allowed: `lint_pptx.py` QA, metadata, notes patching, small text fixes (edit run text). Not allowed: merging slides from a python-pptx deck into a ppt-master deck (masters/theme parts differ and corrupt easily). If a data slide is wrong, fix it through ppt-master's own flow.
 
 ## Design consistency
-Theme names are shared across HTML and PPTX (`midnight`, `paper`, `nord`, …). For a technical audience prefer `midnight`, `nord`, `mono-light`, `corporate-blue`, `solarized-*`, `dracula`. Light theme for projectors in bright rooms and for decks that will be printed/PDF'd.
+**Default visual style = `modern-tech`** (the user's standard): light base, Tech-Blue/AI-Purple/Mint-Green gradients, glassmorphism cards with soft shadows, 3D geometric cube + connector motif, card-based layout, workflow/DAG visuals (solid = sequential, dashed = conditional/loop). Composition: *left = concept & headline, centre = visual focus, right = technical logic*. Use `hero` as the opener (or `cover`) and `workflow` / `layers` for architecture. Never switch to a dark/other theme unless asked.
+Theme names are shared across HTML and PPTX (`midnight`, `paper`, `nord`, …). Alternatives only on request: `midnight`, `nord`, `mono-light`, `corporate-blue`, `solarized-*`, `dracula`.

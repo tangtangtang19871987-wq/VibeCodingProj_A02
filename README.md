@@ -1,6 +1,6 @@
 # HTML PPT Studio
 
-An AgentSkill for building professional HTML presentations — **24 themes, 31 layouts, 26 animations**, zero dependencies.
+An AgentSkill for building professional HTML presentations — **25 themes, 33 layouts, 26 animations**, zero dependencies.
 
 - Skill entry point: [`html-ppt-studio/SKILL.md`](html-ppt-studio/SKILL.md)
 - Live demo (all layouts, press `T` to switch themes, `O` for overview): open `html-ppt-studio/examples/demo-all-layouts.html`
@@ -13,7 +13,7 @@ An opencode agent that fuses three engines around one `outline.json`:
 
 | Engine | Role |
 |---|---|
-| `html-ppt-studio` | HTML design draft / live presenter; theme source of truth (24 themes) |
+| `html-ppt-studio` | HTML design draft / live presenter; theme source of truth (25 themes) |
 | `python-pptx` skill | deterministic native PPTX (charts, tables, code, architecture layers) + lint/render QA |
 | [`ppt-master`](https://github.com/hugohe3/ppt-master) (third-party, MIT) | high-design native PPTX route (templates, imagery, animation, narration) |
 

@@ -1,5 +1,10 @@
 [
  {
+  "name": "modern-tech",
+  "label": "Modern Tech",
+  "mode": "light"
+ },
+ {
   "name": "aurora",
   "label": "Aurora",
   "mode": "dark"
