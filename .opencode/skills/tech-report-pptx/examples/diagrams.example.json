@@ -125,7 +125,7 @@
      "w": 225,
      "h": 104,
      "label": "Check Condition",
-     "tone": "yellow",
+     "tone": "orange",
      "sub": "Node",
      "icon": "filter",
      "shape": "diamond"
@@ -169,7 +169,7 @@
        },
        {
         "style": "dashed",
-        "tone": "yellow",
+        "tone": "orange",
         "text": "Conditional Edge"
        },
        {
@@ -206,19 +206,19 @@
      "from": "dc",
      "to": "rf",
      "style": "dashed",
-     "tone": "yellow",
+     "tone": "orange",
      "fs": "r",
      "ts": "l",
      "label": "NO",
-     "label_tone": "yellow"
+     "label_tone": "orange"
     },
     {
      "from": "dc",
      "to": "en",
      "style": "dashed",
-     "tone": "yellow",
+     "tone": "orange",
      "label": "YES",
-     "label_tone": "yellow",
+     "label_tone": "orange",
      "label_at": [
       752,
       388

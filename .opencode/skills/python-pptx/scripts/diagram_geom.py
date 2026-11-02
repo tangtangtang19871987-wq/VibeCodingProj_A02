@@ -21,25 +21,26 @@ import math
 
 CW, CH = 1000, 490
 
-# Semantic palette — MEASURED from the user's reference images:
-#   page #fdfdfe (near white) · titles deep navy · card fills = pale tints · borders = clear mid/vivid tone colour (1.5px)
-#   icons / labels / edges = vivid tone colour · lane header pills = solid tone with white text.
-#   blue   = input / data / general flow / branching         purple = model / agent / runtime / instructions
-#   green  = tools / storage / success                       orange = state / progress / answer / retry
-#   yellow = decision / condition / warning                  pink   = memory / long-term knowledge                    gray   = start / end / neutral          dark = navy lines
-TONES = {  # border, tint (fill), solid (icon / label / line)
-    "blue":   {"border": (140, 184, 236), "soft": (208, 226, 247), "fill": (230, 241, 253), "solid": (20, 112, 232)},
-    "purple": {"border": (172, 160, 232), "soft": (216, 203, 247), "fill": (233, 226, 252), "solid": (108, 60, 236)},
-    "green":  {"border": (56, 180, 124), "soft": (192, 233, 215),  "fill": (224, 245, 234), "solid": (8, 148, 100)},
-    "orange": {"border": (250, 150, 70), "soft": (250, 216, 180),  "fill": (254, 237, 221), "solid": (240, 138, 28)},
-    "yellow": {"border": (240, 200, 80),  "soft": (250, 230, 150), "fill": (255, 247, 214), "solid": (226, 160, 0)},
-    "pink":   {"border": (240, 140, 175), "soft": (250, 204, 221), "fill": (254, 231, 239), "solid": (232, 62, 116)},
-    "gray":   {"border": (168, 178, 202), "soft": (204, 211, 229), "fill": (224, 231, 245), "solid": (92, 108, 142)},
-    "dark":   {"border": (16, 44, 88), "soft": (160, 174, 200),    "fill": (238, 242, 249), "solid": (16, 44, 88)},
+# Semantic palette — EXACT values from the user's colour spec (pale fill + deep border / title colour per group):
+#   blue   (tech indigo)  fill #EEF2FF  border/title #4F46E5   — input / data / general flow / branching
+#   purple (violet)       fill #F5F3FF  border/title #7C3AED   — model / agent / runtime / instructions
+#   green  (emerald)      fill #ECFDF5  border/title #059669   — tools / storage / success
+#   orange (amber)        fill #FFF7ED  border/title #D97706   — decision / condition / state / answer / warning
+#   pink   (rose)         fill #FFF1F2  border/title #E11D48   — memory / long-term knowledge / error
+#   gray   fill #F3F4F6 / border #9CA3AF / text #6B7280        — start / end / neutral        dark = slate lines #1E293B
+# Page: white or #F8FAFC. Tint fills, deep colour for border, titles, icons, edges.
+TONES = {  # border (deep), soft (pale outline for info panels), tint (fill), solid (icon / label / line)
+    "blue":   {"border": (79, 70, 229),   "soft": (199, 210, 254), "fill": (238, 242, 255), "solid": (79, 70, 229)},
+    "purple": {"border": (124, 58, 237),  "soft": (221, 214, 254), "fill": (245, 243, 255), "solid": (124, 58, 237)},
+    "green":  {"border": (5, 150, 105),   "soft": (167, 243, 208), "fill": (236, 253, 245), "solid": (5, 150, 105)},
+    "orange": {"border": (217, 119, 6),   "soft": (253, 215, 170), "fill": (255, 247, 237), "solid": (217, 119, 6)},
+    "pink":   {"border": (225, 29, 72),   "soft": (254, 205, 211), "fill": (255, 241, 242), "solid": (225, 29, 72)},
+    "gray":   {"border": (156, 163, 175), "soft": (209, 213, 219), "fill": (243, 244, 246), "solid": (107, 114, 128)},
+    "dark":   {"border": (30, 41, 59),    "soft": (148, 163, 184), "fill": (248, 250, 252), "solid": (30, 41, 59)},
 }
 NEUTRAL = {"gray", "dark"}
-CYCLE = ["blue", "purple", "green", "yellow", "orange", "pink"]   # order used when a layout colours its cards / steps / series automatically
-RETIRED = {"teal": "blue"}   # not in the reference palette — validate() tells the author what to use
+CYCLE = ["blue", "purple", "green", "orange", "pink"]   # order used when a layout colours its cards / steps / series automatically
+RETIRED = {"teal": "blue", "yellow": "orange"}          # not in the palette — validate() tells the author what to use
 
 # 24x24 stroke icons (stroke-width 2, round caps). Own simple geometry.
 ICONS = {
@@ -171,13 +172,13 @@ def cube_faces(cx, cy, e):
     return {"top": [T, R, C, L], "left": [L, C, B, BL], "right": [C, R, BR, B]}
 
 
-# 3 soft flat cubes inside a w x h box: (cx frac, cy frac, edge frac of w, (top, left, right) flat colours)
+# 3 soft flat cubes inside a w x h box: (cx frac, cy frac, edge frac of w, (top, left, right) flat colours) — pastel tints of the palette
 CUBE_SET = [
-    (0.34, 0.30, 0.17, [(178, 230, 212), (140, 212, 188), (112, 196, 170)]),
-    (0.58, 0.64, 0.30, [(216, 209, 245), (180, 168, 232), (152, 138, 218)]),
-    (0.18, 0.72, 0.12, [(196, 218, 245), (156, 190, 238), (126, 168, 228)]),
+    (0.34, 0.30, 0.17, [(209, 250, 229), (167, 243, 208), (110, 231, 183)]),
+    (0.58, 0.64, 0.30, [(237, 233, 254), (221, 214, 254), (196, 181, 253)]),
+    (0.18, 0.72, 0.12, [(224, 231, 255), (199, 210, 254), (165, 180, 252)]),
 ]
-CUBE_DOTS = [(0.80, 0.34, 0.035, (150, 138, 218)), (0.12, 0.38, 0.02, (112, 196, 170)), (0.86, 0.80, 0.018, (126, 168, 228))]
+CUBE_DOTS = [(0.80, 0.34, 0.035, (167, 139, 250)), (0.12, 0.38, 0.02, (52, 211, 153)), (0.86, 0.80, 0.018, (129, 140, 248))]
 
 
 # ---------------------------------------------------------------- validation
@@ -190,7 +191,7 @@ def validate(s):
     for e in els:
         k = e.get("kind")
         if k not in ("node", "group", "note", "chip", "panel", "text", "heading", "cubes"): probs.append(("ERROR", "unknown element kind %r" % k)); continue
-        if e.get("tone") in RETIRED: probs.append(("ERROR", "tone %r is not in the palette — use %r (palette: blue, purple, green, orange, gray, dark)" % (e["tone"], RETIRED[e["tone"]])))
+        if e.get("tone") in RETIRED: probs.append(("ERROR", "tone %r is not in the palette — use %r (palette: blue, purple, green, orange, pink, gray, dark)" % (e["tone"], RETIRED[e["tone"]])))
         elif e.get("tone") and e["tone"] not in TONES: probs.append(("ERROR", "unknown tone %r" % e["tone"]))
         if e.get("icon") and e["icon"] not in ICONS: probs.append(("ERROR", "unknown icon %r (valid: %s)" % (e["icon"], ", ".join(sorted(ICONS)))))
         x, y, w, h = rect(e)

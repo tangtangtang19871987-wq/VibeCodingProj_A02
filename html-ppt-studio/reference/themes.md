@@ -28,4 +28,4 @@ Set with `<body data-theme="NAME">`. Press `T` while presenting to cycle.
 | 22 | `retro-80s` | Retro 80s | dark | `#ff6ec7` |
 | 23 | `glass` | Glass | dark | `#7dd3fc` |
 | 24 | `gold-luxe` | Gold Luxe | dark | `#d4af37` |
-| 25 | `modern-tech` | Modern Tech | light | `#1470e8` (+ purple `#6c3cec`, green `#089464`) — clean, flat, near-white, **default** |
+| 25 | `modern-tech` | Modern Tech | light | indigo `#4F46E5` / violet `#7C3AED` / emerald `#059669` / amber `#D97706` / rose `#E11D48` on white — clean, flat, **default** |
