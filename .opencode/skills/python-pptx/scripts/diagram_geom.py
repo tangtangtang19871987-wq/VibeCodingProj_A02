@@ -17,30 +17,46 @@ element kinds
 edges: from,to, style(solid|dashed), tone?, fs/ts (l|r|t|b), fo/ti (0..1 position along the source / target side), mid (0..1), via [[x,y],..],
        bulge, label, label_tone, label_at [x,y]
 """
-import math
+import math, os
 
 CW, CH = 1000, 490
 
-# Semantic palette — EXACT values from the user's colour spec (pale fill + deep border / title colour per group):
-#   blue   (tech indigo)  fill #EEF2FF  border/title #4F46E5   — input / data / general flow / branching
-#   purple (violet)       fill #F5F3FF  border/title #7C3AED   — model / agent / runtime / instructions
-#   green  (emerald)      fill #ECFDF5  border/title #059669   — tools / storage / success
-#   orange (amber)        fill #FFF7ED  border/title #D97706   — decision / condition / state / answer / warning
-#   pink   (rose)         fill #FFF1F2  border/title #E11D48   — memory / long-term knowledge / error
-#   gray   fill #F3F4F6 / border #9CA3AF / text #6B7280        — start / end / neutral        dark = slate lines #1E293B
-# Page: white or #F8FAFC. Tint fills, deep colour for border, titles, icons, edges.
-TONES = {  # border (deep), soft (pale outline for info panels), tint (fill), solid (icon / label / line)
-    "blue":   {"border": (79, 70, 229),   "soft": (199, 210, 254), "fill": (238, 242, 255), "solid": (79, 70, 229)},
-    "purple": {"border": (124, 58, 237),  "soft": (221, 214, 254), "fill": (245, 243, 255), "solid": (124, 58, 237)},
-    "green":  {"border": (5, 150, 105),   "soft": (167, 243, 208), "fill": (236, 253, 245), "solid": (5, 150, 105)},
-    "orange": {"border": (217, 119, 6),   "soft": (253, 215, 170), "fill": (255, 247, 237), "solid": (217, 119, 6)},
-    "pink":   {"border": (225, 29, 72),   "soft": (254, 205, 211), "fill": (255, 241, 242), "solid": (225, 29, 72)},
-    "gray":   {"border": (156, 163, 175), "soft": (209, 213, 219), "fill": (243, 244, 246), "solid": (107, 114, 128)},
-    "dark":   {"border": (30, 41, 59),    "soft": (148, 163, 184), "fill": (248, 250, 252), "solid": (30, 41, 59)},
-}
+# ---------------------------------------------------------------- style profiles (data, not code)
+# Palette, gradients, shadows and cube look live in html-ppt-studio/assets/styles/<name>.json:
+#   vivid (default) — true blue / violet / green / amber / pink, pale gradient fills, vivid outlines, coloured soft shadows, glass cubes
+#   flat            — Tailwind indigo / violet / emerald / amber / rose, no gradients
+# Meaning of the tones (both styles):  blue = input / data / general flow / branching · purple = model / agent / runtime / instructions
+#   green = tools / storage / success · orange (amber) = decision / state / answer / warning · pink = memory / error · gray = start / end · dark = lines
+import json as _json
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_STYLES_DIR = next(d for d in (os.path.join(_HERE, "..", "..", "html-ppt-studio", "assets", "styles"), os.path.join(_HERE, "..", "..", "..", "..", "html-ppt-studio", "assets", "styles")) if os.path.isdir(d))
+STYLE, TONES, CYCLE, CUBE_SET, CUBE_DOTS = {}, {}, [], [], []
 NEUTRAL = {"gray", "dark"}
-CYCLE = ["blue", "purple", "green", "orange", "pink"]   # order used when a layout colours its cards / steps / series automatically
 RETIRED = {"teal": "blue", "yellow": "orange"}          # not in the palette — validate() tells the author what to use
+
+
+def style_names(): return sorted(f[:-5] for f in os.listdir(_STYLES_DIR) if f.endswith(".json"))
+
+
+def use(name):
+    """Activate a style profile IN PLACE (so every module that did `import diagram_geom as G` sees it)."""
+    d = _json.load(open(os.path.join(_STYLES_DIR, name + ".json"), encoding="utf-8"))
+    STYLE.clear(); STYLE.update(d); TONES.clear(); TONES.update({k: {r: tuple(v) for r, v in t.items()} for k, t in d["tones"].items()})
+    CYCLE[:] = d["cycle"]; CUBE_SET[:] = [(fx, fy, fe, [(tuple(a), tuple(b)) for a, b in faces]) for fx, fy, fe, faces in d["cubes"]]
+    CUBE_DOTS[:] = [(fx, fy, fr, tuple(c)) for fx, fy, fr, c in d["dots"]]
+
+
+def style_for_theme(theme):
+    """modern-tech -> vivid (default) · modern-tech-flat -> flat · any other theme -> vivid palette for diagrams."""
+    for n in style_names():
+        if _json.load(open(os.path.join(_STYLES_DIR, n + ".json"), encoding="utf-8")).get("theme") == theme: return n
+    return "vivid"
+
+
+def use_for_theme(theme): use(style_for_theme(theme)); return STYLE["name"]
+
+
+use(os.environ.get("DECK_STYLE", "vivid"))
 
 # 24x24 stroke icons (stroke-width 2, round caps). Own simple geometry.
 ICONS = {
@@ -170,15 +186,6 @@ def cube_faces(cx, cy, e):
     T, R, C, L = (cx, cy - e), (cx + k, cy - e / 2), (cx, cy), (cx - k, cy - e / 2)
     B, BL, BR = (cx, cy + e), (cx - k, cy + e / 2), (cx + k, cy + e / 2)
     return {"top": [T, R, C, L], "left": [L, C, B, BL], "right": [C, R, BR, B]}
-
-
-# 3 soft flat cubes inside a w x h box: (cx frac, cy frac, edge frac of w, (top, left, right) flat colours) — pastel tints of the palette
-CUBE_SET = [
-    (0.34, 0.30, 0.17, [(209, 250, 229), (167, 243, 208), (110, 231, 183)]),
-    (0.58, 0.64, 0.30, [(237, 233, 254), (221, 214, 254), (196, 181, 253)]),
-    (0.18, 0.72, 0.12, [(224, 231, 255), (199, 210, 254), (165, 180, 252)]),
-]
-CUBE_DOTS = [(0.80, 0.34, 0.035, (167, 139, 250)), (0.12, 0.38, 0.02, (52, 211, 153)), (0.86, 0.80, 0.018, (129, 140, 248))]
 
 
 # ---------------------------------------------------------------- validation

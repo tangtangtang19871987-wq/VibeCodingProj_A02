@@ -67,9 +67,12 @@ def cmd_catalog(a):
         for k, v in SPECS.items(): print("  %-10s %s" % (k, v))
         print("\nExample of one slide of each type: examples/outline.example.json, examples/diagrams.example.json")
     if t in ("palette", "all"):
-        print("\nPALETTE (pale fill + deep border/title colour); page = pure white; cycle order for parallel items: %s" % " > ".join(G.CYCLE))
-        for n, c in G.TONES.items(): print("  %-7s fill #%s  border/title #%s" % (n, G.rgbhex(c["fill"])[1:].upper(), G.rgbhex(c["solid"])[1:].upper()))
-        print("  meaning: blue=input/data/general · purple=model/agent/runtime · green=tools/storage/success · orange(amber)=decision/state/answer/warning · pink(rose)=memory/error · gray=start/end")
+        for name in G.style_names():
+            G.use(name); print("\nPALETTE — style '%s' (theme %s)%s: %s" % (name, G.STYLE["theme"], "  [DEFAULT]" if name == "vivid" else "", G.STYLE["description"]))
+            print("  page = pure white · parallel items cycle: %s" % " > ".join(G.CYCLE))
+            for n, c in G.TONES.items(): print("  %-7s fill #%s  border #%s  title/icon #%s" % (n, G.rgbhex(c["fill"])[1:].upper(), G.rgbhex(c["border"])[1:].upper(), G.rgbhex(c["solid"])[1:].upper()))
+        G.use("vivid")
+        print("  meaning: blue=input/data/general/branch · purple=model/agent/runtime · green=tools/storage/success · orange(amber)=decision/state/answer/warning · pink=memory/error · gray=start/end")
     if t in ("icons", "all"): print("\nICONS (fixed colour per icon across a deck): " + ", ".join(sorted(G.ICONS)))
     if t in ("themes", "all"):
         th = load(os.path.join(SK, "html-ppt-studio", "assets", "themes", "themes.json")); print("\nTHEMES (default modern-tech): " + ", ".join(x["name"] for x in th))
@@ -182,7 +185,7 @@ def cmd_colors(a):
     try: from PIL import Image
     except ImportError: sys.exit("colors needs Pillow (pip install pillow)")
     import collections, colorsys
-    im = Image.open(a.image).convert("RGB")
+    G.use(a.style); im = Image.open(a.image).convert("RGB")
     if a.crop: x0, y0, x1, y1 = [int(v) for v in a.crop.split(",")]; im = im.crop((x0, y0, x1, y1))
     W, H = im.size; px = im.load(); c = collections.Counter(); bg = collections.Counter(); n = 0
     for y in range(0, H, 2):
@@ -217,7 +220,7 @@ def main():
     s = sub.add_parser("edit"); s.add_argument("outline"); s.add_argument("op"); s.add_argument("rest", nargs="*"); s.set_defaults(f=cmd_edit)
     s = sub.add_parser("verify"); s.add_argument("deck"); s.add_argument("--theme", default="modern-tech"); s.add_argument("--allow-pictures", action="store_true"); s.set_defaults(f=cmd_verify)
     s = sub.add_parser("lint"); s.add_argument("deck"); s.add_argument("--render", action="store_true"); s.set_defaults(f=cmd_lint)
-    s = sub.add_parser("colors"); s.add_argument("image"); s.add_argument("--crop"); s.add_argument("--top", type=int, default=12); s.set_defaults(f=cmd_colors)
+    s = sub.add_parser("colors"); s.add_argument("image"); s.add_argument("--crop"); s.add_argument("--top", type=int, default=12); s.add_argument("--style", default="vivid", choices=G.style_names()); s.set_defaults(f=cmd_colors)
     a = ap.parse_args(); a.f(a)
 
 

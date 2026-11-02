@@ -31,7 +31,7 @@ def rgb(t): return RGBColor(*t)
 
 class Deck:
     def __init__(self, outline, theme):
-        self.o, self.t = outline, theme_tokens.load(theme)
+        self.o, self.t = outline, theme_tokens.load(theme); G.use_for_theme(theme)
         self.p = Presentation()
         self.p.slide_width, self.p.slide_height = Inches(W), Inches(H)
         self.blank = self.p.slide_layouts[6]
@@ -67,7 +67,7 @@ class Deck:
 
     def tn(self, i):
         """Tone name for the i-th card/step/series (multi-colour semantic cycle) — only in the clean multi-colour style."""
-        return G.CYCLE[i % len(G.CYCLE)] if self.t["flat"] else None
+        return G.CYCLE[i % len(G.CYCLE)] if self.t["glass"] else None
 
     def tcard(self, sl, x, y, w, h, tn, name="Card"):
         """Tinted card in tone `tn` (pale fill + clear tone border); plain card in other themes."""
@@ -300,7 +300,8 @@ class Deck:
         """Three soft flat isometric cubes (native freeform faces); box in inches."""
         for fx, fy, fe, cols in G.CUBE_SET:
             for fi, (fname, pts) in enumerate(G.cube_faces(bx + fx * bw, by + fy * bh, fe * bw).items()):
-                self.poly(sl, pts, cols[fi], (255, 255, 255), 1.75, name="Cube")
+                f = self.poly(sl, pts, cols[fi][0], (255, 255, 255), 1.75, name="Cube")
+                if cols[fi][0] != cols[fi][1]: self.gfill(f, list(cols[fi]), 60, [88, 88])   # glass faces (vivid); flat style keeps the solid colour
         for fx, fy, fr, col in G.CUBE_DOTS:
             r_ = fr * bw; self.rect(sl, bx + fx * bw - r_, by + fy * bh - r_, 2 * r_, 2 * r_, col, shape=MSO_SHAPE.OVAL, name="Dot")
 
@@ -495,6 +496,9 @@ class Deck:
                 if e.get("kicker"): self.text(sl, x, y, w, Lg(22), e["kicker"].upper(), F(13), T["accent"], True, fit=False, name="Kicker"); y += Lg(24)
                 tl = e["title"].split("\n"); th = Lg(37 * 1.12 * len(tl))
                 tb = self.text(sl, x, y, w, th, tl, F(37), T["head"], True, T["font_head"], name="Title", min_size=24, spacing=1.0)
+                if G.STYLE.get("gradient_heading"):
+                    for p_ in tb.text_frame.paragraphs:
+                        for r_ in p_.runs: self.grad_text(r_, [G.tone("blue")["solid"], G.tone("purple")["solid"]])
                 if e.get("tagline"): self.text(sl, x, y + th + Lg(12), w, Lg(70), e["tagline"], F(14.5), T["muted"], min_size=11, name="Tagline")
         for ed, lab in lab_later:
             lt = G.tone(ed.get("label_tone") or ed.get("tone") or (M[ed["from"]].get("tone") or "blue")); cw_ = G.chip_w({"text": ed["label"]})
@@ -533,7 +537,7 @@ class Deck:
 
     def bullets_slide(self, s):
         sl = self.new_slide(s); y0 = self.title(sl, s)
-        self.bullets(sl, MX, y0, W - 2 * MX, H - y0 - 1.1, s["bullets"], 24, bcolors=self.palette if self.t["flat"] else None)
+        self.bullets(sl, MX, y0, W - 2 * MX, H - y0 - 1.1, s["bullets"], 24, bcolors=self.palette if self.t["glass"] else None)
 
     def two_col(self, s):
         sl = self.new_slide(s); y0 = self.title(sl, s); cw = (W - 2 * MX - 0.5) / 2; ch = H - y0 - 1.1
@@ -605,11 +609,11 @@ class Deck:
             tbl.rows[ri].height = Inches(rh)
             for ci in range(len(cols)):
                 cell = tbl.cell(ri, ci); head = ri == 0
-                hdr_fill = (237, 243, 251) if self.t["flat"] else self.t["accent"]
+                hdr_fill = (237, 243, 251) if self.t["glass"] else self.t["accent"]
                 cell.fill.solid(); cell.fill.fore_color.rgb = rgb(hdr_fill if head else (self.t["card"] if ri % 2 else self.t["bg"]))
                 cell.vertical_anchor = MSO_ANCHOR.MIDDLE; cell.margin_left = cell.margin_right = Inches(0.15)
                 tf = cell.text_frame; tf.word_wrap = True; p = tf.paragraphs[0]; r = p.add_run(); r.text = str(cols[ci] if head else rows[ri - 1][ci])
-                r.font.size = Pt(fs); r.font.bold = head; r.font.name = self.t["font_body"]; r.font.color.rgb = rgb((self.t["head"] if self.t["flat"] else self.t["on_accent"]) if head else self.t["fg"])
+                r.font.size = Pt(fs); r.font.bold = head; r.font.name = self.t["font_body"]; r.font.color.rgb = rgb((self.t["head"] if self.t["glass"] else self.t["on_accent"]) if head else self.t["fg"])
                 p.alignment = PP_ALIGN.RIGHT if ci in num else PP_ALIGN.LEFT
         if s.get("takeaway"): self._takeaway(sl, s["takeaway"], H - 1.75)
 
@@ -631,7 +635,7 @@ class Deck:
             x = MX + i * (cw + gap)
             sh = self.rect(sl, x, y0 + 0.3, cw, 1.15, self.t["accent"] if i % 2 == 0 else self.t["accent2"], shape=MSO_SHAPE.PENTAGON, name="Step")
             scol = self.t["on_accent"]
-            if self.t["flat"]:
+            if self.t["glass"]:
                 st = G.tone(self.tn(i)); sh.fill.solid(); sh.fill.fore_color.rgb = rgb(st["fill"]); sh.line.color.rgb = rgb(st["border"]); sh.line.width = Pt(1.25); scol = st["solid"]
             self.text(sl, 0, 0, 0, 0, "%d  %s" % (i + 1, e["title"]), 20, scol, True, shape=sh, anchor="m")
             sh.text_frame.margin_right = Inches(0.35)
@@ -653,7 +657,7 @@ class Deck:
         lh = (avail - gap * (n - 1)) / n; lw = 2.3
         for i, layer in enumerate(L):
             y = y0 + i * (lh + gap)
-            if self.t["flat"]:   # tint + coloured label (no saturated block)
+            if self.t["glass"]:   # tint + coloured label (no saturated block)
                 lt = G.tone(self.tn(i)); lab = self.rect(sl, MX, y, lw, lh, lt["fill"], lt["border"], MSO_SHAPE.ROUNDED_RECTANGLE, lw=1.25, name="LayerLabel"); lcol = lt["solid"]
             else:
                 lab = self.rect(sl, MX, y, lw, lh, self.palette[i % 2], shape=MSO_SHAPE.ROUNDED_RECTANGLE, name="LayerLabel"); lcol = self.t["on_accent"]
@@ -661,7 +665,7 @@ class Deck:
             items = layer["items"]; k = len(items); iw = (W - 2 * MX - lw - 0.25 - 0.18 * (k - 1)) / k
             for j, it in enumerate(items):
                 x = MX + lw + 0.25 + j * (iw + 0.18)
-                lt2 = G.tone(self.tn(i)) if self.t["flat"] else None
+                lt2 = G.tone(self.tn(i)) if self.t["glass"] else None
                 b = self.rect(sl, x, y, iw, lh, self._mix(lt2["fill"], (255, 255, 255), .45) if lt2 else self.t["card"], lt2["soft"] if lt2 else self.t["border"], MSO_SHAPE.ROUNDED_RECTANGLE, lw=1.25, name="Component")
                 self.text(sl, 0, 0, 0, 0, it, 16, shape=b, align="c", anchor="m")
             if i < n - 1:
@@ -669,7 +673,7 @@ class Deck:
 
     def code(self, s):
         sl = self.new_slide(s); y0 = self.title(sl, s); bh = H - y0 - (1.7 if s.get("caption") else 1.15)
-        cfill, ctext, cmut = ((246, 248, 252), (38, 51, 95), (120, 134, 158)) if self.t["flat"] else ((11, 16, 32), (230, 237, 247), (154, 164, 191))
+        cfill, ctext, cmut = ((246, 248, 252), (38, 51, 95), (120, 134, 158)) if self.t["glass"] else ((11, 16, 32), (230, 237, 247), (154, 164, 191))
         box = self.rect(sl, MX, y0, W - 2 * MX, bh, cfill, self.t["border"], MSO_SHAPE.ROUNDED_RECTANGLE, radius=14, name="CodeBox")
         for k, c in enumerate([(255, 95, 86), (255, 189, 46), (39, 201, 63)]):
             self.rect(sl, MX + 0.25 + k * 0.28, y0 + 0.2, 0.17, 0.17, c, shape=MSO_SHAPE.OVAL)

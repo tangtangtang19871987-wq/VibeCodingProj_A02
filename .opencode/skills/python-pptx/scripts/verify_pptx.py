@@ -22,11 +22,14 @@ def hexc(c): return "%02X%02X%02X" % tuple(c)
 
 
 def allowed(theme):
-    t = theme_tokens.load(theme); A = set(NEUTRAL_HEX)
+    t = theme_tokens.load(theme); G.use_for_theme(theme); A = set(NEUTRAL_HEX); mix = lambda a, b, r: tuple(round(a[i] * (1 - r) + b[i] * r) for i in range(3))
     for tn in G.TONES.values():
         for k in ("border", "soft", "fill", "solid"): A.add(hexc(tn[k]))
-    for _, _, _, cols in G.CUBE_SET:
-        for c in cols: A.add(hexc(c))
+        for r in (.15, .22, .28, .3, .45, .5, .55, .62, .8):                      # tints used for badges / panels / lanes
+            for base in ("solid", "fill", "border"): A.add(hexc(mix(tn[base], (255, 255, 255), r)))
+    for _, _, _, faces in G.CUBE_SET:
+        for pair in faces:
+            for c in pair: A.add(hexc(c))
     for *_, c in G.CUBE_DOTS: A.add(hexc(c))
     for c in EXTRA_RGB: A.add(hexc(c))
     for k in ("bg", "bg2", "fg", "muted", "accent", "accent2", "accent3", "card", "border", "head", "good", "bad", "warn", "on_accent"):

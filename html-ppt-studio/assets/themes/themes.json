@@ -5,6 +5,11 @@
   "mode": "light"
  },
  {
+  "name": "modern-tech-flat",
+  "label": "Modern Tech (flat)",
+  "mode": "light"
+ },
+ {
   "name": "aurora",
   "label": "Aurora",
   "mode": "dark"
@@ -71,7 +76,7 @@
  },
  {
   "name": "rose",
-  "label": "Ros\u00e9",
+  "label": "Rosé",
   "mode": "light"
  },
  {

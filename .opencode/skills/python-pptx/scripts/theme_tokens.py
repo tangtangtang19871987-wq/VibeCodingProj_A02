@@ -44,7 +44,8 @@ def load(name):
     head = _var(css, "font-head") or ""
     serif = "Georgia" in head
     mono = "ui-monospace" in head
-    glass = (_var(css, "style") or "").strip() in ("glass", "clean")   # clean = flat light style (no gradients / glows)
+    ds = (_var(css, "deck-style") or "").strip(); glass = ds in ("vivid", "flat")   # multi-colour tinted-card styles
+    flat = ds == "flat"
     hc = _var(css, "head-color"); head_c = _hex(hc) if hc and hc.startswith("#") else fg
     a3 = _var(css, "accent3")
     ac3 = _hex(a3) if a3 and a3.startswith("#") else ac2
@@ -53,7 +54,7 @@ def load(name):
         bc = _var(css, "border") or ""
         border = _hex(bc) if bc.startswith("#") else (221, 229, 239)
     return {
-        "glass": glass, "flat": glass, "head": head_c, "accent3": ac3,
+        "glass": glass, "flat": flat, "style_name": ds or None, "head": head_c, "accent3": ac3,
         "name": name, "dark": dark, "bg": bg, "bg2": bg2, "fg": fg, "muted": muted,
         "accent": ac, "accent2": ac2, "card": card, "border": border,
         "good": (34, 197, 94), "bad": (239, 68, 68), "warn": (245, 158, 11),

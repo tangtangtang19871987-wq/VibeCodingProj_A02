@@ -34,12 +34,12 @@
      "y": 330,
      "w": 138,
      "h": 150,
-     "tone": "orange",
+     "tone": "blue",
      "body": {
       "text": "在图中共享并管理的状态"
      },
      "title": "State",
-     "icon": "sliders",
+     "icon": "database",
      "stack": true
     },
     {
@@ -62,12 +62,12 @@
      "y": 330,
      "w": 138,
      "h": 150,
-     "tone": "blue",
+     "tone": "green",
      "body": {
       "text": "定义流程与节点间的转移"
      },
      "title": "Edges",
-     "icon": "split",
+     "icon": "share",
      "stack": true
     },
     {
@@ -89,7 +89,7 @@
      "w": 230,
      "h": 46,
      "label": "Load Input",
-     "tone": "blue",
+     "tone": "green",
      "sub": "Node",
      "icon": "globe"
     },
@@ -138,7 +138,7 @@
      "w": 110,
      "h": 72,
      "label": "Refine / Retry",
-     "tone": "orange",
+     "tone": "pink",
      "icon": "refresh",
      "layout": "stack"
     },
@@ -169,7 +169,7 @@
        },
        {
         "style": "dashed",
-        "tone": "orange",
+        "tone": "green",
         "text": "Conditional Edge"
        },
        {
@@ -216,9 +216,9 @@
      "from": "dc",
      "to": "en",
      "style": "dashed",
-     "tone": "orange",
+     "tone": "green",
      "label": "YES",
-     "label_tone": "orange",
+     "label_tone": "green",
      "label_at": [
       752,
       388
@@ -841,7 +841,7 @@
      "label": "跨线程的长期信息",
      "tone": "green",
      "sub": "包括：用户画像、偏好、历史行为、长期记忆等",
-     "icon": "database",
+     "icon": "server",
      "scale": 1.45
     },
     {

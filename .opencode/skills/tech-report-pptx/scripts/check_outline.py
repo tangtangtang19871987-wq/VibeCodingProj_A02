@@ -15,7 +15,7 @@ REQ = {"agenda": ["items"], "bullets": ["bullets"], "two-col": ["left", "right"]
 
 
 def main():
-    o = json.load(open(sys.argv[1], encoding="utf-8")); errs = warns = 0
+    o = json.load(open(sys.argv[1], encoding="utf-8")); errs = warns = 0; G.use_for_theme(o.get("meta", {}).get("theme", "modern-tech"))
     def say(sev, i, msg):
         nonlocal errs, warns
         print("%-5s slide %s: %s" % (sev, i, msg)); errs += sev == "ERROR"; warns += sev == "WARN"

@@ -30,23 +30,23 @@ Everything is placed in **1000 × 490 units** (x→right, y→down, origin top-l
 - **Loop back** (dashed): `fs:"l", ts:"l", bulge:30` (goes around the left side) or explicit `via` waypoints (`via` points must be orthogonal).
 - Colour: `tone` per edge, else the source node's tone (`edge_color:"source"`); `edge_color:"dark"` = navy for all (LangGraph style). Convention: **solid = sequential, dashed = conditional / loop**; label branches with chips (`需要调用工具` green, `无需调用工具` orange / `YES` `NO`).
 
-## Colour rules — the user's exact palette
-Pale **fill** + deep **border / title colour** per group (Tailwind indigo / violet / emerald / amber / rose); page = white or `#F8FAFC`; titles deep navy, body dark grey. Deep colour is used for borders, card titles, icons, edges and lane pills; fills stay pale. No gradients, glows, neon, dark backgrounds or strong shadows. Same component type ⇒ same colour on every slide.
+## Colour rules — style profile `vivid` (default). Source of truth: `html-ppt-studio/assets/styles/*.json` (run `deck_catalog palette` for the values)
+Page: **pure white**. Titles deep navy, body dark grey. Nodes/cards: pale (gradient) tint + vivid outline in the tone colour; icons, labels, edges and lane pills use the vivid tone colour; coloured soft shadows; headline gradient blue→purple; cubes are glass gradients. Never: dark backgrounds, neon, large saturated blocks. Same component type ⇒ same colour on every slide.
 
-| tone | fill | border / title | use for |
-|---|---|---|---|
-| `blue` (tech indigo) | `#EEF2FF` | `#4F46E5` | input / data / general flow / branching |
-| `purple` (violet) | `#F5F3FF` | `#7C3AED` | model / agent / runtime / instructions |
-| `green` (emerald) | `#ECFDF5` | `#059669` | tools / storage / success |
-| `orange` (amber — the "yellow") | `#FFF7ED` | `#D97706` | decision / condition / state / answer / warning |
-| `pink` (rose) | `#FFF1F2` | `#E11D48` | memory / long-term knowledge / error |
-| `gray` | `#F3F4F6` | `#9CA3AF` / text `#6B7280` | start / end / neutral |
-| `dark` | `#F8FAFC` | `#1E293B` | navy edges |
+| tone | meaning |
+|---|---|
+| `blue` (true blue) | input / data / general flow / branching |
+| `purple` | model / agent / runtime / instructions |
+| `green` | tools / storage / success |
+| `orange` (amber) | decision / condition / state / answer / warning |
+| `pink` | memory / long-term knowledge / error |
+| `gray` | start / end / neutral |
+| `dark` | navy edges |
 
 (`teal`, `yellow` are retired — `check_outline.py` errors on them and names the replacement.)
-Colour richness: pages are NOT one-colour. Parallel cards / steps / series cycle blue → purple → green → orange → pink (automatic in the non-diagram layouts); in `diagram` slides assign tones by meaning, typically 4–5 per slide.
-`soft:true` = pale outline for info cards; `key:true` on a **small** node = heavier border + coloured label.
-Icon ⇒ colour is fixed across the deck (e.g. `robot` always purple, `wrench` green, `sliders` orange, `memory` pink); the checker warns when an icon changes colour.
+Colour richness: pages are NOT one-colour. Parallel cards / steps / series cycle blue → purple → green → orange → pink (automatic outside `diagram`); in `diagram` slides assign tones by meaning, typically 4–5 per slide.
+`soft:true` = pale outline for info cards (identical to the vivid outline in `vivid`); `key:true` on a **small** node = heavier border + coloured label.
+Icon ⇒ colour is fixed across the deck (e.g. `robot` always purple, `wrench` green, `memory` pink); the checker warns when an icon changes colour.
 
 ## Icons
 `bolt`, `bulb`, `chat`, `check`, `cloud`, `code`, `cube`, `database`, `doc`, `filter`, `flag`, `gear`, `globe`, `history`, `layers`, `link`, `lock`, `memory`, `play`, `refresh`, `robot`, `search`, `server`, `share`, `shield`, `split`, `terminal`, `user`, `wrench`

@@ -62,7 +62,7 @@ def main():
     body = "".join(read(os.path.join(ROOT, "templates/layouts", byname[p])) for p in pick)
     if a.slides_file: body += read(a.slides_file)
 
-    css_files = ["base.css", "layouts.css", "animations.css", "themes.all.css"]
+    css_files = ["base.css", "layouts.css", "animations.css", "themes.all.css", "themes.modern.css"]
     out_dir = os.path.dirname(os.path.abspath(a.out)) or "."
     if a.inline:
         head = "<style>\n" + "\n".join(read(os.path.join(A, f)) for f in css_files) + "\n</style>"

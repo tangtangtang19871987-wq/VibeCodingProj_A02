@@ -57,6 +57,49 @@ try:
     # --- colour measuring
     im = Image.new("RGB", (200, 100), (255, 255, 255)); im.paste((238, 242, 255), (0, 0, 100, 100)); ip = os.path.join(tmp, "swatch.png"); im.save(ip)
     rc, out = run(DECK, "colors", ip); check("colors maps #EEF2FF to blue fill", rc == 0 and "blue" in out and "fill" in out, out[-200:])
+    # --- style profiles (data-driven look) + regression guards against the "indigo looks purple / flat look" drift
+    sys.path.insert(0, PP); import diagram_geom as G, colorsys
+    for name in G.style_names():
+        G.use(name); ok = all(t in G.TONES for t in ("blue", "purple", "green", "orange", "pink", "gray", "dark")) and all(c in G.TONES for c in G.CYCLE) and len(G.CUBE_SET) == 3
+        check("style profile '%s' is complete" % name, ok)
+    G.use("vivid"); hue = lambda c: colorsys.rgb_to_hsv(*[v / 255 for v in c])[0] * 360
+    hb, hp = hue(G.TONES["blue"]["solid"]), hue(G.TONES["purple"]["solid"])
+    check("vivid: 'blue' is a real blue (hue %.0f°) clearly apart from purple (%.0f°)" % (hb, hp), 195 <= hb <= 235 and hp - hb >= 25)
+    check("vivid is the default style of the default theme", G.style_for_theme("modern-tech") == "vivid" and G.style_for_theme("modern-tech-flat") == "flat")
+    buckets = {"blue": (195, 235), "purple": (250, 290), "green": (140, 175), "orange": (20, 45), "pink": (325, 350)}
+    for f in ("outline", "diagrams"):
+        x = zipfile.ZipFile(os.path.join(tmp, f, "deck.pptx")); cols = []
+        for n in x.namelist():
+            if re.match(r"ppt/slides/slide\d+\.xml$", n): cols += re.findall(r'srgbClr val="([0-9A-F]{6})"', x.read(n).decode("utf8"))
+        hs = [hue(tuple(int(c[i:i + 2], 16) for i in (0, 2, 4))) for c in cols if colorsys.rgb_to_hsv(*[int(c[i:i + 2], 16) / 255 for i in (0, 2, 4)])[1] > .55]
+        miss = [k for k, (a, b) in buckets.items() if sum(a <= h <= b for h in hs) < 3]
+        check("%s deck uses all five hues (blue/purple/green/orange/pink)" % f, not miss, "missing: %s" % miss)
+    d = os.path.join(tmp, "flatstyle"); rc, out = run(DECK, "build", os.path.join(EX, "diagrams.example.json"), "--out", d, "--theme", "modern-tech-flat", "--no-html")
+    rc2, out2 = run(os.path.join(PP, "verify_pptx.py"), os.path.join(d, "deck.pptx"), "--theme", "modern-tech-flat"); check("flat style builds and verifies", rc == 0 and rc2 == 0, out[-150:] + out2[-150:])
+    import shutil as _sh
+    if _sh.which("soffice") and _sh.which("pdftoppm"):
+        try:
+            from PIL import Image
+            def sig(im, bins=12):
+                im = im.convert("RGB"); W, H = im.size; px = im.load(); h = [0] * bins; n = 0
+                for y in range(0, H, 2):
+                    for x in range(0, W, 2):
+                        hh, ss, vv = colorsys.rgb_to_hsv(*[q / 255 for q in px[x, y]])
+                        if ss >= .45 and vv >= .45: h[int(hh * bins) % bins] += 1; n += 1
+                return [c / max(n, 1) for c in h]
+            l1 = lambda a, b: sum(abs(x - y) for x, y in zip(a, b)) / 2
+            gold = sig(Image.open(os.path.join(ROOT, "evals", "golden", "vivid-reference.png")))
+            def deck_sig(dd):
+                rc, _ = run(DECK, "preview", os.path.join(dd, "deck.pptx"), "--dpi", "60"); ims = [Image.open(p) for p in sorted(__import__("glob").glob(os.path.join(dd, "preview", "slide-*.png")))]
+                tot = [0] * 12
+                for im in ims:
+                    for i, v in enumerate(sig(im)): tot[i] += v / len(ims)
+                return tot
+            dv = l1(gold, deck_sig(os.path.join(tmp, "diagrams"))); df = l1(gold, deck_sig(os.path.join(tmp, "flatstyle")))
+            check("golden: default render matches the reference image's colour mix (distance %.2f < 0.25)" % dv, dv < 0.25)
+            check("golden is discriminative: flat style is farther (%.2f) than vivid (%.2f)" % (df, dv), df > dv + 0.15)
+        except ImportError: print("SKIP golden image test (Pillow missing)")
+    else: print("SKIP golden image test (needs LibreOffice + pdftoppm)")
     # --- other themes still build, still native
     for th in ("paper", "nord", "aurora", "mono-light"):
         d = os.path.join(tmp, "th-" + th); rc, out = run(DECK, "build", os.path.join(EX, "outline.example.json"), "--out", d, "--theme", th, "--no-html")

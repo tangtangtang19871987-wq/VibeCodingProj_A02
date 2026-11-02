@@ -112,13 +112,21 @@ def _pos(e, extra=""):
     x, y, w, h = G.rect(e); return 'style="left:%.1fpx;top:%.1fpx;width:%.1fpx;height:%.1fpx;--u:%spx;%s;%s"' % (x * US, y * US, w * US, h * US, US, _tv(e.get("tone", "blue")), extra)
 
 
+_CUBE_N = [0]
+
+
 def _cube_group(x, y, w, h, S):
-    out = []
-    for fx, fy, fe, cols in G.CUBE_SET:
+    """Cube cluster: gradient 'glass' faces when the style defines face gradients, flat colours otherwise."""
+    out = []; defs = []; _CUBE_N[0] += 1; u = _CUBE_N[0]
+    for ci, (fx, fy, fe, cols) in enumerate(G.CUBE_SET):
         for fi, (fname, pts) in enumerate(G.cube_faces(x + fx * w, y + fy * h, fe * w).items()):
-            out.append('<polygon points="%s" fill="%s" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/>' % (" ".join("%.1f,%.1f" % (a * S, b * S) for a, b in pts), G.rgbhex(cols[fi])))
-    for fx, fy, fr, col in G.CUBE_DOTS: out.append('<circle cx="%.1f" cy="%.1f" r="%.1f" fill="%s"/>' % ((x + fx * w) * S, (y + fy * h) * S, fr * w * S, G.rgbhex(col)))
-    return "".join(out)
+            c0, c1 = cols[fi]; po = " ".join("%.1f,%.1f" % (a * S, b * S) for a, b in pts)
+            if c0 == c1: fill, op = G.rgbhex(c0), "1"
+            else:
+                gid = "cg%d-%d-%d" % (u, ci, fi); defs.append('<linearGradient id="%s" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="%s"/><stop offset="1" stop-color="%s"/></linearGradient>' % (gid, G.rgbhex(c0), G.rgbhex(c1))); fill, op = "url(#%s)" % gid, ".88"
+            out.append('<polygon points="%s" fill="%s" fill-opacity="%s" stroke="#fff" stroke-opacity=".9" stroke-width="2.5" stroke-linejoin="round"/>' % (po, fill, op))
+    for fx, fy, fr, col in G.CUBE_DOTS: out.append('<circle cx="%.1f" cy="%.1f" r="%.1f" fill="%s" fill-opacity=".85"/>' % ((x + fx * w) * S, (y + fy * h) * S, fr * w * S, G.rgbhex(col)))
+    return "<defs>%s</defs>%s" % ("".join(defs), "".join(out))
 
 
 def _cubes_svg(e):
@@ -310,7 +318,7 @@ def render(o):
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("outline"); ap.add_argument("out"); ap.add_argument("--theme"); ap.add_argument("--transition", default="fade")
-    a = ap.parse_args(); o = json.load(open(a.outline, encoding="utf-8")); m = o.get("meta", {})
+    a = ap.parse_args(); o = json.load(open(a.outline, encoding="utf-8")); m = o.get("meta", {}); G.use_for_theme(a.theme or m.get("theme", "modern-tech"))
     with tempfile.TemporaryDirectory() as d:
         sf, cf = os.path.join(d, "slides.html"), os.path.join(d, "extra.css")
         open(sf, "w", encoding="utf-8").write(render(o)); open(cf, "w").write(EXTRA_CSS)

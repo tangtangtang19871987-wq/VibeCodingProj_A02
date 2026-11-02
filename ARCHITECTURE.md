@@ -6,7 +6,7 @@ An [opencode](https://opencode.ai) agent system that turns a conversation about 
 | requirement (from the user) | mechanism | proof |
 |---|---|---|
 | Output is a **real, editable .pptx**, never screenshots | python-pptx builder emits only native text boxes / shapes / connectors-as-freeforms / charts / tables; icons are freeform vectors; `verify_pptx.py` fails on any `<p:pic>` | `evals/selftest.py` (0 pictures, 0 media) · `deck_verify` |
-| House style: **pure-white page**, pale fills + deep border/title/icon colours (indigo / violet / emerald / amber / rose), no gradients/glows/dark blocks | one palette module (`diagram_geom.TONES`) feeds the HTML theme and the PPTX builder; theme CSS generated from the same values | verify: background check + palette audit |
+| House style: **pure-white page**, true blue / violet / green / amber / pink, pale gradient fills + vivid outlines + coloured soft shadows + glass cubes (**`vivid`**, default); flat Tailwind variant kept as **`flat`** | **style profiles as data** (`html-ppt-studio/assets/styles/*.json`) read by `diagram_geom.use()`; `gen_modern_themes.py` generates the HTML theme CSS from the same JSON | verify (white bg, palette audit) + **colour regression**: hue coverage + distance to the golden reference image (`evals/golden/`) |
 | Colours that **vary by meaning**, consistent across slides | tone cycle for parallel items; semantic tones for diagrams; `check_outline` warns when one icon changes colour | selftest + check |
 | Rich architecture / flow diagrams like the reference images | `diagram` slide type on a 1000×490 canvas: nodes (round/pill/diamond), lanes, notes, panels, cubes, rounded coloured edges | validation: overlaps, out-of-canvas, edges crossing nodes |
 | The agent works **with the user interactively** | staged protocol with two approval gates, feedback classification, slash commands | `reference/interaction.md`, `evals/cases.md` |
@@ -56,8 +56,11 @@ user ─ chat / slash commands (/deck /revise /diagram /review /colors)
 ## 5. Interaction protocol (summary — full text in `reference/interaction.md`)
 intake (≤5 questions, defaults offered) → storyboard table → **gate A** → diagrams → build + *look* → review → deliver → **gate B** feedback loop. Feedback is classified (content / layout / order / new slide / colour / typography / external edit) and mapped to a targeted tool call; colour complaints trigger *measuring*, not guessing.
 
+## 5b. Style profiles (why the look can no longer drift silently)
+A look is a JSON file: tones (fill / border / solid), cycle order, gradients on/off, shadow kind, gradient heading, glass-cube gradients. Renderers call `G.use_for_theme(theme)`; `theme_tokens` reads `--deck-style` from the theme CSS. Adding a look = new JSON + `python3 html-ppt-studio/scripts/gen_modern_themes.py`. `evals/selftest.py` guards the default look: blue must be a real blue (hue 195–235°, ≥25° from purple), all five hues present, and the colour-mix of a rendered deck must stay within 0.25 of `evals/golden/vivid-reference.png` (flat scores 0.43).
+
 ## 6. Quality gates
-`deck_check` (input) → `deck_build` (refuses on errors) → `deck_verify` (editable + style) → `deck_lint` (layout) → visual inspection → reviewer. `python3 evals/selftest.py` runs 35 deterministic checks incl. negative cases; `evals/cases.md` holds 8 behaviour evals with a rubric.
+`deck_check` (input) → `deck_build` (refuses on errors) → `deck_verify` (editable + style) → `deck_lint` (layout) → visual inspection → reviewer. `python3 evals/selftest.py` runs 44 checks incl. negative cases and colour-regression guards; `evals/cases.md` holds 8 behaviour evals with a rubric.
 
 ## 7. Known limits (be honest with users)
 - **Not exercised inside a real opencode session** (not installed in the dev sandbox). Verified instead: the Python CLI end-to-end, and the TypeScript tools executed through a shim that stubs `tool()` and `Bun.spawn`. Directory names follow current opencode conventions (`agents/ commands/ tools/ skills/`); if your version expects singular names, rename.
