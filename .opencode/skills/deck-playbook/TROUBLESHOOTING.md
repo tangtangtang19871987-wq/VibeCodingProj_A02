@@ -52,3 +52,11 @@
 | Adding a git submodule of a third-party repo was refused | auto-mode classifier treats it as untrusted code integration | `setup.sh` fetches ppt-master on the user's machine instead |
 | A commit went in with a failing selftest | `selftest | tail` hid the exit code | check "0 failed" before `git commit` |
 | Archive for local use | — | `git archive --format=zip --prefix=<repo>/ HEAD`; symlinks survive on macOS/Linux, not on plain Windows unzip |
+
+## Seeing (vision) chain
+| symptom | cause | fix |
+|---|---|---|
+| `deck_preview` fails: "needs LibreOffice (soffice)" / "pdftoppm" | renderer not installed on this machine | install LibreOffice + poppler (`setup.sh` prints the commands); until then say you cannot look, don't pretend |
+| You `read` a PNG but get no visual content | the selected model has no image input | tell the user to switch to a vision model (e.g. Claude Sonnet/Opus via OpenRouter) |
+| Render differs slightly from PowerPoint | LibreOffice ≠ PowerPoint (fonts, shadows, gradients) | judge layout/colour from the render; mention fidelity limits; if the user sends a PowerPoint screenshot, that wins |
+| User wants you to check the HTML draft | no HTML screenshot tool | open `draft.html` in a browser yourself is not possible — ask the user for a screenshot, or judge from the PPTX render (same outline, same palette) |
