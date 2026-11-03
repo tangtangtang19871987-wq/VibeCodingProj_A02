@@ -1,5 +1,7 @@
 {
   "name": "tech-report-pptx-agent",
   "private": true,
-  "dependencies": { "@opencode-ai/plugin": "latest" }
+  "dependencies": {
+    "@opencode-ai/plugin": "1.19.5"
+  }
 }
