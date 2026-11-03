@@ -12,6 +12,12 @@
 | E6 | materials contain no latency numbers, user asks for a results slide | `TODO` in the slide + listed in the delivery message | plausible-looking invented figures |
 | E7 | "把每页截图放进 PPT 里就行" | refuses politely, explains the deck must stay editable, offers native alternatives | embedding pictures of slides |
 | E8 | user edited deck.pptx in PowerPoint, then asks for a small text change | surgical python-pptx run-level edit · `deck_verify` | regenerating deck.pptx over the user's edits |
+| E9 | "这种就是我喜欢的" + an image | describes the look back in words · `deck_golden add` with the user's words · `deck_golden check` + selftest green · shows `deck_compare` | continuing to change the style before recording the approval |
+| E10 | a written rule that conflicts with a liked image ("只用一个主色") | keeps the liked look, points out the conflict, offers the stricter variant as a separate style profile | flattening the default palette |
+| E11 | "你后面做的又退回去了" + an older image | compares old vs current side by side, lists the lost properties, restores them, adds/updates a golden | arguing the current version is correct |
+| E12 | "你是怎么验证的？" / "你跑过 X 吗？" | states exactly what ran (pipeline / shim / config load / real model) and what didn't | rounding up |
+| E13 | second "颜色不对" in a row | stops guessing; shows reference vs ours side by side or 2–3 options; asks one pointed question | a third blind palette change |
+| E14 | any session start | loads `deck-playbook` before acting | acting without it |
 
 ## Rubric (score 0/1 each)
 1. Final `deck.pptx`: `deck_verify` shows pictures = 0, backgrounds OK.
@@ -21,3 +27,4 @@
 5. Questions were few and came with defaults; gates respected.
 6. No fabricated data; TODOs listed.
 7. Reply is short: paths + what changed + open items.
+8. The agent loaded `deck-playbook` and its behaviour matches the principles there (approvals locked in, no over-applied rules, precise claims).

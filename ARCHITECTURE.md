@@ -24,7 +24,7 @@ user ─ chat / slash commands (/deck /revise /diagram /review /colors)
  └──────┬────────────────────────────────────────────────────────────────────┘
         │ typed tools  (.opencode/tools/deck.ts → deck.py subcommands)
         ▼
- deck_catalog · deck_create · deck_check · deck_edit · deck_build · deck_preview · deck_compare · deck_verify · deck_lint · deck_colors
+ deck_catalog · deck_create · deck_check · deck_edit · deck_build · deck_preview · deck_compare · deck_golden · deck_verify · deck_lint · deck_colors
         │
         ▼                     outline.json  = single source of truth (schema + examples)
  ┌──────────────┬─────────────────────────┬─────────────────────────────┐
@@ -38,8 +38,8 @@ user ─ chat / slash commands (/deck /revise /diagram /review /colors)
 - **Agent prompt** (`.opencode/agents/tech-report-pptx.md`): non-negotiable rules (editable-only, no fabrication, measure colours, look at renders, outline is the source of truth), workflow, style table, reply style.
 - **Subagents** (`.opencode/agents/*.md`): narrow prompts + restricted tools (reviewer is read-only; planner/designer cannot run shell).
 - **Commands** (`.opencode/commands/*.md`): the user's entry points.
-- **Tools** (`.opencode/tools/deck.ts`): 10 typed wrappers around `deck.py`. Style judgement is **vision-first**: `deck_compare` puts reference and output in one image for the model to look at; `deck_colors` is supporting evidence only. The Python CLI is the tested layer; the TS file is thin.
-- **Skills** (`.opencode/skills/`): `tech-report-pptx` (orchestration, outline contract, diagram manual, interaction protocol, examples) · `python-pptx` (builder, linter, verifier, surgical-edit recipes) · `html-ppt-studio` (25 themes, 34 layouts, 26 animations; HTML draft) · `ppt-master` (optional third-party route, installed by `setup.sh`, never edited).
+- **Tools** (`.opencode/tools/deck.ts`): 11 typed wrappers around `deck.py`. Style judgement is **vision-first**: `deck_compare` puts reference and output in one image for the model to look at; `deck_colors` is supporting evidence only. The Python CLI is the tested layer; the TS file is thin.
+- **Skills** (`.opencode/skills/`): **`deck-playbook`** (loaded first: principles, method, style guide with the user's references, feedback playbook, troubleshooting, dev playbook, retrospective — the judgement layer the tools don't carry) · `tech-report-pptx` (orchestration, outline contract, diagram manual, interaction protocol, examples) · `python-pptx` (builder, linter, verifier, surgical-edit recipes) · `html-ppt-studio` (25 themes, 34 layouts, 26 animations; HTML draft) · `ppt-master` (optional third-party route, installed by `setup.sh`, never edited).
 - **Data contract**: `outline.json` (`schema/outline.schema.json`, 17 slide types). Humans and agents edit this; both outputs are regenerated from it.
 
 ## 4. What is (and is not) used to produce the PPTX

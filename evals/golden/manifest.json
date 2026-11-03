@@ -1,0 +1,6 @@
+[
+ {"id": "glass-reference", "file": "vivid-reference.png", "example": "diagrams.example.json", "slides": [1, 3], "max_distance": 0.2,
+  "note": "2026-11-03 user: 我要的是你之前做出来的这种 (true blue, gradient headline, glass cubes, vivid outlines)"},
+ {"id": "liked-diagram-render", "file": "liked-diagram-render.png", "example": "diagrams.example.json", "slides": [2, 3, 4], "max_distance": 0.2,
+  "note": "2026-11-03 user: 这种就是我喜欢的 (Context builder / LangGraph flow / two lanes, measured palette)"}
+]

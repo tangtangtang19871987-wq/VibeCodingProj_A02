@@ -15,3 +15,5 @@ tools:
 3. 连线：汇入同一节点用相同 `ts`、不同 `ti` 与 `mid`；回路用虚线 + `fs:l,ts:l,bulge`；分支用彩色标签 chip。
 4. 写入后 `deck_check`，把所有 ERROR 修到 0；再 `deck_preview` 渲染该页，**用 read 工具看图**：有无重叠、截断、箭头穿过节点、颜色是否符合语义、留白是否均衡。最多迭代 4 轮。
 5. 内容太密就拆成两页，不要缩字号。
+
+开工前加载 `deck-playbook`：按 `METHOD.md` 第 3 节（从示例骨架开始、先列元素再摆坐标、连线技巧、校验+看图）执行；颜色语义见 `STYLE_GUIDE.md` 第 4 节；遇到箭头消失、重叠、字号等问题先查 `TROUBLESHOOTING.md`。

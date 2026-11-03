@@ -120,6 +120,32 @@ export const compare = tool({
   },
 })
 
+export const golden = tool({
+  description:
+    "Golden references = images the USER said they like ('这种就是我喜欢的'). op=add locks an image in as a regression test (id, slides of the example to compare, optional crop, note with the user's words); op=check verifies the current look still matches every golden; op=list shows them. Do 'add' IMMEDIATELY when the user approves a look, before changing anything else.",
+  args: {
+    op: tool.schema.enum(["list", "add", "check"]),
+    image: tool.schema.string().optional(),
+    id: tool.schema.string().optional(),
+    slides: tool.schema.string().optional().describe("e.g. '2,3,4' — slides of the example deck that correspond to the image"),
+    example: tool.schema.string().optional().describe("example outline file name, default diagrams.example.json"),
+    crop: tool.schema.string().optional(),
+    note: tool.schema.string().optional().describe("the user's own words + date"),
+  },
+  async execute(a, ctx) {
+    const args = ["golden", a.op]
+    if (a.op === "add") {
+      if (!a.image || !a.id || !a.slides) return "add needs image, id and slides"
+      args.push(a.image, "--id", a.id, "--slides", a.slides)
+      if (a.example) args.push("--example", a.example)
+      if (a.crop) args.push("--crop", a.crop)
+      if (a.note) args.push("--note", a.note)
+    }
+    if (a.op === "check" && a.id) args.push("--id", a.id)
+    return deck(ctx.worktree, args)
+  },
+})
+
 export const colors = tool({
   description:
     "SUPPORTING evidence only: measure exact hex values of a reference image (optionally a crop 'x0,y0,x1,y1') and map them to the palette. Look at the image first (deck_compare + read); use this afterwards to get exact numbers.",

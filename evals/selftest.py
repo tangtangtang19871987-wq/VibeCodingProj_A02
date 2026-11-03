@@ -94,20 +94,32 @@ try:
                         if ss >= .45 and vv >= .45: h[int(hh * bins) % bins] += 1; n += 1
                 return [c / max(n, 1) for c in h]
             l1 = lambda a, b: sum(abs(x - y) for x, y in zip(a, b)) / 2
-            gX = sig(Image.open(os.path.join(ROOT, "evals", "golden", "vivid-reference.png")))        # glass-gradient look (hero + LangGraph slides)
-            gY = sig(Image.open(os.path.join(ROOT, "evals", "golden", "liked-diagram-render.png")))   # measured-palette look (Context / LangGraph / lanes slides)
-            def deck_sig(dd, ids):
-                rc, _ = run(DECK, "preview", os.path.join(dd, "deck.pptx"), "--dpi", "100"); tot = [0] * 12
-                for i in ids:
-                    for k, v in enumerate(sig(Image.open(os.path.join(dd, "preview", "slide-%d.png" % i)))): tot[k] += v / len(ids)
-                return tot
-            dd0 = os.path.join(tmp, "diagrams"); dfl = os.path.join(tmp, "flatstyle")
-            dX, dY = l1(gX, deck_sig(dd0, [1, 3])), l1(gY, deck_sig(dd0, [2, 3, 4])); fX, fY = l1(gX, deck_sig(dfl, [1, 3])), l1(gY, deck_sig(dfl, [2, 3, 4]))
-            check("golden X (glass reference): default render colour mix distance %.2f < 0.20" % dX, dX < 0.20)
-            check("golden Y (liked measured-palette render): distance %.2f < 0.20" % dY, dY < 0.20)
-            check("goldens are discriminative: flat style is much farther (X %.2f, Y %.2f)" % (fX, fY), fX > dX + 0.15 and fY > dY + 0.15)
+            rc, out = run(DECK, "golden", "check"); print(out)
+            check("every golden reference the user liked still matches (golden check)", rc == 0, out[-300:])
+            sys.path.insert(0, os.path.join(SK, "tech-report-pptx", "scripts")); import golden as GD
+            for g in GD.load():
+                gs = GD.signature(os.path.join(ROOT, "evals", "golden", g["file"])); fl = GD.distance(gs, GD.render_signature(g["example"], g["slides"], theme="modern-tech-flat"))
+                check("golden '%s' is discriminative: flat style is far from it (%.2f)" % (g["id"], fl), fl > g["max_distance"] + 0.1)
         except ImportError: print("SKIP golden image test (Pillow missing)")
     else: print("SKIP golden image test (needs LibreOffice + pdftoppm)")
+    # --- the judgement layer: playbook present, referenced by every agent, loaded by opencode (if installed)
+    PB = os.path.join(SK, "deck-playbook")
+    need = ["SKILL.md", "STYLE_GUIDE.md", "METHOD.md", "FEEDBACK_PLAYBOOK.md", "TROUBLESHOOTING.md", "DEV_PLAYBOOK.md", "RETROSPECTIVE.md"]
+    check("deck-playbook skill has all its documents", all(os.path.getsize(os.path.join(PB, f)) > 1500 for f in need))
+    check("deck-playbook ships the user's reference images", len(__import__("glob").glob(os.path.join(PB, "references", "ref-*.png"))) >= 4)
+    head = open(os.path.join(PB, "SKILL.md"), encoding="utf-8").read().split("---")[1]
+    check("deck-playbook frontmatter: name matches folder + description", "name: deck-playbook" in head and "description:" in head)
+    AG = os.path.join(ROOT, ".opencode", "agents")
+    check("every agent prompt tells the model to load deck-playbook", all("deck-playbook" in open(os.path.join(AG, f), encoding="utf-8").read() for f in os.listdir(AG)))
+    check("deck_golden tool exported", "export const golden" in open(os.path.join(ROOT, ".opencode", "tools", "deck.ts")).read())
+    import shutil as _sh2
+    if _sh2.which("opencode"):
+        def oc(*a):
+            f = os.path.join(tmp, "oc.out"); subprocess.run("opencode " + " ".join(a) + " > " + f + " 2>/dev/null", shell=True, cwd=ROOT, timeout=180); return open(f, encoding="utf-8", errors="ignore").read()
+        sk = oc("debug", "skill"); ag = oc("debug", "agent", "tech-report-pptx")
+        check("opencode discovers the deck-playbook skill", "deck-playbook/SKILL.md" in sk)
+        check("opencode attaches deck_golden + deck_compare to the primary agent", '"deck_golden"' in ag and '"deck_compare"' in ag)
+    else: print("SKIP opencode loading checks (opencode not installed)")
     # --- other themes still build, still native
     for th in ("paper", "nord", "aurora", "mono-light"):
         d = os.path.join(tmp, "th-" + th); rc, out = run(DECK, "build", os.path.join(EX, "outline.example.json"), "--out", d, "--theme", th, "--no-html")

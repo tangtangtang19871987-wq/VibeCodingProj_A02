@@ -10,6 +10,7 @@
   deck.py verify DECK.pptx                                        editable + house-style acceptance check
   deck.py lint DECK.pptx [--render]                               overflow / off-slide / notes / fonts
   deck.py compare REFERENCE.png OURS [--page N] [--crop x0,y0,x1,y1]  side-by-side image (reference | ours) to LOOK at — the primary way to judge style
+  deck.py golden list|add|check ...                               lock in an image the USER said they like as a regression test (see golden.py -h)
   deck.py colors IMAGE [--crop x0,y0,x1,y1] [--top 12]            MEASURE (supporting evidence only) the colours in a reference image and map them to the palette (use this instead of guessing)
 
 edit ops:  show [N] | set-meta KEY VALUE | set-theme NAME | replace N JSON | insert N JSON | append JSON | delete N | move FROM TO | patch N JSON
@@ -207,6 +208,10 @@ def cmd_compare(a):
     print("LOOK at it with the read tool, then describe in words: colours present per element type, outline weight, fill strength, background, icon style, shadows, text size, spacing. Use `colors` only for exact hex afterwards.")
 
 
+def cmd_golden(a):
+    rc, out = run([PY, os.path.join(HERE, "golden.py")] + a.rest); print(out); sys.exit(rc)
+
+
 def cmd_colors(a):
     try: from PIL import Image
     except ImportError: sys.exit("colors needs Pillow (pip install pillow)")
@@ -249,6 +254,7 @@ def main():
     s = sub.add_parser("edit"); s.add_argument("outline"); s.add_argument("op"); s.add_argument("rest", nargs="*"); s.set_defaults(f=cmd_edit)
     s = sub.add_parser("verify"); s.add_argument("deck"); s.add_argument("--theme", default="modern-tech"); s.add_argument("--allow-pictures", action="store_true"); s.set_defaults(f=cmd_verify)
     s = sub.add_parser("lint"); s.add_argument("deck"); s.add_argument("--render", action="store_true"); s.set_defaults(f=cmd_lint)
+    s = sub.add_parser("golden"); s.add_argument("rest", nargs=argparse.REMAINDER); s.set_defaults(f=cmd_golden)
     s = sub.add_parser("compare"); s.add_argument("reference"); s.add_argument("ours"); s.add_argument("--page", type=int, default=1); s.add_argument("--crop"); s.set_defaults(f=cmd_compare)
     s = sub.add_parser("colors"); s.add_argument("image"); s.add_argument("--crop"); s.add_argument("--top", type=int, default=12); s.add_argument("--style", default="vivid", choices=G.style_names()); s.set_defaults(f=cmd_colors)
     a = ap.parse_args(); a.f(a)

@@ -15,3 +15,5 @@ tools:
 3. 页型按内容形状选：数字→kpi/chart/table；顺序→timeline/process；系统结构→layers 或 diagram；有分支/循环/泳道/注释的流程→diagram（把坐标设计留给 diagram-designer：先占位 `{"type":"diagram","title":...,"todo":"描述"}` 并在返回里列出）；对比→comparison；代码→code。
 4. 开场用 hero，收尾用 closing；每页 `notes` 写 60–120 字的讲稿（怎么讲，不是复述页面）。
 5. 用 `deck_edit` / write 写入，`deck_check` 到 0 ERROR 为止。
+
+开工前加载 `deck-playbook`，按其 `METHOD.md` 第 2 节（故事线、页型选择、讲稿）执行。

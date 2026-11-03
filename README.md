@@ -9,7 +9,7 @@ An AgentSkill for building professional HTML presentations — **25 themes, 34 l
 
 ## Technical-report PPTX agent (opencode)
 
-An agent *system* (not just a script): primary agent + 3 subagents + 5 slash commands + 10 typed tools + 4 skills, producing a **native, editable .pptx** (zero pictures) and a presentable HTML draft from one `outline.json`, in a pure-white house style (default `vivid`: true blue / violet / green / amber / pink, pale gradient fills, vivid outlines, glass cubes; `flat` variant available — styles are JSON profiles).
+An agent *system* (not just a script): primary agent + 3 subagents + 6 slash commands + 11 typed tools + 5 skills (incl. `deck-playbook`: the methodology and lessons the agent must load first), producing a **native, editable .pptx** (zero pictures) and a presentable HTML draft from one `outline.json`, in a pure-white house style (default `vivid`: true blue / violet / green / amber / pink, pale gradient fills, vivid outlines, glass cubes; `flat` variant available — styles are JSON profiles).
 
 - Design, requirements→mechanisms, tool inventory, limits: [`ARCHITECTURE.md`](ARCHITECTURE.md)
 - Check it works: `python3 evals/selftest.py` (45 checks incl. colour-regression guards against two golden reference renders) · behaviour evals: [`evals/cases.md`](evals/cases.md)
