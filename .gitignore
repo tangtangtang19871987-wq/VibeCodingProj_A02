@@ -3,3 +3,5 @@ vendor/
 *_render/
 __pycache__/
 output/
+.opencode/node_modules/
+.opencode/package-lock.json
