@@ -1,0 +1,9 @@
+#!/usr/bin/env python3
+"""LithoKB command-line entry point:  ./lkb --help"""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lithokb.cli import run  # noqa: E402
+
+run()

@@ -1,0 +1,186 @@
+# LithoKB — 轻量级计算光刻知识编译系统
+
+把一堆 Markdown 文档，经 LLM「编译」成**可审阅、可追溯、可发布**的知识卡片网络（知识图谱 + 主题层级），
+同时原文始终原样保留、可浏览、可追责。Web UI 面向读者 / 审阅者 / 管理员三种角色，CLI 可无界面完成全部流程。
+
+```
+./lkb init                         # 建库（创建管理员）
+./lkb upload examples/litho-docs   # 第一层：上传 MD 文件夹
+./lkb compile --backend mock       # 第二层：LLM 编译（mock 离线；anthropic 真实模型）
+./lkb serve                        # Web UI → http://127.0.0.1:8765
+python3 -m unittest discover -s tests -v
+```
+
+**依赖：Python ≥ 3.10 标准库，无其他依赖。** 只有使用真实 Claude 模型时才需要 `pip install anthropic`。
+没有数据库、没有向量库、不切分文档、没有前端构建链。前端是 4 个静态文件（约 60 KB）。
+
+---
+
+## 1. 设计理念
+
+| 理念 | 落地方式 |
+|---|---|
+| **人类友好 ⇒ Agent 友好** | 所有数据都是人能直接读的文件：原文是原样的 `.md`，知识卡片是带 frontmatter 的 `.md`，审阅与日志是一行一条的 JSONL。人能 `cat`/`grep`/`git diff`，Agent 也能。另外导出 `compiled/index.md` 与 `graph.json` 供 Agent 一次读完全库。 |
+| **编译而非检索** | 不做切片、不做 embedding。每次调用把**整篇文档**（带行号）+ 全库卡片索引 + 已由该文档编译出的卡片全文交给 LLM，让模型**更新**已有知识而不是重复创建（Karpathy "LLM Wiki" 式的知识编译）。 |
+| **LLM 只提议，人类决定** | LLM 产出的每个修订都进入审阅队列；读者只看到管理员发布过的修订。已发布卡片的新修订在审阅期间，旧的已发布版本继续对读者可见。 |
+| **可核验，不靠信任** | 模型的每条结论必须附 `[E1]` 证据：原文路径 + 行号 + **逐字引用**。系统机械核对引用是否真的在那几行（精确 / 位置偏移 / 近似 / 未找到），把结果摆在审阅者面前。 |
+| **全程可观测** | 每次 LLM 调用落盘：系统提示、用户提示（原样）、原始输出、模型思考摘要、用量、耗时、费用、解析结果、校验发现、写了哪些卡片。 |
+| **轻量** | 单进程 `ThreadingHTTPServer`；卡片索引在内存，按目录 mtime 懒重建；静态资源 gzip。几千篇文档、上万张卡片在笔记本上即可流畅运行。 |
+
+## 2. 两层知识结构
+
+```
+第一层  sources/        原始 Markdown（原样，版本化，带上传者）
+            │  整篇 + 行号
+            ▼
+        LLM 知识编译器  ──→ traces/<run>/  （完整过程记录）
+            │  JSON：卡片 + 关系 + 证据
+            ▼
+第二层  compiled/cards/   知识卡片（主题层级 parent + 类型化关系 + [[链接]] + 证据）
+            │  审阅 → 发布
+            ▼
+        读者可见的知识库 / 图谱 / compiled/index.md / graph.json
+```
+
+### 第一层：原始文档（Layer 0）
+- 上传单个文件、多个文件或整个文件夹（Web 端支持选择文件夹；CLI `lkb upload <dir>`），保持原目录结构。
+- **永不改写**：同一路径重新上传且内容变化时，旧字节存入 `history/`，版本号 +1；记录每一版的上传者、时间、sha256、说明。停用（retire）也只是归档，不删除。
+- **尊重作者的索引**：导航顺序依次参考目录下 `SUMMARY.md / index.md / README.md / _index.md` 中链接出现的顺序，再参考 frontmatter 的 `weight / nav_order / sidebar_position`，最后按标题。文档标题取 frontmatter `title` 或首个 `#` 标题。
+- **链接照常工作**：相对链接（含 `../`、`#锚点`）、图片在 Web 中被解析到对应文档 / 资源；可切换"渲染视图"与"带行号原文"，可查看任意历史版本。
+- 每篇文档页显示"由此文档编译的知识"，原文变化后相关卡片自动标记为**过时（stale）**。
+
+### 第二层：知识卡片（Layer 1）
+一张卡片 = 一个概念 / 方法 / 模型 / 参数 / 指标 / 问题……（类型见 `cards.py: CARD_TYPES`），例如：
+
+```markdown
+---
+id: "hopkins-imaging-model"
+title: "Hopkins 部分相干成像模型"
+type: "model"
+parent: "imaging-models"                      ← 主题层级（topic 可嵌套）
+aliases: ["Hopkins formula", "TCC"]
+summary: "把光源与光瞳合并为 TCC 的部分相干成像标准模型。"
+relations: [{"rel": "uses", "target": "socs-decomposition"}, ...]   ← 类型化关系（图谱的边）
+evidence: [{"id": "E1", "path": "imaging/hopkins.md", "lines": "3-3",
+            "quote": "Hopkins 公式是计算光刻中…", "check": "exact", ...}]
+grounding: {"exact": 3, "missing": 0, "total": 3, "score": 1.0}
+rev: 2                 status: "in_review"     published_rev: 1     lifecycle: "active"
+origin: {"kind": "llm", "run": "20261120T…", "model": "claude-opus-5-5"}
+---
+Hopkins 模型把照明光源和投影光瞳合并为传输交叉系数 TCC [E1]，常用 SOCS 分解加速 [[socs-decomposition]] [E2]…
+```
+
+- **图谱** = `parent`（层级边）+ `relations`（18 种类型化关系，含 `contradicts` 用于标出冲突）+ 正文 `[[wikilink]]`。由内存索引实时生成，不需要图数据库。
+- **层级** = topic 卡片构成的主题树（成像模型 → Hopkins → TCC 分解…），Web 左侧导航即此树。
+- 每次修改（LLM 编译或人工编辑）生成不可变修订 `compiled/revisions/<id>/rNNNN.md`，可任意两版对比 diff。
+
+## 3. 审阅与发布治理
+
+```
+            submit            approve × N（可配置）       publish（管理员）
+  draft ───────────▶ in_review ───────────────▶ approved ─────────────▶ published
+                       │ request_changes          │ return 打回
+                       ▼                          ▼
+               changes_requested ◀────────────────┘ ── 编辑/重新编译 → 新修订 → in_review
+                       reject ─▶ rejected ── reopen（管理员）─▶ in_review
+
+  卡片整体生命周期（管理员）：active ──withdraw 下架──▶ withdrawn ──restore──▶ active
+                                active ──supersede 替换为 X──▶ superseded（读者被引导到 X）
+```
+
+- **审阅者**：通过 / 要求修改 / 拒绝 / 仅评论；评语可锚定到某条证据或段落（如 `E2`）；可直接编辑卡片（生成新修订、来源记为本人，**不能自己批准自己的修改**——可配置）。
+- **管理员**：发布、打回、否决、重新审阅、下架、恢复、替换；管理用户与角色（角色变更对已登录用户立即生效；系统拒绝移除最后一个管理员）。
+- 投票按**修订**计：新修订会让旧票失效。规则：任一拒绝 → rejected；任一要求修改 → changes_requested；通过数 ≥ `review.required_approvals` → approved。
+- 所有动作写入 `reviews/<id>.jsonl`（卡片维度）与 `log/events.jsonl`（全局审计），只追加、不修改。
+
+## 4. LLM 知识编译器（`compiler.py`）
+
+每次调用的输入（不切片、不检索）：
+1. **全库卡片索引**：`id | type | parent | title | summary`，让模型复用已有 id、建立关系、避免重复；
+2. **已由这些文档编译出的卡片全文**（按出处确定性选取，不靠相似度）——重新编译时模型在此基础上更新；
+3. **完整原文**，每行带行号，附版本、sha256、上传者；
+4. 可选的操作员附加指令。
+
+输出是一个 JSON：`cards[]`（create/update、字段、关系、证据、置信度、修改说明）+ `notes`（给审阅者的不确定性 / 冲突说明）。
+系统提示（`SYSTEM_PROMPT`）规定：原子化卡片、稳定的英文 kebab-case id、保持原文语言、**事实必须有逐字证据**、不得用模型自身知识断言事实、冲突用 `contradicts` 标出并降低置信度。
+
+编译后的处理流水线：解析 → **校验**（id 规范化、批内重复、未知类型/关系、指向不存在的卡片、证据引用了非本次来源、正文引用了未定义证据……全部记录为 findings，不静默丢弃）→ **证据核验** → 写入新修订（`in_review`）→ 更新导出。
+
+**增量**：只编译 sha256 自上次成功编译以来变化的文档（`lkb compile` 默认；`--all` 强制）。`compile.files_per_call` 可让多篇整文档在一次调用中一起编译，便于跨文档链接。
+
+**后端**（`config.json → llm.backend`）：
+- `anthropic`：官方 SDK，默认 `claude-opus-5-5`、流式、adaptive thinking 并返回**思考摘要**（供审阅者理解模型为何这样编译）、`effort` 可配、服务端拒答回退（server-side fallback）已启用。需 `ANTHROPIC_API_KEY`。
+- `command`：任意命令行（标准输入收提示，标准输出给结果），可接本地模型 / 内网网关。
+- `mock`：确定性启发式（标题→卡片，首句→证据），离线测试与演示用，**不代表真实编译质量**。
+
+## 5. 可观测性（"LLM 做了什么"）
+
+`traces/<run>/`：`run.json`（模型、effort、提示词版本、来源 sha、上下文规模、用量、耗时、费用估算、stop_reason、时间线、校验发现、核验统计、写出的卡片）· `system.md` · `prompt.md` · `response.md` · `thinking.md` · `parsed.json` · `error.txt`。
+
+Web「LLM 观测」页：总调用 / tokens / 费用 / 平均耗时 / 引用可核验率、常见校验问题排行、按模型统计；单次运行可逐页查看原始提示与输出。
+审阅工作台右侧直接显示：该卡片的证据核验（模型声称的行 vs. 实际找到的行，原文高亮）、编译器对这张卡片的校验发现、编译备注与思考摘要。
+「健康检查」页（`lkb lint`）：悬空关系 / 链接 / 上级、原文已变化、引用未找到、无证据等。
+
+## 6. 三种用户与 Web UI
+
+| 页面 | 读者 | 审阅者 | 管理员 |
+|---|:-:|:-:|:-:|
+| 首页、知识（主题树 + 卡片）、图谱、原始文档（树 / 渲染 / 行号 / 历史版本）、搜索 | ✓ | ✓ | ✓ |
+| 上传文档；审阅队列与审阅工作台（卡片 / 差异 / 编辑 / 审阅记录 + 证据核验）；LLM 观测；健康检查 | | ✓ | ✓ |
+| 发布台（发布 / 打回 / 下架 / 恢复 / 替换）；知识编译（选文档、选后端、附加指令、任务进度）；用户管理；审计日志；停用原文 | | | ✓ |
+
+`config.json → public_read`：为 `true` 时匿名访客可阅读已发布知识与原文；设为 `false` 则必须登录。
+
+## 7. CLI（无界面，完整流程）
+
+```
+lkb init [--admin NAME]                     lkb serve [--host H --port P]
+lkb user add|list|set NAME [--role R --password P --disable --enable]
+lkb upload PATH [--prefix DIR --note TXT]   lkb sources tree|ls|show|history|retire [PATH] [--version N]
+lkb compile [PATHS…] [--all --backend B --files-per-call N --instructions TXT --dry-run]
+lkb queue | cards [--status S] | show ID [--rev N|--published] | diff ID A B | reviews ID
+lkb approve|request-changes|reject|comment|submit ID -m "评语"
+lkb publish|return|reopen|withdraw|restore ID [-m ...]   lkb supersede ID --by OTHER
+lkb traces [ls|show RUN [--part prompt|response|thinking|system|parsed]|stats]
+lkb search 词…   lkb lint   lkb log [--target ID]   lkb export      （全局：--root --user --json）
+```
+CLI 以 `--user`（或 `LKB_USER`）身份操作，同一套角色与流程规则约束（能运行 CLI 即已拥有数据目录的文件权限，因此信任其声明的身份）。
+
+## 8. 数据目录
+
+```
+kbdata/
+  config.json  users.json  secret.key
+  sources/…                       原文（当前版本）
+  meta/sources.json               出处：版本、上传者、时间、sha256、历史
+  history/sources/<path>@<v>      所有旧版本
+  compiled/cards/<id>.md          卡片当前修订 + 流程状态
+  compiled/revisions/<id>/rNNNN.md 不可变修订快照
+  compiled/index.md  graph.json   已发布知识的导出（给人 / 给 Agent）
+  reviews/<id>.jsonl              审阅记录
+  traces/<run>/…                  LLM 调用全记录
+  log/events.jsonl                审计日志
+```
+整个目录可直接放进 git 做备份与差异审计。
+
+## 9. 代码结构
+
+| 文件 | 职责 |
+|---|---|
+| `lithokb/store.py` | 数据目录、配置、原子写、写锁、审计日志 |
+| `lithokb/fm.py` | frontmatter 读写（无 YAML 依赖） |
+| `lithokb/sources.py` | 第一层：上传、版本、出处、尊重索引的层级树、路径安全 |
+| `lithokb/cards.py` | 第二层：卡片、修订、审阅状态机、证据核验、图谱、搜索、lint、导出 |
+| `lithokb/compiler.py` | 提示构建、解析、校验、写入、trace、统计 |
+| `lithokb/llm.py` | anthropic / command / mock 后端 |
+| `lithokb/auth.py` | 用户、角色、pbkdf2 密码、HMAC 令牌 |
+| `lithokb/server.py` | JSON API + 静态前端 |
+| `lithokb/web/` | 单页前端（自带安全 Markdown 渲染器与力导向图谱，无框架） |
+| `lithokb/cli.py` | CLI |
+| `tests/test_lkb.py` | 端到端测试（离线） |
+
+## 10. 当前边界与下一步
+
+- 公式以 TeX 原文显示（未内置 KaTeX，保持离线零依赖；可后续按需本地引入）。原文中的 raw HTML 会被转义显示（安全优先）。
+- 单进程写锁：适合一个服务实例；CLI 与服务同时写同一数据目录时，原子写保证文件不损坏，但不做跨进程锁。
+- mock 后端只用于流程验证；真实编译质量需要接入 `anthropic`（或 `command`）后用真实资料评测——这正是下一阶段"真正意义上的测试"的内容：编译质量（证据核验率、重复率、审阅通过率）、性能（大库下的索引 / 编译吞吐）与提示词迭代（`PROMPT_VERSION` 已记录在每个 trace 中，便于对比）。
