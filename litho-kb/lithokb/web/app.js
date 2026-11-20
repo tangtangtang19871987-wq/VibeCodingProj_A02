@@ -6,15 +6,15 @@ const esc = MD.esc;
 const S = { me: null, token: localStorage.getItem('lkb_token') || '', site: '', srcCache: {} };
 const RANK = { anonymous: 0, reader: 1, reviewer: 2, admin: 3 };
 const can = r => RANK[S.me ? S.me.role : 'anonymous'] >= RANK[r];
-const TYPE_ZH = { topic:'主题', concept:'概念', method:'方法', model:'模型', algorithm:'算法', parameter:'参数', metric:'指标',
+const TYPE_ZH = { topic:'主题', summary:'文档摘要', synthesis:'问答综合', concept:'概念', method:'方法', model:'模型', algorithm:'算法', parameter:'参数', metric:'指标',
   process:'工艺', tool:'工具', material:'材料', equipment:'设备', issue:'问题', result:'结论', person_or_org:'人物/机构' };
 const ST_ZH = { draft:'草稿', in_review:'待审阅', changes_requested:'需修改', approved:'已通过', rejected:'已拒绝', published:'已发布',
   withdrawn:'已下架', superseded:'已被替换', active:'在架', exact:'原文精确匹配', moved:'原文位置偏移', fuzzy:'近似匹配', missing:'原文未找到',
   no_source:'来源缺失', approve:'通过', request_changes:'要求修改', reject:'拒绝', comment:'评论', submit:'提交审阅', publish:'发布',
-  return:'打回', reopen:'重新审阅', withdraw:'下架', restore:'恢复上架', supersede:'替换为', done:'完成', failed:'失败', running:'进行中', queued:'排队' };
+  return:'打回', reopen:'重新审阅', extracted:'原文明确', inferred:'推断', ambiguous:'存疑', withdraw:'下架', restore:'恢复上架', supersede:'替换为', done:'完成', failed:'失败', running:'进行中', queued:'排队' };
 const zh = k => ST_ZH[k] || k;
 const badge = (k, txt) => `<span class="badge b-${esc(k)}">${esc(txt || zh(k))}</span>`;
-const TYPE_COLORS = { topic:'#2f5d8a', concept:'#3c8d6e', method:'#b5651d', model:'#7b4fa0', algorithm:'#c0392b', parameter:'#5d6d7e',
+const TYPE_COLORS = { summary:'#9aa5b1', synthesis:'#b0417a', topic:'#2f5d8a', concept:'#3c8d6e', method:'#b5651d', model:'#7b4fa0', algorithm:'#c0392b', parameter:'#5d6d7e',
   metric:'#16a085', process:'#8e6e3c', tool:'#2c7fb8', material:'#a0522d', equipment:'#566573', issue:'#d35400', result:'#27ae60', person_or_org:'#7f8c8d' };
 
 // ---------------------------------------------------------------- API
@@ -35,8 +35,9 @@ const set = html => { $('#main').innerHTML = html; };
 // ---------------------------------------------------------------- shell
 function renderShell(route) {
   const links = [['#/', '首页'], ['#/k', '知识'], ['#/graph', '图谱'], ['#/src', '原始文档']];
-  const rev = [['#/review', '审阅'], ['#/traces', 'LLM 观测'], ['#/lint', '健康检查']];
-  const adm = [['#/publish', '发布台'], ['#/compile', '知识编译'], ['#/users', '用户'], ['#/log', '审计日志']];
+  if (S.me) links.push(['#/ask', '问答']);
+  const rev = [['#/review', '审阅'], ['#/traces', 'LLM观测'], ['#/schema', '规范'], ['#/lint', '健康']];
+  const adm = [['#/publish', '发布'], ['#/compile', '编译'], ['#/users', '用户'], ['#/log', '日志']];
   const a = (l, cls = '') => `<a href="${l[0]}" class="${cls} ${('#/' + route[0]) === l[0] || (route[0] === '' && l[0] === '#/') ? 'on' : ''}">${l[1]}</a>`;
   let nav = links.map(l => a(l)).join('');
   if (can('reviewer')) nav += '<span class="sep"></span>' + rev.map(l => a(l, 'role-reviewer')).join('');
@@ -115,6 +116,17 @@ function bindEvidence(root) {
   });
 }
 
+function basisBadge(r) {
+  const b = r.basis || 'inferred';
+  const cls = b === 'extracted' ? 'exact' : b === 'ambiguous' ? 'request_changes' : 'comment';
+  const conf = r.confidence != null && b !== 'extracted' ? ' ' + Math.round(r.confidence * 100) + '%' : '';
+  return ` <span class="badge b-${cls}" title="认识论状态：${zh(b)}${r.evidence ? '，证据 ' + esc(r.evidence) : ''}">${zh(b)}${conf}${r.evidence ? ' · ' + esc(r.evidence) : ''}</span>`;
+}
+function basisSummary(rels) {
+  const c = { extracted: 0, inferred: 0, ambiguous: 0 };
+  (rels || []).forEach(r => c[r.basis || 'inferred']++);
+  return `<span class="small muted">原文明确 ${c.extracted} · 推断 ${c.inferred} </span>${c.ambiguous ? badge('request_changes', '存疑 ' + c.ambiguous) : ''}`;
+}
 function relationsBlock(card, backlinks) {
   const rels = card.relations || [];
   let h = '';
@@ -122,13 +134,14 @@ function relationsBlock(card, backlinks) {
     const g = {};
     rels.forEach(r => (g[r.rel] = g[r.rel] || []).push(r));
     h += '<h3>关系</h3><ul>' + Object.entries(g).map(([rel, rs]) =>
-      `<li><span class="badge">${esc(rel)}</span> ${rs.map(r => `<a href="${cardHref(r.target)}">${esc(r.target)}</a>${r.note ? ` <span class="muted small">${esc(r.note)}</span>` : ''}`).join('，')}</li>`).join('') + '</ul>';
+      `<li><span class="badge">${esc(rel)}</span> ${rs.map(r => `<a href="${cardHref(r.target)}">${esc(r.target)}</a>${basisBadge(r)}${r.note ? ` <span class="muted small">${esc(r.note)}</span>` : ''}`).join('，')}</li>`).join('') + '</ul>';
   }
   if (backlinks && backlinks.length) h += '<h3>被引用</h3><p>' + backlinks.map(b => `<a href="${cardHref(b.id)}">${esc(b.title)}</a>`).join(' · ') + '</p>';
   return h;
 }
 
-function topicTree(cards, current) {
+function topicTree(allCards, current) {
+  const cards = allCards.filter(c => c.type !== 'summary');
   const byParent = {};
   const ids = new Set(cards.map(c => c.id));
   cards.forEach(c => { const p = ids.has(c.parent) ? c.parent : ''; (byParent[p] = byParent[p] || []).push(c); });
@@ -169,11 +182,14 @@ routes.k = async ([id], q) => {
   const visible = can('reviewer') ? all.filter(c => c.published_rev || q.all) : all;
   if (!id) {
     const byType = {};
-    visible.forEach(c => (byType[c.type] = byType[c.type] || []).push(c));
+    visible.filter(c => c.type !== 'summary').forEach(c => (byType[c.type] = byType[c.type] || []).push(c));
+    const sums = visible.filter(c => c.type === 'summary');
     set(`<div class="cols"><aside class="panel side">${topicTree(visible)}</aside><section class="panel"><h1>知识卡片</h1>
       <p class="muted small">${visible.length} 张${can('reviewer') ? '已发布卡片（审阅中的卡片见 <a href="#/review">审阅</a>）' : ''}</p>
       ${Object.entries(byType).map(([t, cs]) => `<h3>${esc(TYPE_ZH[t] || t)} <span class="muted small">${cs.length}</span></h3><div class="cardlist">` +
-        cs.map(c => `<a class="item" href="${cardHref(c.id)}"><b>${esc(c.title)}</b><br><span class="muted small">${esc(c.summary || '')}</span></a>`).join('') + '</div>').join('')}</section></div>`);
+        cs.map(c => `<a class="item" href="${cardHref(c.id)}"><b>${esc(c.title)}</b><br><span class="muted small">${esc(c.summary || '')}</span></a>`).join('') + '</div>').join('')}
+      <h2>文档摘要层 <span class="muted small">${sums.length} 篇 · 每篇原始文档一张摘要卡片，指向它贡献的知识</span></h2><div class="cardlist">${sums.map(c =>
+        `<a class="item" href="${cardHref(c.id)}"><b>${esc(c.title)}</b> <span class="mono small muted">${(c.sources || []).map(x => esc(x.path)).join(', ')}</span><br><span class="muted small">${esc(c.summary || '')}</span></a>`).join('') || '<p class="muted">无</p>'}</div></section></div>`);
     return bindTree($('#main'));
   }
   const d = await get('cards/' + encodeURIComponent(id));
@@ -198,7 +214,7 @@ routes.k = async ([id], q) => {
       <span class="small muted">r${card.rev} · 证据核验 ${Math.round((card.grounding || {}).score * 100 || 0)}% · ${card.origin && card.origin.kind === 'llm' ? 'LLM 编译 ' + esc(card.origin.model || '') : '人工编辑 ' + esc((card.origin || {}).user || '')}${card.published_by ? ' · 由 ' + esc(card.published_by) + ' 发布于 ' + fmtTime(card.published_at) : ''}</span></div>
     ${banners}<h1>${esc(card.title)}</h1>${(card.aliases || []).length ? `<p class="muted small">别名：${card.aliases.map(esc).join('，')}</p>` : ''}
     <p><i>${esc(card.summary || '')}</i></p>${renderCardBody(card, known)}
-    ${relationsBlock(card, d.backlinks)}
+    ${relationsBlock(card, d.backlinks)}${(card.relations || []).length ? '<p>' + basisSummary(card.relations) + '</p>' : ''}
     <h3>证据（原文引用，系统自动核验）</h3>${evidenceList(card, false)}
     <p class="small muted">来源：${(card.sources || []).map(s => `<a href="${srcHref(s.path)}">${esc(s.path)}</a> v${s.version}`).join('，')}
     ${can('reviewer') && card.origin && card.origin.run ? ` · <a href="#/traces/${esc(card.origin.run)}">查看编译过程</a>` : ''}</p></article></div>`);
@@ -238,10 +254,15 @@ routes.src = async (parts, q) => {
       const [a, b] = (q.L || '0-0').split('-').map(Number);
       body = '<div class="srcview">' + d.text.split('\n').map((l, i) => `<div class="ln ${i + 1 >= a && i + 1 <= (b || a) ? 'hl' : ''}" id="L${i + 1}"><i>${i + 1}</i><span>${esc(l) || ' '}</span></div>`).join('') + '</div>';
     } else body = '<div class="doc">' + MD.render(d.text, { link: resolve, img }) + '</div>';
+    const outlineHtml = (nodes) => !nodes || !nodes.length ? '' : '<ul>' + nodes.map(n =>
+      `<li><a href="${srcHref(path, 'L=' + n.start + '-' + n.end + (q.v ? '&v=' + q.v : ''))}" title="${esc(n.gist || '')}">${esc(n.title)} <span class="muted small">L${n.start}–${n.end}</span></a>${outlineHtml(n.children)}</li>`).join('') + '</ul>';
+    const sumCard = d.derived_cards.find(c => c.id.startsWith('summary-'));
     mainHtml = `<div class="row small muted"><span class="mono">${esc(path)}</span> · v${q.v || meta.version}${q.v && +q.v !== meta.version ? ' <span class="badge b-warn">历史版本</span>' : ''}
         · 上传：${esc(meta.by)} ${fmtTime(meta.at)} · 首次：${esc(meta.first_by)} ${fmtTime(meta.first_at)}
         · <a href="${srcHref(path, raw ? (q.v ? 'v=' + q.v : '') : 'raw=1' + (q.v ? '&v=' + q.v : ''))}">${raw ? '渲染视图' : '原文（带行号）'}</a>
         · <a href="/raw/${esc(path)}${q.v ? '?v=' + q.v : ''}" target="_blank">下载</a></div>
+      ${sumCard ? `<div class="banner info">文档摘要卡片：<a href="${cardHref(sumCard.id)}${sumCard.public ? '' : '?view=head'}">${esc(sumCard.title)}</a> ${can('reviewer') ? badge(sumCard.status) : ''}</div>` : ''}
+      ${d.tree && d.tree.nodes.length ? `<details class="tree" ${raw ? 'open' : ''} style="margin:8px 0"><summary class="small">文档目录树（${d.tree.lines} 行 · 按标题结构建立，用于问答导航与长文档分章编译）</summary>${outlineHtml(d.tree.nodes)}</details>` : ''}
       ${body}
       <details style="margin-top:16px"><summary class="small">版本历史（${meta.history.length}）</summary><table class="grid"><tr><th>版本</th><th>上传者</th><th>时间</th><th>sha256</th><th>说明</th></tr>
         ${meta.history.slice().reverse().map(h => `<tr><td><a href="${srcHref(path, 'v=' + h.version)}">v${h.version}</a></td><td>${esc(h.by)}</td><td>${fmtTime(h.at)}</td><td class="mono">${esc(h.sha256.slice(0, 12))}</td><td>${esc(h.note || '')}</td></tr>`).join('')}</table></details>
@@ -282,14 +303,19 @@ routes.search = async (_, q) => {
 
 // ---------------------------------------------------------------- graph
 routes.graph = async (_, q) => {
-  const g = await get('graph' + (q.all ? '?all=1' : ''));
+  const g0 = await get('graph' + (q.all ? '?all=1' : ''));
+  const keep = new Set(g0.nodes.filter(n => q.sum || n.type !== 'summary').map(n => n.id));
+  const g = { nodes: g0.nodes.filter(n => keep.has(n.id)), edges: g0.edges.filter(e => keep.has(e.s) && keep.has(e.t)) };
   const types = [...new Set(g.nodes.map(n => n.type))];
   set(`<div class="row"><b>知识图谱</b><span class="muted small">${g.nodes.length} 节点 · ${g.edges.length} 关系 · 滚轮缩放，拖动平移，点击打开</span>
       ${can('reviewer') ? `<label class="small"><input type="checkbox" id="gall" ${q.all ? 'checked' : ''}> 包含未发布</label>` : ''}
       <input id="gfilter" placeholder="高亮…" style="width:160px"></div>
-    <div class="legend row">${types.map(t => `<span><i style="background:${TYPE_COLORS[t] || '#888'}"></i>${esc(TYPE_ZH[t] || t)}</span>`).join('')}</div>
+    <div class="legend row">${types.map(t => `<span><i style="background:${TYPE_COLORS[t] || '#888'}"></i>${esc(TYPE_ZH[t] || t)}</span>`).join('')}
+      <span class="small muted">边：实线 原文明确 · 虚线 推断 · 橙色点线 存疑 · 红色 矛盾</span>
+      <label class="small"><input type="checkbox" id="gsum"> 显示文档摘要节点</label></div>
     <canvas id="graph"></canvas>`);
-  const ga = $('#gall'); if (ga) ga.onchange = () => { location.hash = '#/graph' + (ga.checked ? '?all=1' : ''); };
+  const gnav = () => { const p = []; if ($('#gall') && $('#gall').checked) p.push('all=1'); if ($('#gsum').checked) p.push('sum=1'); location.hash = '#/graph' + (p.length ? '?' + p.join('&') : ''); };
+  if ($('#gall')) $('#gall').onchange = gnav; $('#gsum').checked = !!q.sum; $('#gsum').onchange = gnav;
   drawGraph($('#graph'), g);
 };
 
@@ -317,8 +343,10 @@ function drawGraph(cv, g) {
   function draw() {
     ctx.clearRect(0, 0, W, H); ctx.save(); ctx.translate(view.x, view.y); ctx.scale(view.k, view.k);
     ctx.lineWidth = 1 / view.k;
-    for (const e of E) { ctx.strokeStyle = e.rel === 'subtopic_of' ? 'rgba(120,130,140,.55)' : e.rel === 'contradicts' ? 'rgba(200,60,50,.7)' : 'rgba(120,130,140,.25)';
+    for (const e of E) { ctx.strokeStyle = e.rel === 'contradicts' ? 'rgba(200,60,50,.8)' : e.basis === 'ambiguous' ? 'rgba(210,130,0,.8)' : e.rel === 'subtopic_of' ? 'rgba(120,130,140,.55)' : 'rgba(120,130,140,.35)';
+      ctx.setLineDash(e.basis === 'inferred' ? [4 / view.k, 3 / view.k] : e.basis === 'ambiguous' ? [1.5 / view.k, 2.5 / view.k] : []);
       ctx.beginPath(); ctx.moveTo(e.s.x, e.s.y); ctx.lineTo(e.t.x, e.t.y); ctx.stroke(); }
+    ctx.setLineDash([]);
     for (const n of N) {
       const r = 4 + Math.min(10, Math.sqrt(n.deg) * 2) + (n.type === 'topic' ? 3 : 0);
       const dim = filter && !(n.title + n.id).toLowerCase().includes(filter);
@@ -360,13 +388,14 @@ routes.review = async ([id], q) => {
   const cards = await get('cards');
   const tab = q.s || 'in_review';
   const tabs = ['in_review', 'changes_requested', 'approved', 'rejected', 'draft', 'published'];
-  const rows = cards.filter(c => c.status === tab);
+  const amb = c => (c.relations || []).filter(r => r.basis === 'ambiguous').length;
+  const rows = cards.filter(c => c.status === tab).sort((a, b) => amb(b) - amb(a) || ((a.grounding || {}).score || 0) - ((b.grounding || {}).score || 0));
   set(`<div class="panel"><h1>审阅队列</h1><div class="tabs">${tabs.map(t => `<a href="#/review?s=${t}" class="${t === tab ? 'on' : ''}">${zh(t)} (${cards.filter(c => c.status === t).length})</a>`).join('')}</div>
-    <table class="grid"><tr><th>卡片</th><th>类型</th><th>修订</th><th>来源</th><th>证据核验</th><th>编译来源</th><th>更新</th></tr>
+    <table class="grid"><tr><th>卡片</th><th>类型</th><th>修订</th><th>来源</th><th>证据核验</th><th>关系</th><th>编译来源</th><th>更新</th></tr>
     ${rows.map(c => `<tr><td><a href="#/review/${encodeURIComponent(c.id)}"><b>${esc(c.title)}</b></a><br><span class="mono muted">${esc(c.id)}</span>
         ${c.lifecycle !== 'active' ? badge(c.lifecycle) : ''}${(c.stale_sources || []).length ? badge('stale', '原文已变') : ''}${c.published_rev ? badge('published', '在线 r' + c.published_rev) : ''}</td>
       <td>${esc(TYPE_ZH[c.type] || c.type)}</td><td>r${c.rev}</td><td class="small">${(c.sources || []).map(s => esc(s.path)).join('<br>')}</td>
-      <td>${gbadge(c.grounding)}</td><td class="small">${c.origin.kind === 'llm' ? `<a href="#/traces/${esc(c.origin.run)}">LLM ${esc(c.origin.model)}</a>` : '人工 ' + esc(c.origin.user)}</td><td class="small">${fmtTime(c.updated)}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">空</td></tr>'}</table></div>`);
+      <td>${gbadge(c.grounding)}</td><td>${basisSummary(c.relations)}</td><td class="small">${c.origin.kind === 'llm' ? `<a href="#/traces/${esc(c.origin.run)}">LLM ${esc(c.origin.model)}</a>` : c.origin.kind === 'query' ? `<a href="#/ask/${esc(c.origin.run)}">问答回写 ${esc(c.origin.user)}</a>` : '人工 ' + esc(c.origin.user)}</td><td class="small">${fmtTime(c.updated)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">空</td></tr>'}</table></div>`);
 };
 function gbadge(g) {
   g = g || {}; const s = Math.round((g.score || 0) * 100);
@@ -432,12 +461,16 @@ async function reviewWorkspace(id, q) {
       <div class="row"><button class="ok" data-act="approve">通过</button><button class="warn" data-act="request_changes">要求修改</button><button class="bad" data-act="reject">拒绝</button><button data-act="comment">仅评论</button>
         ${['draft', 'changes_requested'].includes(h.status) ? '<button data-act="submit">提交审阅</button>' : ''}</div>
       ${adminBtns}
+      <h3>关系的认识论状态</h3><p>${basisSummary(h.relations)}</p>
       <h3>证据核验 ${gbadge(h.grounding)}</h3>
       <p class="small muted">模型给出的每条引用都被逐字核对原文行；高亮行为原文。</p>
       ${evidenceList(h, true)}
       ${findings.length ? `<h3>编译器校验发现</h3><ul class="small">${findings.map(f => `<li>${badge(f.level === 'error' ? 'error' : 'warn', f.level)} ${esc(f.msg)}</li>`).join('')}</ul>` : ''}
-      ${trace ? `<h3>LLM 编译过程</h3><div class="kv"><div>运行</div><div><a href="#/traces/${esc(trace.run.id)}">${esc(trace.run.id)}</a></div><div>模型</div><div>${esc(trace.run.model)}</div>
-        <div>耗时</div><div>${trace.run.latency_s}s</div><div>置信度</div><div>${h.confidence ?? '—'}</div></div>
+      ${h.origin.kind === 'query' ? `<div class="banner info">此卡片来自问答回写：<a href="#/ask/${esc(h.origin.run)}">查看原问答与阅读计划</a></div>` : ''}
+      ${trace && trace.run.kind !== 'query' ? `<h3>LLM 编译过程</h3><div class="kv"><div>运行</div><div><a href="#/traces/${esc(trace.run.id)}">${esc(trace.run.id)}</a></div><div>模型</div><div>${esc(trace.run.model)}</div>
+        <div>耗时</div><div>${trace.run.latency_s}s</div><div>置信度</div><div>${h.confidence ?? '—'}</div>
+        <div>编译规范</div><div>${trace.run.schema ? `<a href="#/schema?v=${trace.run.schema.version}">v${trace.run.schema.version}</a>` : '—'}</div>
+        ${(trace.run.sections || []).length ? `<div>分章编译</div><div class="small">${trace.run.sections.map(x => esc(x.path + ' §' + x.part + ' L' + x.lines)).join('<br>')}</div>` : ''}</div>
         ${trace.run.notes ? `<p class="small"><b>编译器备注：</b>${esc(trace.run.notes)}</p>` : ''}
         <details><summary class="small">模型思考摘要</summary><pre class="box">${esc(trace['thinking.md'] || '')}</pre></details>` : ''}
     </aside></div>`);
@@ -475,10 +508,13 @@ routes.traces = async ([rid], q) => {
       <div class="stat"><b>$${st.cost_usd}</b><span>估算费用</span></div><div class="stat"><b>${st.runs ? (st.latency_s / st.runs).toFixed(1) : 0}s</b><span>平均耗时</span></div>
       <div class="stat"><b>${st.cards_written}</b><span>写出的卡片修订</span></div>
       <div class="stat"><b>${g.total ? Math.round((g.exact + g.moved) / g.total * 100) : 0}%</b><span>引用原文可核验（${g.exact + g.moved}/${g.total}）</span></div></div>
-    <div class="cols3"><section class="panel"><table class="grid"><tr><th>运行</th><th>状态</th><th>来源</th><th>模型</th><th>耗时</th><th>卡片</th><th>核验</th><th>发现</th></tr>
-      ${runs.map(r => `<tr><td><a href="#/traces/${esc(r.id)}" class="mono">${esc(r.id)}</a><br><span class="small muted">${esc(r.by)}</span></td><td>${badge(r.status)}</td><td class="small">${r.sources.map(esc).join('<br>')}</td>
+    <div class="cols3"><section class="panel"><table class="grid"><tr><th>运行</th><th>类型</th><th>状态</th><th>来源 / 问题</th><th>模型</th><th>耗时</th><th>卡片</th><th>核验</th><th>发现</th></tr>
+      ${runs.map(r => `<tr><td><a href="#/traces/${esc(r.id)}" class="mono">${esc(r.id)}</a><br><span class="small muted">${esc(r.by)}</span></td><td>${r.kind === 'query' ? badge('comment', '问答') : badge('t', '编译')}${(r.sections || []).length ? badge('t', '分章 ' + r.sections[0].part) : ''}</td><td>${badge(r.status)}</td>
+        <td class="small">${r.kind === 'query' ? esc((r.question || '').slice(0, 60)) : r.sources.map(esc).join('<br>')}</td>
         <td class="small">${esc(r.model || '')}</td><td>${r.latency_s ?? ''}s</td><td>${(r.written || []).length}</td><td>${r.grounding ? gbadge(r.grounding) : ''}</td><td>${(r.findings || []).length}</td></tr>`).join('')}</table></section>
     <aside class="panel"><h3 style="margin-top:0">常见校验发现</h3><table class="grid">${Object.entries(st.findings).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<tr><td class="small">${esc(k)}</td><td>${n}</td></tr>`).join('') || '<tr><td class="muted">无</td></tr>'}</table>
+      <h3>关系认识论状态（累计）</h3><p>${Object.entries(st.bases).map(([b, n]) => badge(b === 'extracted' ? 'exact' : b === 'ambiguous' ? 'request_changes' : 'comment', zh(b) + ' ' + n)).join(' ')}</p>
+      <h3>按编译规范版本</h3><table class="grid">${Object.entries(st.by_schema).map(([v, x]) => `<tr><td><a href="#/schema?v=${v.slice(1)}">${esc(v)}</a></td><td>${x.runs} 次</td><td>可核验 ${x.total ? Math.round(x.exact / x.total * 100) : 0}%</td></tr>`).join('') || '<tr><td class="muted">无</td></tr>'}</table>
       <h3>按模型</h3><table class="grid">${Object.entries(st.by_model).map(([m, x]) => `<tr><td class="small">${esc(m)}</td><td>${x.runs} 次</td><td>${(x.latency_s / x.runs).toFixed(1)}s</td></tr>`).join('')}</table></aside></div>`);
 };
 
@@ -486,12 +522,25 @@ async function traceView(rid, q) {
   const t = await get('traces/' + encodeURIComponent(rid));
   const r = t.run;
   const tab = q.tab || 'overview';
-  const tabs = [['overview', '概览'], ['thinking', '思考摘要'], ['prompt', '用户提示'], ['system', '系统提示'], ['response', '原始输出'], ['parsed', '解析结果']];
-  if (t['error.txt']) tabs.push(['error', '错误']);
+  const NAMES = { 'thinking.md': '思考摘要', 'prompt.md': '用户提示', 'system.md': '系统提示', 'response.md': '原始输出', 'parsed.json': '解析结果', 'error.txt': '错误' };
+  const STEP = { 'nav-': '导航·', 'ans-': '回答·' };
+  const order = ['thinking.md', 'prompt.md', 'system.md', 'response.md', 'parsed.json', 'error.txt'];
+  const files = Object.keys(t).filter(k => k !== 'run');
+  files.sort((a, b) => (a.startsWith('ans-') - b.startsWith('ans-')) || order.indexOf(a.replace(/^(nav|ans)-/, '')) - order.indexOf(b.replace(/^(nav|ans)-/, '')));
+  const tabs = [['overview', '概览'], ...files.map(f => [f, (STEP[f.slice(0, 4)] || '') + (NAMES[f.replace(/^(nav|ans)-/, '')] || f)])];
   const u = r.usage || {};
   let body = '';
-  if (tab === 'overview') body = `<div class="kv"><div>状态</div><div>${badge(r.status)} ${esc(r.error || '')}</div><div>发起人</div><div>${esc(r.by)}</div>
+  if (tab === 'overview' && r.kind === 'query') body = `<div class="kv"><div>问题</div><div><b>${esc(r.question)}</b></div><div>状态</div><div>${badge(r.status)} ${esc(r.error || '')}</div>
+      <div>提问人</div><div>${esc(r.by)} · 范围 ${r.scope === 'all' ? '含未发布' : '仅已发布'}</div><div>后端 / 模型</div><div>${esc(r.backend)} / ${esc(r.model)}</div>
+      <div>耗时 / 费用</div><div>${r.latency_s}s ${r.cost_usd !== undefined ? '· $' + r.cost_usd : ''}</div><div>引用核验</div><div>${r.grounding ? gbadge(r.grounding) : ''}</div></div>
+      <p><a href="#/ask/${esc(r.id)}">在问答页查看答案与阅读计划 →</a></p>
+      <h3>每次 LLM 调用</h3><table class="grid">${(r.calls || []).map(c => `<tr><td>${esc(c.step)}</td><td class="small">${esc(c.model)}</td><td>${c.latency_s}s</td><td class="small mono">${esc(JSON.stringify(c.usage))}</td><td class="small">${(c.prompt_chars / 1000).toFixed(1)}k 字符</td></tr>`).join('')}</table>
+      <h3>时间线</h3><ul class="timeline">${(r.timeline || []).map(s => `<li><span class="mono">${fmtTime(s.ts).slice(11)}</span> ${esc(s.step)} <span class="muted">${esc(JSON.stringify(Object.fromEntries(Object.entries(s).filter(([k]) => !['ts', 'step'].includes(k)))))}</span></li>`).join('')}</ul>`;
+  else if (tab === 'overview') body = `<div class="kv"><div>状态</div><div>${badge(r.status)} ${esc(r.error || '')}</div><div>发起人</div><div>${esc(r.by)}</div>
       <div>后端 / 模型</div><div>${esc(r.backend)} / ${esc(r.model)} ${r.effort ? '· effort ' + esc(r.effort) : ''}</div><div>提示词版本</div><div class="mono">${esc(r.prompt_version)}</div>
+      <div>编译规范</div><div>${r.schema ? `<a href="#/schema?v=${r.schema.version}">SCHEMA.md v${r.schema.version}</a> <span class="mono small muted">${esc(r.schema.sha)}</span>` : '—'}</div>
+      ${(r.sections || []).length ? `<div>分章编译</div><div class="small">${r.sections.map(x => `${esc(x.path)} §${esc(x.part)} L${esc(x.lines)}：${x.titles.map(esc).join('，')}`).join('<br>')}</div>` : ''}
+      <div>关系状态</div><div>${r.bases ? Object.entries(r.bases).map(([b, n]) => zh(b) + ' ' + n).join(' · ') : '—'}</div>
       <div>来源文档</div><div>${r.sources.map(s => `<a href="${srcHref(s)}">${esc(s)}</a> <span class="mono small muted">${esc((r.source_shas[s] || '').slice(0, 10))}</span>`).join('<br>')}</div>
       <div>上下文</div><div class="small">${r.context ? `索引 ${r.context.index_cards} 张卡片 · 关联卡片全文 ${r.context.related_cards.length} 张 · 提示 ${(r.context.prompt_chars / 1000).toFixed(1)}k 字符` : ''}</div>
       <div>用量</div><div class="small mono">${esc(JSON.stringify(u))}</div><div>耗时 / 费用</div><div>${r.latency_s}s ${r.cost_usd !== undefined ? '· $' + r.cost_usd : ''} · stop=${esc(r.stop_reason || '')}</div>
@@ -501,16 +550,17 @@ async function traceView(rid, q) {
     <h3>校验发现（${(r.findings || []).length}）</h3><table class="grid">${(r.findings || []).map(f => `<tr><td>${badge(f.level === 'error' ? 'error' : f.level === 'info' ? 'comment' : 'warn', f.level)}</td><td class="mono small">${esc(f.card)}</td><td class="small">${esc(f.msg)}</td></tr>`).join('') || '<tr><td class="muted">无</td></tr>'}</table>
     <h3>时间线</h3><ul class="timeline">${(r.timeline || []).map(s => `<li><span class="mono">${fmtTime(s.ts).slice(11)}</span> ${esc(s.step)} <span class="muted">${esc(JSON.stringify(Object.fromEntries(Object.entries(s).filter(([k]) => !['ts', 'step'].includes(k)))))}</span></li>`).join('')}</ul>`;
   else {
-    const key = { thinking: 'thinking.md', prompt: 'prompt.md', system: 'system.md', response: 'response.md', parsed: 'parsed.json', error: 'error.txt' }[tab];
+    const key = tab;
     body = `<p class="small muted">${(t[key] || '').length} 字符 · 以下为发送给 / 来自模型的原文，未经修改。</p><pre class="box">${esc(t[key] || '(无)')}</pre>`;
   }
-  set(`<div class="row"><a href="#/traces">← LLM 观测</a><span class="mono">${esc(rid)}</span></div><div class="panel"><div class="tabs">${tabs.map(([k, n]) => `<a href="#/traces/${esc(rid)}?tab=${k}" class="${k === tab ? 'on' : ''}">${n}</a>`).join('')}</div>${body}</div>`);
+  set(`<div class="row"><a href="#/traces">← LLM 观测</a><span class="mono">${esc(rid)}</span></div><div class="panel"><div class="tabs">${tabs.map(([k, n]) => `<a href="#/traces/${esc(rid)}?tab=${encodeURIComponent(k)}" class="${k === tab ? 'on' : ''}">${n}</a>`).join('')}</div>${body}</div>`);
 }
 
 routes.lint = async () => {
   const issues = await get('lint');
   const KIND = { dangling_relation: '关系指向不存在的卡片', dangling_wikilink: '正文链接指向不存在的卡片', dangling_parent: '上级主题不存在', stale_source: '原文已更新（需重新编译）',
-    ungrounded_evidence: '引用未在原文中找到', no_evidence: '没有证据', dangling_replacement: '替换目标不存在' };
+    ungrounded_evidence: '引用未在原文中找到', no_evidence: '没有证据', dangling_replacement: '替换目标不存在',
+    ambiguous_relation: '存在“存疑”关系待人工判断', missing_summary: '文档缺少摘要卡片（需重新编译）' };
   set(`<div class="panel"><h1>知识库健康检查</h1><p class="muted">${issues.length} 项</p><table class="grid"><tr><th>卡片</th><th>问题</th><th>详情</th></tr>${issues.map(i =>
     `<tr><td><a href="#/review/${encodeURIComponent(i.card)}">${esc(i.card)}</a></td><td>${esc(KIND[i.kind] || i.kind)}</td><td class="small">${esc(i.detail)}</td></tr>`).join('')}</table></div>`);
 };
@@ -594,6 +644,82 @@ routes.log = async (_, q) => {
     <table class="grid" id="lt"><tr><th>时间</th><th>谁</th><th>动作</th><th>对象</th><th>详情</th></tr>${evs.map(e => `<tr><td class="small">${fmtTime(e.ts)}</td><td>${esc(e.actor)}</td><td class="mono">${esc(e.action)}</td>
       <td class="small"><a href="#/log?target=${encodeURIComponent(e.target)}">${esc(e.target)}</a></td><td class="small mono">${esc(JSON.stringify(e.detail || {})).slice(0, 300)}</td></tr>`).join('')}</table></div>`);
   $('#lf').oninput = ev => { const f = ev.target.value.toLowerCase(); document.querySelectorAll('#lt tr').forEach((tr, i) => { if (i) tr.style.display = tr.textContent.toLowerCase().includes(f) ? '' : 'none'; }); };
+};
+
+// ---------------------------------------------------------------- ask (navigate → read → answer → file back)
+routes.ask = async ([rid]) => {
+  if (!S.me) { location.hash = '#/login'; return; }
+  const hist = await get('queries?limit=30').catch(() => []);
+  let run = null;
+  if (rid) run = await get('queries/' + encodeURIComponent(rid));
+  const all = await get('cards');
+  const known = new Set(all.map(c => c.id));
+  const histHtml = `<h3 style="margin-top:0">${can('reviewer') ? '最近的问答' : '我的问答'}</h3>${hist.map(h =>
+    `<div style="border-bottom:1px solid var(--line);padding:5px 0"><a href="#/ask/${esc(h.id)}" class="${h.id === rid ? 'on' : ''}">${esc((h.question || '').slice(0, 60))}</a><br>
+     <span class="small muted">${esc(h.by)} · ${fmtTime(h.started)} ${h.status !== 'done' ? badge(h.status) : ''}${h.filed_as ? ' · 已回写 ' + esc(h.filed_as) : ''}</span></div>`).join('') || '<p class="muted small">暂无</p>'}`;
+  let res = '';
+  if (run) {
+    const n = run.navigation || {}, a = run.answer || {};
+    const evRender = (a.evidence || []).map(e => ({ ...e }));
+    res = `<div class="row small muted">问题 · ${esc(run.by)} · ${fmtTime(run.started)} · 范围：${run.scope === 'all' ? '含未发布' : '仅已发布'} ·
+        ${run.latency_s}s · ${can('reviewer') ? `<a href="#/traces/${esc(run.id)}">完整 LLM 记录</a>` : ''}</div><h2 style="margin-top:4px">${esc(run.question)}</h2>
+      ${run.status !== 'done' ? `<div class="banner bad">失败：${esc(run.error || '')}</div>` : `
+      <details open><summary><b>① 阅读计划</b> <span class="small muted">模型先看知识树与文档目录树，决定读什么（不使用向量检索）</span></summary>
+        <div class="banner info">${esc(n.reasoning || '')}</div>
+        <div class="small"><b>读取卡片（${(n.cards || []).length}）：</b>${(n.cards || []).map(c => `<a href="${cardHref(c)}">${esc(c)}</a>`).join(' · ') || '—'}</div>
+        <div class="small"><b>读取原文章节（${(n.sections || []).length}）：</b><ul>${(n.sections || []).map(s => `<li><a href="${srcHref(s.path, 'L=' + s.lines)}">${esc(s.path)} › ${esc(s.title)}</a> <span class="muted">L${esc(s.lines)}</span> ${s.why ? '<span class="muted">— ' + esc(s.why) + '</span>' : ''}</li>`).join('') || '<li class="muted">无</li>'}</ul></div>
+      </details>
+      <h3>② 回答 ${gbadge(run.grounding)} ${a.confidence != null ? `<span class="small muted">置信度 ${a.confidence}</span>` : ''}</h3>
+      <div class="doc">${renderCardBody({ body: a.answer_md }, known)}</div>
+      ${a.gaps ? `<div class="banner warn">资料缺口：${esc(a.gaps)}</div>` : ''}
+      <h3>③ 引用核验</h3>${evidenceList({ evidence: evRender }, true)}
+      ${can('reviewer') ? (run.filed_as ? `<div class="banner info">已回写为知识卡片 <a href="#/review/${esc(run.filed_as)}">${esc(run.filed_as)}</a>（进入审阅流程）</div>` :
+        `<h3>④ 回写为知识</h3><p class="small muted">好的问答会成为一张「问答综合」卡片进入审阅；发布后成为知识库的一部分——知识因使用而增长。</p>
+        <div class="row"><input id="fb_title" placeholder="卡片标题（默认用问题）" style="flex:1"><input id="fb_parent" placeholder="上级主题 id（可选）" list="cardids2"><datalist id="cardids2">${all.filter(c => c.type === 'topic').map(c => `<option value="${esc(c.id)}">${esc(c.title)}</option>`).join('')}</datalist>
+        <button class="primary" id="fb_go">提交为知识卡片</button></div>`) : ''}`}`;
+  }
+  set(`<div class="cols3"><section class="panel"><h1>问答</h1>
+      <p class="muted small">基于知识库作答：先按知识树与文档目录推理出阅读计划，再精读选中的卡片与原文章节，回答中的每条原文引用都会被自动核验。</p>
+      <textarea id="qq" placeholder="例如：Hopkins 模型在 EUV 条件下有什么局限？ILT 与 OPC 的主要区别是什么？" style="min-height:70px"></textarea>
+      <div class="row"><button class="primary" id="qgo">提问</button>${can('reviewer') ? '<label class="small"><input type="checkbox" id="qall"> 包含未发布（审阅中）卡片</label>' : ''}<span id="qwait" class="small muted"></span></div>
+      ${res}</section><aside class="panel">${histHtml}</aside></div>`);
+  bindEvidence($('#main')); fillSourceLines($('#main'));
+  $('#qgo').onclick = async () => {
+    const question = $('#qq').value.trim(); if (!question) return;
+    $('#qgo').disabled = true; $('#qwait').textContent = '模型正在阅读与作答…';
+    try { const r = await api('POST', 'ask', { question, include_unpublished: !!($('#qall') && $('#qall').checked) }); location.hash = '#/ask/' + r.id; }
+    catch (e) { toast(e.message); $('#qgo').disabled = false; $('#qwait').textContent = ''; }
+  };
+  const fb = $('#fb_go'); if (fb) fb.onclick = async () => {
+    try { const h = await api('POST', `queries/${encodeURIComponent(run.id)}/file`, { title: $('#fb_title').value.trim(), parent: $('#fb_parent').value.trim() });
+      toast('已提交为 ' + h.id); location.hash = '#/review/' + encodeURIComponent(h.id); } catch (e) { toast(e.message); }
+  };
+};
+
+// ---------------------------------------------------------------- schema (the compiler's "source code")
+routes.schema = async (_, q) => {
+  const sc = await get('schema');
+  const v = q.v ? +q.v : sc.version;
+  const text = v === sc.version ? sc.text : (await get('schema/v/' + v)).text;
+  const prev = sc.history.filter(h => h.version < v).map(h => h.version).pop() || 0;
+  const df = q.diff ? (await get(`schema/diff?a=${prev}&b=${v}`)).diff : '';
+  const editable = can('admin') && v === sc.version;
+  set(`<div class="cols3"><section class="panel"><h1>编译规范 SCHEMA.md <span class="small muted">v${v}${v !== sc.version ? '（历史版本）' : '（当前）'}</span></h1>
+      <p class="small muted">知识编译器每次编译都会完整阅读此规范：领域本体、主题骨架、卡片类型用法、命名写作规范、关系含义、不编译什么。
+      修改它即可改变知识的编译方式，无需改代码；每次编译记录都会注明所用版本，便于比较不同版本的编译效果。固定的「证据 / 认识论标签 / 输出格式」协议在代码中，不可在此修改。</p>
+      <div class="tabs"><a href="#/schema?v=${v}" class="${!q.diff ? 'on' : ''}">${editable ? '编辑' : '查看'}</a><a href="#/schema?v=${v}&diff=1" class="${q.diff ? 'on' : ''}">与上一版差异</a></div>
+      ${q.diff ? `<div class="diff">${df.split('\n').map(l => `<div class="${l.startsWith('+') ? 'a' : l.startsWith('-') ? 'd' : l.startsWith('@') ? 'h' : ''}">${esc(l) || ' '}</div>`).join('')}</div>` :
+        editable ? `<textarea id="sc_text" class="code" style="min-height:60vh">${esc(text)}</textarea>
+          <div class="row"><input id="sc_note" placeholder="修改说明（必填）" style="flex:1"><button class="primary" id="sc_save">保存为新版本</button></div>`
+        : `<div class="doc">${MD.render(text)}</div>`}</section>
+    <aside class="panel"><h3 style="margin-top:0">版本历史</h3><table class="grid">${sc.history.slice().reverse().map(h =>
+      `<tr><td><a href="#/schema?v=${h.version}">v${h.version}</a></td><td class="small">${esc(h.by)}<br>${fmtTime(h.at)}</td><td class="small">${esc(h.note || '')}</td></tr>`).join('')}</table>
+      <p class="small muted">在「LLM 观测」中可按规范版本对比引用可核验率。</p></aside></div>`);
+  const sv = $('#sc_save'); if (sv) sv.onclick = async () => {
+    const note = $('#sc_note').value.trim(); if (!note) return toast('请填写修改说明');
+    try { const e = await api('PUT', 'schema', { text: $('#sc_text').value, note }); toast('已保存为 v' + e.version); location.hash = '#/schema?v=' + e.version; route(); }
+    catch (e) { toast(e.message); }
+  };
 };
 
 routes.login = async () => {

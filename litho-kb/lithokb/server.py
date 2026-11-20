@@ -16,7 +16,10 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from . import __version__
 from . import auth as A
+from . import doctree
+from . import schema as SC
 from . import sources as S
+from .ask import Asker
 from .cards import CardError, Cards, is_public
 from .compiler import Compiler, card_history
 from .store import KB
@@ -30,6 +33,7 @@ class App:
         self.kb = kb
         self.cards = Cards(kb)
         self.compiler = Compiler(kb, self.cards)
+        self.asker = Asker(kb, self.cards, self.compiler)
 
 
 class HTTPError(Exception):
@@ -184,8 +188,11 @@ def make_handler(app: App):
                                for m in C.index().values() if any(s["path"] == rel for s in m.get("sources", []))]
                     if not reviewer:
                         derived = [d for d in derived if d["public"]]
-                    return self._json({"path": rel, "meta": meta, "text": S.read_text(kb, rel, v) if rel.lower().endswith(S.MD_EXT) else None,
-                                       "derived_cards": derived})
+                    is_md = rel.lower().endswith(S.MD_EXT)
+                    text = S.read_text(kb, rel, v) if is_md else None
+                    sha = meta["sha256"] if not v or v == meta["version"] else f"{rel}@{v}"
+                    return self._json({"path": rel, "meta": meta, "text": text, "derived_cards": derived,
+                                       "tree": doctree.build(text, sha) if is_md else None})
                 if method == "POST" and parts[1:] == ["upload"]:
                     A.require(user, "reviewer")
                     b = self._body()
@@ -248,6 +255,32 @@ def make_handler(app: App):
                     m = C.human_edit(user, cid, self._body())
                     return self._json(m)
 
+            # ---- ask: reasoning-based navigation + verified answer ----------------
+            if head == "ask" and method == "POST":
+                A.require(user, kb.config["query"]["min_role"])
+                b = self._body()
+                incl = bool(b.get("include_unpublished")) and reviewer and kb.config["query"]["unpublished_for_reviewers"]
+                cfg = dict(kb.config["llm"])
+                if b.get("backend") and user and user["role"] == "admin":
+                    cfg["backend"] = b["backend"]
+                return self._json(app.asker.ask(user, b.get("question", ""), cfg, include_unpublished=incl))
+            if head == "queries":
+                A.require(user, "reader")
+                if len(parts) == 1:
+                    runs = app.compiler.runs(limit=int(q.get("limit", 100)), kind="query")
+                    if not reviewer:
+                        runs = [r for r in runs if r["by"] == user["name"]]
+                    return self._json([{k: r.get(k) for k in ("id", "by", "started", "status", "question", "scope", "filed_as",
+                                                               "grounding", "latency_s", "model")} for r in runs])
+                run = app.compiler.trace(parts[1])["run"]
+                if run.get("kind") != "query" or (not reviewer and run["by"] != user["name"]):
+                    raise FileNotFoundError(parts[1])
+                if method == "POST" and parts[2:3] == ["file"]:
+                    A.require(user, "reviewer")
+                    b = self._body()
+                    return self._json(app.asker.file_back(user, parts[1], b.get("title", ""), b.get("parent", "")))
+                return self._json(run)
+
             if head == "graph":
                 return self._json(C.graph(visible_only=not (reviewer and q.get("all") == "1")))
             if head == "search":
@@ -287,6 +320,17 @@ def make_handler(app: App):
                 if parts[1] == "stats":
                     return self._json(app.compiler.stats())
                 return self._json(app.compiler.trace(parts[1]))
+            if head == "schema":
+                if method == "GET" and len(parts) == 1:
+                    return self._json({**SC.current(kb), "history": SC.history(kb)})
+                if method == "GET" and parts[1:2] == ["v"]:
+                    return self._json({"text": SC.version_text(kb, int(parts[2]))})
+                if method == "GET" and parts[1:2] == ["diff"]:
+                    return self._json({"diff": SC.diff(kb, int(q.get("a", 0)), int(q.get("b", 1)))})
+                if method == "PUT":
+                    A.require(user, "admin")
+                    b = self._body()
+                    return self._json(SC.save(kb, user["name"], b.get("text", ""), b.get("note", "")))
             if head == "lint":
                 return self._json(C.lint())
             if head == "events":

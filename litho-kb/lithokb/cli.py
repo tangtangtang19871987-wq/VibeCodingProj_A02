@@ -121,6 +121,24 @@ def main(argv=None) -> None:
     s.add_argument("op", choices=["ls", "show", "stats"], nargs="?", default="ls")
     s.add_argument("run", nargs="?")
     s.add_argument("--part", choices=["system", "prompt", "response", "thinking", "parsed", "error"])
+    s = sub.add_parser("ask", help="ask the knowledge base (navigate → read → answer with verified quotes)")
+    s.add_argument("question", nargs="+")
+    s.add_argument("--all", action="store_true", help="include unpublished cards (reviewer+)")
+    s.add_argument("--backend", choices=["mock", "anthropic", "command"])
+    s.add_argument("--file-back", metavar="TITLE", nargs="?", const="", help="file the answer as a synthesis card (reviewer+)")
+    s = sub.add_parser("file-back", help="file an earlier query answer as a synthesis card (reviewer+)")
+    s.add_argument("run")
+    s.add_argument("--title", default="")
+    s.add_argument("--parent", default="")
+    s = sub.add_parser("queries", help="list past queries")
+    s = sub.add_parser("schema", help="the domain schema that steers compilation")
+    s.add_argument("op", choices=["show", "set", "history", "diff"], nargs="?", default="show")
+    s.add_argument("file", nargs="?", help="for set: Markdown file with the new schema")
+    s.add_argument("-m", "--note", default="")
+    s.add_argument("--a", type=int, default=0)
+    s.add_argument("--b", type=int)
+    s = sub.add_parser("outline", help="show a document's table-of-contents tree (line ranges)")
+    s.add_argument("path")
     s = sub.add_parser("search", help="search cards and sources")
     s.add_argument("q", nargs="+")
     s = sub.add_parser("lint", help="integrity report")
@@ -247,6 +265,65 @@ def main(argv=None) -> None:
         return _out([{"id": r["id"], "status": r["status"], "model": r.get("model"), "latency": r.get("latency_s"),
                       "cards": len(r.get("written", [])), "grounding": r.get("grounding", {}).get("score"),
                       "sources": ",".join(r["sources"])} for r in comp.runs()], args)
+    if cmd == "ask":
+        from .ask import Asker
+        A.require(me, kb.config["query"]["min_role"])
+        cfg = dict(kb.config["llm"])
+        if args.backend:
+            cfg["backend"] = args.backend
+        run = Asker(kb, cards, comp).ask(me, " ".join(args.question), cfg,
+                                         include_unpublished=args.all and A.RANK[me["role"]] >= 2)
+        if args.json:
+            return _out(run, args)
+        if run["status"] != "done":
+            sys.exit(f"query failed: {run.get('error')}  (trace {run['id']})")
+        nav, ans = run["navigation"], run["answer"]
+        print(f"# 阅读计划  {nav['reasoning']}")
+        print("  卡片: " + (", ".join(nav["cards"]) or "—"))
+        for s_ in nav["sections"]:
+            print(f"  章节: {s_['path']} {s_['node']} [L{s_['lines']}] {s_['title']}")
+        print("\n" + ans["answer_md"] + "\n")
+        for e in ans["evidence"]:
+            print(f"  [{e['id']}] {e['check']:9s} {e['path']}:L{e.get('found_lines') or e['lines']}  “{e['quote'][:80]}”")
+        if ans.get("gaps"):
+            print(f"\n缺口: {ans['gaps']}")
+        print(f"\ntrace {run['id']} · grounding {run['grounding']['score']} · {run.get('latency_s')}s")
+        if args.file_back is not None:
+            A.require(me, "reviewer")
+            h = Asker(kb, cards, comp).file_back(me, run["id"], args.file_back)
+            print(f"filed as {h['id']} r{h['rev']} ({h['status']})")
+        return
+    if cmd == "file-back":
+        from .ask import Asker
+        A.require(me, "reviewer")
+        h = Asker(kb, cards, comp).file_back(me, args.run, args.title, args.parent)
+        return print(f"filed as {h['id']} r{h['rev']} ({h['status']})")
+    if cmd == "queries":
+        rows = comp.runs(kind="query")
+        if A.RANK[me["role"]] < 2:
+            rows = [r for r in rows if r["by"] == me["name"]]
+        return _out([{"id": r["id"], "by": r["by"], "status": r["status"], "filed": r.get("filed_as") or "-",
+                      "question": r["question"][:60]} for r in rows], args)
+    if cmd == "schema":
+        from . import schema as SC
+        if args.op == "show":
+            return print(SC.current(kb)["text"])
+        if args.op == "history":
+            return _out(SC.history(kb), args)
+        if args.op == "diff":
+            return print(SC.diff(kb, args.a, args.b or SC.current(kb)["version"]))
+        A.require(me, "admin")
+        if not args.file:
+            sys.exit("schema set FILE")
+        e = SC.save(kb, me["name"], open(args.file, encoding="utf-8").read(), args.note)
+        return print(f"schema v{e['version']} ({e['sha']})")
+    if cmd == "outline":
+        from . import doctree
+        meta = S.load_meta(kb).get(S.clean_path(args.path))
+        if not meta:
+            sys.exit(f"no source {args.path}")
+        tree = doctree.build(S.read_text(kb, args.path), meta["sha256"])
+        return _out(tree, args) if args.json else print(doctree.outline(tree) or "(no headings)")
     if cmd == "search":
         return _out(cards.search(" ".join(args.q), visible_only=A.RANK[me["role"]] < 2), args)
     if cmd == "lint":

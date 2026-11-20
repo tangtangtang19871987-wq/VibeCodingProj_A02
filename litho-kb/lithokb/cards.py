@@ -25,11 +25,12 @@ from . import fm
 from . import sources as S
 from .store import KB, LOCK, append_jsonl, atomic_write, now, read_jsonl
 
-CARD_TYPES = ("topic", "concept", "method", "model", "algorithm", "parameter", "metric",
-              "process", "tool", "material", "equipment", "issue", "result", "person_or_org")
+CARD_TYPES = ("topic", "summary", "concept", "method", "model", "algorithm", "parameter", "metric",
+              "process", "tool", "material", "equipment", "issue", "result", "synthesis", "person_or_org")
 RELATIONS = ("is_a", "part_of", "subtopic_of", "uses", "depends_on", "implements", "improves",
              "alternative_to", "contrasts_with", "causes", "mitigates", "measured_by",
-             "parameter_of", "input_to", "output_of", "example_of", "contradicts", "related_to")
+             "parameter_of", "input_to", "output_of", "example_of", "contradicts", "covers", "related_to")
+BASES = ("extracted", "inferred", "ambiguous")  # epistemic status of a relation
 STATUSES = ("draft", "in_review", "changes_requested", "approved", "rejected", "published")
 VERDICTS = ("approve", "request_changes", "reject", "comment")
 _ID_RE = re.compile(r"[^a-z0-9]+")
@@ -43,6 +44,11 @@ class CardError(Exception):
 def slug(s: str) -> str:
     s = _ID_RE.sub("-", s.lower()).strip("-")
     return s[:80]
+
+
+def summary_id(path: str) -> str:
+    """Deterministic id of a document's summary card (OpenKB's per-document layer)."""
+    return slug("summary-" + path)[:80].strip("-")
 
 
 # ---- evidence grounding: mechanical check that quotes really are in the source ----
@@ -201,7 +207,10 @@ class Cards:
                 "parent": card.get("parent", "") or "",
                 "aliases": list(card.get("aliases", [])),
                 "summary": card.get("summary", ""),
-                "relations": [r for r in card.get("relations", []) if r.get("target")],
+                "relations": [{**r, "target": slug(str(r["target"])),
+                               "basis": r.get("basis") if r.get("basis") in BASES else
+                               ("extracted" if origin.get("kind") == "human" else "inferred")}
+                              for r in card.get("relations", []) if r.get("target")],
                 "evidence": evidence,
                 "grounding": grounding(evidence),
                 "sources": [{"path": p, "sha": src_meta.get(p, {}).get("sha256", ""),
@@ -352,6 +361,7 @@ class Cards:
         for i in ids:
             m = idx[i]
             nodes.append({"id": i, "title": m["title"], "type": m["type"], "status": m["status"],
+                          "ambiguous": sum(r.get("basis") == "ambiguous" for r in m.get("relations", [])),
                           "lifecycle": m.get("lifecycle"), "parent": m.get("parent", ""),
                           "grounding": m.get("grounding", {}).get("score", 0)})
             if m.get("parent") in ids:
@@ -359,7 +369,8 @@ class Cards:
             for r in m.get("relations", []):
                 t = slug(r["target"])
                 if t in ids and t != i:
-                    edges.append({"s": i, "t": t, "rel": r.get("rel", "related_to")})
+                    edges.append({"s": i, "t": t, "rel": r.get("rel", "related_to"),
+                                  "basis": r.get("basis", "inferred"), "conf": r.get("confidence")})
             for t in m.get("_links", []):
                 if t in ids and t != i:
                     edges.append({"s": i, "t": t, "rel": "links_to"})
@@ -401,9 +412,29 @@ class Cards:
                 issues.append({"card": cid, "kind": "ungrounded_evidence", "detail": f"{g['missing']} of {g['total']} quotes not found in source"})
             if not m.get("evidence"):
                 issues.append({"card": cid, "kind": "no_evidence", "detail": "card cites nothing"})
+            amb = [f"{r.get('rel')} → {r['target']}" for r in m.get("relations", []) if r.get("basis") == "ambiguous"]
+            if amb and m.get("status") != "published":
+                issues.append({"card": cid, "kind": "ambiguous_relation", "detail": "; ".join(amb)})
             if m.get("lifecycle") == "superseded" and m.get("replaced_by") not in idx:
                 issues.append({"card": cid, "kind": "dangling_replacement", "detail": m.get("replaced_by")})
+        for p in S.list_md(self.kb):
+            if summary_id(p) not in idx and any(s["path"] == p for m in idx.values() for s in m.get("sources", [])):
+                issues.append({"card": summary_id(p), "kind": "missing_summary", "detail": p})
         return issues
+
+    def write_log(self) -> None:
+        """compiled/log.md — the LLM-Wiki style human-readable chronicle (newest day first)."""
+        days: dict[str, list[str]] = {}
+        for e in read_jsonl(self.kb.events_path):
+            line = _log_line(e)
+            if line:
+                days.setdefault(e["ts"][:10], []).append(line)
+        out = ["# Knowledge base log", "", "_ingest · compile · publish · withdraw · schema changes — generated from log/events.jsonl_", ""]
+        for day in sorted(days, reverse=True)[:120]:
+            out.append(f"## {day}")
+            out.extend(reversed(days[day]))
+            out.append("")
+        atomic_write(self.kb.root / "compiled" / "log.md", "\n".join(out))
 
     def write_exports(self) -> None:
         """compiled/index.md and graph.json — the published wiki, for humans and agents."""
@@ -421,15 +452,47 @@ class Cards:
                 lines.append(f"{'  ' * depth}- [[{m['id']}|{m['title']}]] ({m['type']}) — {m.get('summary', '')}")
                 walk(m["id"], depth + 1, seen)
 
+        summaries = [m for m in pub if m["type"] == "summary"]
+        by_parent = {k: [m for m in v if m["type"] != "summary"] for k, v in by_parent.items()}
+        lines.append("## Knowledge (concepts by topic)")
+        lines.append("")
         seen: set = set()
         walk("", 0, seen)
         for m in pub:  # orphans whose parent is unpublished
-            if m["id"] not in seen:
+            if m["id"] not in seen and m["type"] != "summary":
                 lines.append(f"- [[{m['id']}|{m['title']}]] ({m['type']}) — {m.get('summary', '')}")
+        lines += ["", "## Source documents (one summary per document)", ""]
+        for m in sorted(summaries, key=lambda x: x["id"]):
+            src = ", ".join(s["path"] for s in m.get("sources", []))
+            lines.append(f"- [[{m['id']}|{m['title']}]] — `{src}` — {m.get('summary', '')}")
         atomic_write(self.kb.root / "compiled" / "index.md", "\n".join(lines) + "\n")
+        self.write_log()
         atomic_write(self.kb.root / "compiled" / "graph.json",
                      json.dumps(self.graph(visible_only=True), ensure_ascii=False, indent=1))
 
 
+LOG_ACTIONS = {"source.upload": "ingest", "source.retire": "retire", "compile.run.done": "compile",
+               "compile.run.failed": "compile-failed", "card.publish": "publish", "card.withdraw": "withdraw",
+               "card.supersede": "supersede", "card.restore": "restore", "card.return": "return",
+               "query.filed": "query→card", "schema.update": "schema"}
+
+
+def _log_line(e: dict) -> str | None:
+    kind = LOG_ACTIONS.get(e["action"])
+    if not kind:
+        return None
+    d = e.get("detail", {})
+    what = e["target"]
+    if kind == "ingest":
+        what = f"{len(d.get('changed', []))} changed file(s) under {e['target']}" + (f" — {d['note']}" if d.get("note") else "")
+    elif kind.startswith("compile"):
+        what = f"{', '.join(d.get('sources', []))} → {len(d.get('cards', []))} card revision(s) (run {e['target']})"
+    elif kind in ("publish", "withdraw", "restore", "return", "supersede"):
+        what = f"[[{e['target']}]] r{d.get('rev')}" + (f" → [[{d['to']}]]" if d.get("to") else "") + \
+               (f" — {d['comment']}" if d.get("comment") else "")
+    return f"- `{e['ts'][11:16]}` **{kind}** · {e['actor']} · {what}"
+
+
 def is_public(m: dict) -> bool:
     return bool(m.get("published_rev")) and m.get("lifecycle", "active") == "active"
+

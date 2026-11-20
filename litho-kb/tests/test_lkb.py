@@ -256,6 +256,25 @@ class TestHTTP(unittest.TestCase):
             self.assertIn(b"LithoKB", r.read())
 
 
+class TestHTTPFusion(TestHTTP):
+    def test_end_to_end_over_http(self):  # parent's test runs in TestHTTP only
+        pass
+
+    def test_ask_schema_outline_endpoints(self):
+        adm, bob = self.login("admin", "pw-admin"), self.login("bob", "pw-bob")
+        self.assertEqual(self.call("POST", "/api/ask", {"question": "OPC"})[0], 403)  # anonymous
+        st, run = self.call("POST", "/api/ask", {"question": "ILT 与 OPC", "include_unpublished": True}, bob)
+        self.assertEqual((st, run["status"], run["scope"]), (200, "done", "published"))  # readers can't widen scope
+        self.assertEqual(self.call("POST", f"/api/queries/{run['id']}/file", {}, bob)[0], 403)
+        self.assertEqual(self.call("GET", f"/api/queries/{run['id']}", token=bob)[0], 200)
+        self.assertEqual(self.call("GET", "/api/schema", token=bob)[0], 403)
+        st, sc = self.call("GET", "/api/schema", token=adm)
+        self.assertEqual(st, 200)
+        self.assertEqual(self.call("PUT", "/api/schema", {"text": sc["text"] + "\nx\n", "note": "t"}, adm)[1]["version"], sc["version"] + 1)
+        f = self.call("GET", "/api/sources/file?path=imaging/hopkins.md")[1]
+        self.assertEqual([n["title"] for n in f["tree"]["nodes"]], ["Hopkins 部分相干成像"])
+
+
 class TestCLI(unittest.TestCase):
     def test_headless_flow(self):
         d = tempfile.mkdtemp(prefix="lkb-cli-")
@@ -278,3 +297,126 @@ class TestCLI(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------------
+# Fusion features: PageIndex doc trees, OpenKB summary layer, LLM-Wiki schema / query
+# compounding / log, epistemic labels.
+from lithokb import doctree  # noqa: E402
+from lithokb import schema as SC  # noqa: E402
+from lithokb.ask import Asker  # noqa: E402
+from lithokb.cards import summary_id  # noqa: E402
+from lithokb.compiler import normalize_relation  # noqa: E402
+
+LONG_DOC = "# SMO\n\nSMO 同时优化光源与掩模。\n\n" + "".join(
+    f"## 第{i}节\n\n第{i}节：光源像素化与掩模联合求解。{'补充。' * 40}\n\n```\n# not a heading {i}\n```\n\n" for i in range(1, 7))
+
+
+class TestDocTree(unittest.TestCase):
+    def test_tree_and_sections(self):
+        t = doctree.build("---\ntitle: T\n---\nintro line\n# A\n\ntext a.\n\n## A1\n\n```\n# code\n```\nx\n# B\ny\n")
+        self.assertEqual(t["title"], "T")
+        titles = [(n["id"], n["title"], n["start"], n["end"]) for n in t["nodes"]]
+        self.assertEqual(titles[0][1], "(preamble)")  # text before first heading stays reachable
+        a = next(n for n in t["nodes"] if n["title"] == "A")
+        self.assertEqual([c["title"] for c in a["children"]], ["A1"])  # '# code' inside fence ignored
+        self.assertEqual(a["gist"], "text a.")
+        self.assertIn("[L", doctree.outline(t))
+        big = doctree.build(LONG_DOC)
+        secs = doctree.sections(big, 500)
+        self.assertGreater(len(secs), 2)
+        self.assertEqual(secs[0][0], 1)
+        self.assertEqual(secs[-1][1], big["lines"])
+        for (a1, b1, _), (a2, _, _) in zip(secs, secs[1:]):
+            self.assertEqual(b1 + 1, a2)  # contiguous, complete coverage along the outline
+        self.assertEqual(len(doctree.sections(big, 10 ** 9)), 1)
+
+
+class TestFusion(unittest.TestCase):
+    def setUp(self):
+        self.kb = fresh_kb()
+        S.put_dir(self.kb, "rev", str(EXAMPLES))
+        self.cards = Cards(self.kb)
+        self.comp = Compiler(self.kb, self.cards)
+        self.comp.start("admin", self.comp.plan(None), backend="mock", background=False)
+
+    def tearDown(self):
+        shutil.rmtree(self.kb.root)
+
+    def test_summary_layer_and_epistemic_labels(self):
+        idx = self.cards.index()
+        for p in S.list_md(self.kb):
+            self.assertIn(summary_id(p), idx)
+            self.assertEqual(idx[summary_id(p)]["type"], "summary")
+        rels = [r for m in idx.values() for r in m["relations"]]
+        self.assertTrue(rels and all(r["basis"] in ("extracted", "inferred", "ambiguous") for r in rels))
+        self.assertTrue(any(r["rel"] == "covers" for r in rels))
+        f = []
+        self.assertEqual(normalize_relation({"rel": "uses", "target": "X", "basis": "extracted"}, "c", set(), f)["basis"], "inferred")
+        self.assertEqual(normalize_relation({"rel": "uses", "target": "X", "basis": "extracted", "evidence": "E1"}, "c", {"E1"}, f)["basis"], "extracted")
+        self.assertEqual(normalize_relation({"rel": "zzz", "target": "X", "basis": "ambiguous"}, "c", set(), f)["rel"], "related_to")
+        self.assertTrue(any("ambiguous" in x["msg"] for x in f))
+        self.cards.write_exports()
+        index_md = (self.kb.root / "compiled" / "index.md").read_text("utf-8")
+        self.assertIn("## Source documents", index_md)
+        self.assertIn("**compile**", (self.kb.root / "compiled" / "log.md").read_text("utf-8"))
+
+    def test_schema_versioned_and_traced(self):
+        self.assertEqual(SC.current(self.kb)["version"], 1)
+        e = SC.save(self.kb, "admin", SC.current(self.kb)["text"] + "\n## extra rule\n", "add rule")
+        self.assertEqual(e["version"], 2)
+        self.assertEqual(SC.save(self.kb, "admin", SC.current(self.kb)["text"], "noop")["version"], 2)  # unchanged → no new version
+        self.assertIn("+## extra rule", SC.diff(self.kb, 1, 2))
+        run = self.comp.run_once("admin", ["opc/ilt.md"], {**self.kb.config["llm"], "backend": "mock"})
+        self.assertEqual(run["schema"]["version"], 2)
+        t = self.comp.trace(run["id"])
+        self.assertIn("extra rule", t["system.md"])
+        self.assertIn('<outline path="opc/ilt.md">', t["prompt.md"])
+
+    def test_long_document_compiled_along_outline(self):
+        cfg = json.loads((self.kb.root / "config.json").read_text())
+        cfg["compile"] = {"files_per_call": 1, "max_doc_chars": 700}
+        (self.kb.root / "config.json").write_text(json.dumps(cfg))
+        S.put(self.kb, "rev", [{"path": "smo/long.md", "text": LONG_DOC}])
+        job = self.comp.start("admin", ["smo/long.md"], backend="mock", background=False)
+        runs = [self.comp.trace(r)["run"] for r in job["runs"]]
+        self.assertGreater(len(runs), 1)
+        self.assertTrue(all(r["status"] == "done" and r["sections"] for r in runs))
+        self.assertEqual(runs[0]["source_complete"], [])
+        self.assertEqual(runs[-1]["source_complete"], ["smo/long.md"])
+        self.assertIn('section="1/', self.comp.trace(runs[0]["id"])["prompt.md"])
+        # later sections see the cards produced by earlier ones (they are "related")
+        self.assertTrue(runs[-1]["context"]["related_cards"])
+        self.assertEqual(self.comp.plan(["smo/long.md"]), [])
+        self.assertEqual(self.cards.load(summary_id("smo/long.md"))[0]["rev"], len(runs))
+
+    def test_ask_navigate_answer_and_file_back(self):
+        admin, rev, bob = (user(self.kb, n) for n in ("admin", "rev", "bob"))
+        asker = Asker(self.kb, self.cards, self.comp)
+        cfg = {**self.kb.config["llm"], "backend": "mock"}
+        # readers see published knowledge only: nothing published yet → no cards read
+        r0 = asker.ask(bob, "Hopkins 模型的局限", cfg)
+        self.assertEqual(r0["navigation"]["cards"], [])
+        self.assertTrue(r0["navigation"]["sections"])  # but source ToCs are navigable
+        r = asker.ask(rev, "Hopkins 模型的局限", cfg, include_unpublished=True)
+        self.assertEqual(r["status"], "done")
+        self.assertTrue(r["navigation"]["cards"])
+        self.assertTrue(all(e["check"] == "exact" for e in r["answer"]["evidence"]))
+        t = self.comp.trace(r["id"])
+        for part in ("nav-prompt.md", "nav-response.md", "ans-prompt.md", "ans-response.md"):
+            self.assertIn(part, t)
+        self.assertIn("<card-index>", t["nav-prompt.md"])
+        self.assertEqual(len(t["run"]["calls"]), 2)
+        with self.assertRaises(PermissionError):
+            from lithokb.auth import require
+            require(bob, "reviewer")
+        h = asker.file_back(rev, r["id"], "Hopkins limitations")
+        self.assertEqual((h["type"], h["status"], h["origin"]["kind"]), ("synthesis", "in_review", "query"))
+        self.assertTrue(all(e["check"] == "exact" for e in h["evidence"]))
+        with self.assertRaises(ValueError):
+            asker.file_back(rev, r["id"])  # only once
+        # the filed answer then follows the normal governance path
+        self.cards.act(user(self.kb, "rev2"), h["id"], "approve")
+        self.cards.act(admin, h["id"], "publish")
+        self.assertTrue(is_public(self.cards.load(h["id"])[0]))
+        self.assertEqual(self.comp.runs(kind="query")[0]["filed_as"], h["id"])

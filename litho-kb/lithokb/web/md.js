@@ -23,7 +23,7 @@
       const ext = /^https?:/i.test(safe) ? ' target="_blank" rel="noopener"' : '';
       return keep('<a href="' + esc(safe) + '"' + ext + '>' + inline(text, o) + '</a>');
     });
-    s = s.replace(/\[(E\d+)\]/g, (_, id) => keep(o.ev ? o.ev(id) : '<sup>[' + id + ']</sup>'));
+    s = s.replace(/\[([ES]\d+)\]/g, (_, id) => keep(o.ev ? o.ev(id) : '<sup>[' + id + ']</sup>'));
     s = s.replace(/<(https?:\/\/[^>\s]+)>/g, (_, u) => keep('<a href="' + esc(u) + '" target="_blank" rel="noopener">' + esc(u) + '</a>'));
     s = esc(s);
     s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/__([^_]+)__/g, '<strong>$1</strong>')

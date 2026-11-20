@@ -2,6 +2,7 @@
 
 kbdata/
   config.json                 policy + LLM settings (human-edited)
+  SCHEMA.md                   domain schema the compiler follows (versioned in history/schema/)
   users.json                  accounts and roles
   secret.key                  HMAC key for login tokens
   sources/<path>.md           Layer 0: original documents, verbatim (current version)
@@ -42,7 +43,11 @@ DEFAULT_CONFIG = {
         "command": "",  # for backend=command: prompt on stdin, response on stdout
         "price_per_mtok": {"claude-opus-5-5": [4.0, 20.0]},
     },
-    "compile": {"files_per_call": 1},
+    "compile": {
+        "files_per_call": 1,
+        "max_doc_chars": 300_000,  # larger documents are compiled section-by-section along their outline
+    },
+    "query": {"min_role": "reader", "unpublished_for_reviewers": True},
 }
 
 
@@ -118,6 +123,8 @@ class KB:
             os.chmod(key, 0o600)
         if not (self.root / "users.json").exists():
             atomic_write(self.root / "users.json", "{}")
+        from . import schema
+        schema.ensure(self)
 
     def exists(self) -> bool:
         return (self.root / "config.json").exists()

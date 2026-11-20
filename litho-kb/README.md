@@ -16,6 +16,15 @@ python3 -m unittest discover -s tests -v
 
 ---
 
+## 0. 融合了哪些思想
+
+| 来源 | 核心价值 | 在 LithoKB 中的落地 |
+|---|---|---|
+| **LLM Wiki**（Karpathy） | 原文不可变；LLM 维护持久的、互相链接的 wiki；**规则文件（schema）就是"编译器的源码"**；ingest / query / lint 三个操作；知识随使用不断累积 | 第一层原文永不改写；`SCHEMA.md` 由管理员编辑、有版本记录，每次编译记录所用版本；**问答（query）**的好答案可**回写**为「问答综合」卡片进入审阅；`lkb lint` 健康检查；人能直接读的 `compiled/log.md` |
+| **OpenKB** | 两层 wiki：每篇文档一张 `summaries/` 摘要 + 跨文档的 `concepts/` 概念页；新文档**丰富**已有页面而不是孤立存在；`index.md` / `log.md` | 每篇原始文档强制生成一张 `summary` 卡片（id 确定，如 `summary-opc-ilt-md`），用 `covers` 关系指向它贡献的概念卡片；概念卡片跨文档共用；导出的 `index.md` 分「知识」与「文档摘要」两部分 |
+| **PageIndex** | 不用向量、不切片：用文档自身的**目录树**，让 LLM 像人查目录一样**推理式导航** | 每篇文档确定性地生成标题目录树（节点带精确行号）；**问答先导航后作答**：模型阅读知识树与文档目录树，写出阅读计划，再精读选中内容；**超长文档按目录结构分章编译**（不是按长度机械切块），每章都能看到全文目录和前面章节已产出的卡片 |
+| （补充）Graphify | 每条关系标注认识论状态 | 关系必须标注 `extracted / inferred / ambiguous` + 置信度；标为「原文明确」却没有有效证据的关系自动降级为「推断」；「存疑」的关系排在审阅队列最前面，图谱中用不同线型显示 |
+
 ## 1. 设计理念
 
 | 理念 | 落地方式 |
@@ -36,7 +45,8 @@ python3 -m unittest discover -s tests -v
         LLM 知识编译器  ──→ traces/<run>/  （完整过程记录）
             │  JSON：卡片 + 关系 + 证据
             ▼
-第二层  compiled/cards/   知识卡片（主题层级 parent + 类型化关系 + [[链接]] + 证据）
+第二层  compiled/cards/   ① 文档摘要层：每篇文档一张 summary 卡片（OpenKB）
+                          ② 知识层：概念 / 方法 / 模型 / 参数…（主题层级 + 类型化关系 + [[链接]] + 证据）
             │  审阅 → 发布
             ▼
         读者可见的知识库 / 图谱 / compiled/index.md / graph.json
@@ -95,11 +105,18 @@ Hopkins 模型把照明光源和投影光瞳合并为传输交叉系数 TCC [E1]
 
 ## 4. LLM 知识编译器（`compiler.py`）
 
+系统提示由两部分组成：**固定协议**（写在代码里：证据规则、认识论标签、输出 JSON 格式，系统靠它来核验和存储）+ **`SCHEMA.md`**（领域专家维护：主题骨架、卡片类型用法、命名写作规范、关系含义、不编译什么）。
+
 每次调用的输入（不切片、不检索）：
 1. **全库卡片索引**：`id | type | parent | title | summary`，让模型复用已有 id、建立关系、避免重复；
 2. **已由这些文档编译出的卡片全文**（按出处确定性选取，不靠相似度）——重新编译时模型在此基础上更新；
-3. **完整原文**，每行带行号，附版本、sha256、上传者；
-4. 可选的操作员附加指令。
+3. **文档目录树**（标题层级 + 行号范围 + 每节首句）；
+4. **完整原文**（或超长文档的某一章节），每行带行号，附版本、sha256、上传者；
+5. 可选的操作员附加指令。
+
+**超长文档**（超过 `compile.max_doc_chars`，默认 30 万字符）：沿目录树切分为若干章节，**按顺序**逐章编译。章节过大时下钻到子标题；只有单个叶子章节本身超长时才按行切分（这种情况会明确标注）。每章编译时都能看到全文目录，以及前面章节已产出的卡片全文（它们属于"由该文档编译出的卡片"），所以模型是在**更新**，而不是从零开始。只有最后一章成功后，该文档才算编译完成；中途失败则停止该文档的后续章节。
+
+**关系的认识论标签**：每条关系为 `{rel, target, basis, confidence, evidence}`，其中 `basis ∈ extracted（原文明确，必须引用证据）/ inferred（推断）/ ambiguous（存疑，交给人判断）`。
 
 输出是一个 JSON：`cards[]`（create/update、字段、关系、证据、置信度、修改说明）+ `notes`（给审阅者的不确定性 / 冲突说明）。
 系统提示（`SYSTEM_PROMPT`）规定：原子化卡片、稳定的英文 kebab-case id、保持原文语言、**事实必须有逐字证据**、不得用模型自身知识断言事实、冲突用 `contradicts` 标出并降低置信度。
@@ -113,25 +130,33 @@ Hopkins 模型把照明光源和投影光瞳合并为传输交叉系数 TCC [E1]
 - `command`：任意命令行（标准输入收提示，标准输出给结果），可接本地模型 / 内网网关。
 - `mock`：确定性启发式（标题→卡片，首句→证据），离线测试与演示用，**不代表真实编译质量**。
 
-## 5. 可观测性（"LLM 做了什么"）
+## 5. 问答：导航 → 精读 → 作答 → 回写（`ask.py`）
 
-`traces/<run>/`：`run.json`（模型、effort、提示词版本、来源 sha、上下文规模、用量、耗时、费用估算、stop_reason、时间线、校验发现、核验统计、写出的卡片）· `system.md` · `prompt.md` · `response.md` · `thinking.md` · `parsed.json` · `error.txt`。
+1. **导航**（PageIndex）：模型看到问题、知识树（按主题层级排列的卡片与一句话摘要）、每篇文档的目录树，**说明理由**地选出要读的卡片（≤12）与原文章节（≤8）。没有向量、没有相似度阈值。
+2. **精读作答**：只读选中的卡片全文与章节原文（带行号），回答中用 `[[卡片]]` 链接，原文事实用 `[S1]` 引用——引用同样被逐字核验。资料不足时必须说明缺口。
+3. **回写**（LLM Wiki 的知识复利）：审阅者可把好的问答提交为 `synthesis`（问答综合）卡片，`[S1]` 自动转为 `[E1]` 证据，进入正常的审阅 → 发布流程。
+- 读者只能基于**已发布**知识提问；审阅者可选择包含审阅中的卡片。两次 LLM 调用都完整记录（`nav-*` 与 `ans-*` 文件）。
 
-Web「LLM 观测」页：总调用 / tokens / 费用 / 平均耗时 / 引用可核验率、常见校验问题排行、按模型统计；单次运行可逐页查看原始提示与输出。
+## 6. 可观测性（"LLM 做了什么"）
+
+`traces/<run>/`：`run.json`（类型 compile/query、模型、effort、提示词版本、**SCHEMA 版本**、分章信息、来源 sha、上下文规模、用量、耗时、费用估算、stop_reason、时间线、校验发现、核验统计、写出的卡片）· `system.md` · `prompt.md` · `response.md` · `thinking.md` · `parsed.json` · `error.txt`。
+
+Web「LLM观测」页：总调用 / tokens / 费用 / 平均耗时 / 引用可核验率、常见校验问题排行、关系认识论状态分布、**按 SCHEMA 版本对比可核验率**（修改规范后效果是否变好一目了然）、按模型统计；单次运行可逐页查看原始提示与输出。
 审阅工作台右侧直接显示：该卡片的证据核验（模型声称的行 vs. 实际找到的行，原文高亮）、编译器对这张卡片的校验发现、编译备注与思考摘要。
 「健康检查」页（`lkb lint`）：悬空关系 / 链接 / 上级、原文已变化、引用未找到、无证据等。
 
-## 6. 三种用户与 Web UI
+## 7. 三种用户与 Web UI
 
 | 页面 | 读者 | 审阅者 | 管理员 |
 |---|:-:|:-:|:-:|
-| 首页、知识（主题树 + 卡片）、图谱、原始文档（树 / 渲染 / 行号 / 历史版本）、搜索 | ✓ | ✓ | ✓ |
-| 上传文档；审阅队列与审阅工作台（卡片 / 差异 / 编辑 / 审阅记录 + 证据核验）；LLM 观测；健康检查 | | ✓ | ✓ |
-| 发布台（发布 / 打回 / 下架 / 恢复 / 替换）；知识编译（选文档、选后端、附加指令、任务进度）；用户管理；审计日志；停用原文 | | | ✓ |
+| 首页、知识（主题树 + 卡片 + 文档摘要层）、图谱、原始文档（树 / 目录树 / 渲染 / 行号 / 历史版本）、搜索 | ✓ | ✓ | ✓ |
+| 问答（基于已发布知识；阅读计划与引用核验可见） | 登录后 ✓ | ✓（可含未发布） | ✓ |
+| 上传文档；审阅队列（存疑关系优先）与审阅工作台（卡片 / 差异 / 编辑 / 审阅记录 + 证据核验 + 认识论状态）；问答回写；LLM 观测；健康检查；查看编译规范 | | ✓ | ✓ |
+| 发布台（发布 / 打回 / 下架 / 恢复 / 替换）；知识编译（选文档、选后端、附加指令、任务进度）；**编辑编译规范**；用户管理；审计日志；停用原文 | | | ✓ |
 
 `config.json → public_read`：为 `true` 时匿名访客可阅读已发布知识与原文；设为 `false` 则必须登录。
 
-## 7. CLI（无界面，完整流程）
+## 8. CLI（无界面，完整流程）
 
 ```
 lkb init [--admin NAME]                     lkb serve [--host H --port P]
@@ -142,28 +167,32 @@ lkb queue | cards [--status S] | show ID [--rev N|--published] | diff ID A B | r
 lkb approve|request-changes|reject|comment|submit ID -m "评语"
 lkb publish|return|reopen|withdraw|restore ID [-m ...]   lkb supersede ID --by OTHER
 lkb traces [ls|show RUN [--part prompt|response|thinking|system|parsed]|stats]
+lkb ask 问题… [--all --file-back [标题]]   lkb queries   lkb file-back RUN [--title T --parent P]
+lkb schema [show|set FILE -m 说明|history|diff --a N --b M]   lkb outline PATH
 lkb search 词…   lkb lint   lkb log [--target ID]   lkb export      （全局：--root --user --json）
 ```
 CLI 以 `--user`（或 `LKB_USER`）身份操作，同一套角色与流程规则约束（能运行 CLI 即已拥有数据目录的文件权限，因此信任其声明的身份）。
 
-## 8. 数据目录
+## 9. 数据目录
 
 ```
 kbdata/
   config.json  users.json  secret.key
+  SCHEMA.md                       编译规范（history/schema/vN.md 保存每一版）
   sources/…                       原文（当前版本）
   meta/sources.json               出处：版本、上传者、时间、sha256、历史
   history/sources/<path>@<v>      所有旧版本
   compiled/cards/<id>.md          卡片当前修订 + 流程状态
   compiled/revisions/<id>/rNNNN.md 不可变修订快照
   compiled/index.md  graph.json   已发布知识的导出（给人 / 给 Agent）
+  compiled/log.md                 人可读的时间线：收录 / 编译 / 发布 / 下架 / 规范修改
   reviews/<id>.jsonl              审阅记录
   traces/<run>/…                  LLM 调用全记录
   log/events.jsonl                审计日志
 ```
 整个目录可直接放进 git 做备份与差异审计。
 
-## 9. 代码结构
+## 10. 代码结构
 
 | 文件 | 职责 |
 |---|---|
@@ -171,7 +200,10 @@ kbdata/
 | `lithokb/fm.py` | frontmatter 读写（无 YAML 依赖） |
 | `lithokb/sources.py` | 第一层：上传、版本、出处、尊重索引的层级树、路径安全 |
 | `lithokb/cards.py` | 第二层：卡片、修订、审阅状态机、证据核验、图谱、搜索、lint、导出 |
-| `lithokb/compiler.py` | 提示构建、解析、校验、写入、trace、统计 |
+| `lithokb/compiler.py` | 协议 + SCHEMA 提示构建、分章编译、解析、校验（含认识论标签）、写入、trace、统计 |
+| `lithokb/doctree.py` | 文档目录树（PageIndex 思路，确定性）、目录文本、按结构分章 |
+| `lithokb/schema.py` | `SCHEMA.md` 的版本管理与差异 |
+| `lithokb/ask.py` | 问答：导航 → 精读 → 作答 → 回写 |
 | `lithokb/llm.py` | anthropic / command / mock 后端 |
 | `lithokb/auth.py` | 用户、角色、pbkdf2 密码、HMAC 令牌 |
 | `lithokb/server.py` | JSON API + 静态前端 |
@@ -179,7 +211,7 @@ kbdata/
 | `lithokb/cli.py` | CLI |
 | `tests/test_lkb.py` | 端到端测试（离线） |
 
-## 10. 当前边界与下一步
+## 11. 当前边界与下一步
 
 - 公式以 TeX 原文显示（未内置 KaTeX，保持离线零依赖；可后续按需本地引入）。原文中的 raw HTML 会被转义显示（安全优先）。
 - 单进程写锁：适合一个服务实例；CLI 与服务同时写同一数据目录时，原子写保证文件不损坏，但不做跨进程锁。
