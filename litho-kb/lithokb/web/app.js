@@ -227,8 +227,8 @@ routes.src = async (parts, q) => {
   const treeHtml = n => '<ul>' + n.children.filter(c => !(c.type === 'file' && c.path === n.index && n.path)).map(c => c.type === 'dir'
     ? `<li class="dir ${path.startsWith(c.path + '/') ? '' : 'closed'}"><span data-toggle>${esc(c.title || c.name)}</span>${c.index ? `<a href="${srcHref(c.index)}" class="${c.index === path ? 'on' : ''}" style="font-size:12px;color:var(--muted)">· 目录页</a>` : ''}${treeHtml(c)}</li>`
     : `<li><a href="${c.name.match(/\.(md|markdown|mdx)$/i) ? srcHref(c.path) : '/raw/' + c.path}" class="${c.path === path ? 'on' : ''}" title="${esc(c.path)}">${esc(c.title || c.name)}</a></li>`).join('') + '</ul>';
-  const up = can('reviewer') ? `<details style="margin-top:12px"><summary>上传 Markdown 文件/文件夹</summary>
-      <div class="row"><input type="file" id="upfiles" multiple accept=".md,.markdown,.mdx,.png,.jpg,.jpeg,.gif,.svg,.webp,.pdf,.csv,.txt,.json,.yaml,.yml"></div>
+  const up = can('reviewer') ? `<details style="margin-top:12px"><summary>上传 Markdown / HTML 文件或文件夹</summary>
+      <div class="row"><input type="file" id="upfiles" multiple accept=".md,.markdown,.mdx,.html,.htm,.png,.jpg,.jpeg,.gif,.svg,.webp,.pdf,.csv,.txt,.json,.yaml,.yml"></div>
       <div class="row"><input type="file" id="updir" webkitdirectory multiple></div>
       <div class="row"><input id="upprefix" placeholder="目标文件夹（可选）" style="width:100%"></div>
       <div class="row"><input id="upnote" placeholder="上传说明（可选）" style="width:100%"></div>
@@ -261,6 +261,7 @@ routes.src = async (parts, q) => {
         · 上传：${esc(meta.by)} ${fmtTime(meta.at)} · 首次：${esc(meta.first_by)} ${fmtTime(meta.first_at)}
         · <a href="${srcHref(path, raw ? (q.v ? 'v=' + q.v : '') : 'raw=1' + (q.v ? '&v=' + q.v : ''))}">${raw ? '渲染视图' : '原文（带行号）'}</a>
         · <a href="/raw/${esc(path)}${q.v ? '?v=' + q.v : ''}" target="_blank">下载</a></div>
+      ${meta.derived_from ? `<div class="banner warn">此文档由 HTML 原件自动转换（${esc(meta.converter)}）。原件始终保留：<a href="/raw/${esc(meta.derived_from)}" target="_blank">查看原始 HTML</a> · <a href="/raw/${esc(meta.derived_from)}" download>下载</a></div>` : ''}
       ${sumCard ? `<div class="banner info">文档摘要卡片：<a href="${cardHref(sumCard.id)}${sumCard.public ? '' : '?view=head'}">${esc(sumCard.title)}</a> ${can('reviewer') ? badge(sumCard.status) : ''}</div>` : ''}
       ${d.tree && d.tree.nodes.length ? `<details class="tree" ${raw ? 'open' : ''} style="margin:8px 0"><summary class="small">文档目录树（${d.tree.lines} 行 · 按标题结构建立，用于问答导航与长文档分章编译）</summary>${outlineHtml(d.tree.nodes)}</details>` : ''}
       ${body}
@@ -283,7 +284,7 @@ async function upload() {
   const items = await Promise.all(files.map(f => new Promise(res => {
     const r = new FileReader();
     const rel = f.webkitRelativePath || f.name;
-    if (/\.(md|markdown|mdx|txt|csv|json|ya?ml|svg)$/i.test(f.name)) { r.onload = () => res({ path: rel, text: r.result }); r.readAsText(f); }
+    if (/\.(md|markdown|mdx|txt|csv|json|ya?ml|svg|html?)$/i.test(f.name)) { r.onload = () => res({ path: rel, text: r.result }); r.readAsText(f); }
     else { r.onload = () => res({ path: rel, b64: String(r.result).split(',')[1] || '' }); r.readAsDataURL(f); }
   })));
   const d = await api('POST', 'sources/upload', { files: items, prefix: $('#upprefix').value.trim(), note: $('#upnote').value.trim() });

@@ -420,3 +420,59 @@ class TestFusion(unittest.TestCase):
         self.cards.act(admin, h["id"], "publish")
         self.assertTrue(is_public(self.cards.load(h["id"])[0]))
         self.assertEqual(self.comp.runs(kind="query")[0]["filed_as"], h["id"])
+
+
+class TestHTMLIngest(unittest.TestCase):
+    PAGE = """<!doctype html><html><head><title>OPC 章节 - 某课程网站</title><style>h1{color:red}</style>
+<script>alert(1)</script></head><body><header><h1><i class="fa fa-x"></i> OPC 章节</h1></header>
+<section><h2>一、概述</h2><p>OPC 通过修改<strong>掩模图形</strong>补偿失真。<i class="icon"></i></p>
+<ol><li>涂胶：均匀涂覆。</li><li>曝光</li></ol>
+<table><tr><th>节点</th><th>波长</th></tr><tr><td>ArF</td><td>193nm | 浸没</td></tr></table>
+<svg><rect/><text>初始掩模</text><text>EPE计算</text></svg>
+<pre>for i in range(3):
+    step()</pre>
+<a href="ch2.html#sec"><div><h3>下一章</h3><p>卡片式链接</p></div></a> <p>见 <a href="ch2.html">第二章</a></p></section>
+<footer>公众号: xxx</footer></body></html>"""
+
+    def setUp(self):
+        self.kb = fresh_kb()
+
+    def tearDown(self):
+        shutil.rmtree(self.kb.root)
+
+    def test_convert(self):
+        from lithokb.html2md import convert
+        md = convert(self.PAGE, source_name="ch1.html")
+        meta, body, _ = fm.split(md)
+        self.assertEqual(meta["title"], "OPC 章节")  # h1 preferred over <title> with site suffix
+        self.assertEqual(meta["html_title"], "OPC 章节 - 某课程网站")
+        self.assertNotIn("alert", md)
+        self.assertNotIn("color:red", md)
+        self.assertIn("## 一、概述", body)
+        self.assertIn("OPC 通过修改**掩模图形**补偿失真。", body)
+        self.assertIn("1. 涂胶：均匀涂覆。\n2. 曝光", body)
+        self.assertIn("| ArF | 193nm \\| 浸没 |", body)
+        self.assertIn("> 图示文字：初始掩模 · EPE计算", body)
+        self.assertIn("```\nfor i in range(3):\n    step()\n```", body)
+        self.assertIn("### [下一章](ch2.md#sec)", body)  # block-level card link → linked heading
+        self.assertIn("[第二章](ch2.md)", body)
+        self.assertNotIn("**\n", body)
+
+    def test_ingest_keeps_original_and_derives_markdown(self):
+        res = S.put(self.kb, "rev", [{"path": "course/ch1.html", "text": self.PAGE}])
+        self.assertEqual(res[0]["derived"]["path"], "course/ch1.md")
+        meta = S.load_meta(self.kb)
+        self.assertEqual(meta["course/ch1.md"]["derived_from"], "course/ch1.html")
+        self.assertEqual(S.read_text(self.kb, "course/ch1.html"), self.PAGE)  # original verbatim
+        self.assertIn("course/ch1.md", S.list_md(self.kb))
+        names = [c["name"] for c in S.tree(self.kb)["children"][0]["children"]]
+        self.assertEqual(names, ["ch1.md"])  # the HTML original is reachable from its rendition, not duplicated in nav
+        again = S.put(self.kb, "rev", [{"path": "course/ch1.html", "text": self.PAGE}])
+        self.assertEqual((again[0]["status"], again[0]["derived"]["status"]), ("unchanged", "unchanged"))
+        S.put(self.kb, "rev", [{"path": "course/ch1.html", "text": self.PAGE.replace("曝光", "曝光与显影")}])
+        self.assertEqual(S.load_meta(self.kb)["course/ch1.md"]["version"], 2)
+        # an authored Markdown file is never overwritten by a conversion
+        S.put(self.kb, "rev", [{"path": "course/ch3.md", "text": "# authored\n"}])
+        r = S.put(self.kb, "rev", [{"path": "course/ch3.html", "text": self.PAGE}])
+        self.assertIn("authored", r[0]["note"])
+        self.assertEqual(S.read_text(self.kb, "course/ch3.md"), "# authored\n")

@@ -58,6 +58,7 @@ python3 -m unittest discover -s tests -v
 - **尊重作者的索引**：导航顺序依次参考目录下 `SUMMARY.md / index.md / README.md / _index.md` 中链接出现的顺序，再参考 frontmatter 的 `weight / nav_order / sidebar_position`，最后按标题。文档标题取 frontmatter `title` 或首个 `#` 标题。
 - **链接照常工作**：相对链接（含 `../`、`#锚点`）、图片在 Web 中被解析到对应文档 / 资源；可切换"渲染视图"与"带行号原文"，可查看任意历史版本。
 - 每篇文档页显示"由此文档编译的知识"，原文变化后相关卡片自动标记为**过时（stale）**。
+- **HTML 原件**（课程网页、导出的 wiki 等）：原样保存为记录来源（可随时查看 / 下载，以 `sandbox` 方式提供，脚本不会执行），同时用内置转换器（`html2md.py`，仅标准库）生成同名 `.md` 作为编译对象。转换保留标题层级、列表、表格、代码、链接（同目录 `.html` 链接自动改为 `.md`），内嵌 SVG 示意图的文字标签保留为「图示文字」；frontmatter 记录 `converted_from`、原件 sha256 与转换器版本。导航中只显示转换后的文档，页面顶部提供原件链接；作者亲自写的同名 `.md` 永远不会被转换结果覆盖。
 
 ### 第二层：知识卡片（Layer 1）
 一张卡片 = 一个概念 / 方法 / 模型 / 参数 / 指标 / 问题……（类型见 `cards.py: CARD_TYPES`），例如：
@@ -198,7 +199,8 @@ kbdata/
 |---|---|
 | `lithokb/store.py` | 数据目录、配置、原子写、写锁、审计日志 |
 | `lithokb/fm.py` | frontmatter 读写（无 YAML 依赖） |
-| `lithokb/sources.py` | 第一层：上传、版本、出处、尊重索引的层级树、路径安全 |
+| `lithokb/sources.py` | 第一层：上传、版本、出处、尊重索引的层级树、路径安全、HTML 收录 |
+| `lithokb/html2md.py` | HTML → Markdown 转换（原件保留，转换结果带出处） |
 | `lithokb/cards.py` | 第二层：卡片、修订、审阅状态机、证据核验、图谱、搜索、lint、导出 |
 | `lithokb/compiler.py` | 协议 + SCHEMA 提示构建、分章编译、解析、校验（含认识论标签）、写入、trace、统计 |
 | `lithokb/doctree.py` | 文档目录树（PageIndex 思路，确定性）、目录文本、按结构分章 |
