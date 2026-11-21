@@ -550,3 +550,52 @@ class TestRetry(unittest.TestCase):
             self.assertEqual(run["status"], "failed")
         finally:
             shutil.rmtree(kb.root)
+
+
+class TestMergeMechanisms(unittest.TestCase):
+    """Cross-document merging: mention detection, append action, schema topic stubs."""
+
+    def setUp(self):
+        self.kb = fresh_kb()
+        S.put(self.kb, "rev", [{"path": "a.md", "text": "# A\n\nEPE 是边缘放置误差。\n"},
+                               {"path": "b.md", "text": "# B\n\n模型型OPC 以 EPE 为目标，EPE 越小越好。\n"}])
+        self.cards = Cards(self.kb)
+        self.cards.new_revision("x", {"id": "edge-placement-error", "title": "边缘放置误差 (EPE)", "type": "metric",
+                                      "aliases": ["Edge Placement Error"], "relations": [],
+                                      "evidence": [{"id": "E1", "path": "a.md", "lines": "3", "quote": "EPE 是边缘放置误差。"}],
+                                      "sources": ["a.md"]}, "定义 [E1]", {"kind": "llm"})
+
+    def tearDown(self):
+        shutil.rmtree(self.kb.root)
+
+    def test_mentioned_cards_and_prompt(self):
+        from lithokb.compiler import build_prompt, mentioned_cards
+        self.assertEqual(mentioned_cards(self.cards, S.read_text(self.kb, "b.md"), set()), [("edge-placement-error", 2)])
+        _, user, related, _ = build_prompt(self.kb, self.cards, [{"path": "b.md", "start": None, "end": None}])
+        self.assertIn('<card id="edge-placement-error" mentions="2">', user)
+        self.assertIn("edge-placement-error", related)
+
+    def test_append_merges_deterministically(self):
+        data = {"cards": [{"action": "append", "id": "edge-placement-error", "add_md": "模型型 OPC 以它为目标 [E1]。",
+                           "evidence": [{"id": "E1", "path": "b.md", "lines": "3", "quote": "模型型OPC 以 EPE 为目标"}],
+                           "relations": [{"rel": "measured_by", "target": "edge-placement-error", "basis": "inferred"}],
+                           "aliases": ["边放误差"]}, "not a card"]}
+        norm, findings = validate(self.cards, data, ["b.md"])
+        self.assertTrue(norm[0]["append"])
+        self.assertTrue(any("not an object" in f["msg"] for f in findings))  # robust to junk items
+        from lithokb.compiler import apply_append
+        card, body = apply_append(self.cards, norm[0], norm[0]["add_md"], ["b.md"])
+        self.assertIn("定义 [E1]", body)                       # existing content kept
+        self.assertIn("### 补充（来自 b.md）\n\n模型型 OPC 以它为目标 [E2]。", body)  # new evidence renumbered
+        self.assertEqual([e["id"] for e in card["evidence"]], ["E1", "E2"])
+        self.assertEqual(card["sources"], ["a.md", "b.md"])
+        self.assertIn("边放误差", card["aliases"])
+        m = self.cards.new_revision("x", card, body, {"kind": "llm"})
+        self.assertEqual((m["rev"], m["grounding"]["exact"]), (2, 2))
+
+    def test_schema_topic_stubs(self):
+        from lithokb.compiler import schema_topic_stubs
+        norm = [{"id": "x", "parent": "mask-3d", "relations": [{"rel": "uses", "target": "smo"}, {"rel": "uses", "target": "not-in-schema"}]}]
+        stubs = schema_topic_stubs(self.kb, self.cards, norm)
+        self.assertEqual([s_["card"]["id"] for s_ in stubs], ["mask-3d", "smo"])
+        self.assertEqual(stubs[0]["card"]["title"], "掩模三维效应（M3D）与 EUV 特有效应")

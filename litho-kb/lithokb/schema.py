@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import re
 
 from .store import KB, LOCK, atomic_write, now, sha256
 
@@ -116,3 +117,11 @@ def diff(kb: KB, a: int, b: int) -> str:
     ta = version_text(kb, a).splitlines(True) if a else []
     tb = version_text(kb, b).splitlines(True)
     return "".join(difflib.unified_diff(ta, tb, f"v{a}", f"v{b}", n=2))
+
+
+def skeleton(kb: KB) -> dict[str, tuple[str, str]]:
+    """Topic skeleton declared in SCHEMA.md as list items: - `topic-id` 名称：描述"""
+    out = {}
+    for m in re.finditer(r"^[ \t]*[-*][ \t]+`([a-z0-9][a-z0-9-]*)`[ \t]+([^：:\n]+)[：:]?[ \t]*([^\n]*)$", current(kb)["text"], re.M):
+        out[m.group(1)] = (m.group(2).strip(), m.group(3).strip())
+    return out

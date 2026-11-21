@@ -37,7 +37,7 @@ from . import sources as S
 from .cards import BASES, CARD_TYPES, RELATIONS, Cards, slug, summary_id
 from .store import KB, atomic_write, now, read_jsonl
 
-PROMPT_VERSION = "lkb-compile/3"
+PROMPT_VERSION = "lkb-compile/4"
 
 PROTOCOL = """You are the knowledge compiler of LithoKB, a curated knowledge base for computational lithography.
 You read source documents and maintain a persistent wiki of atomic, interlinked knowledge cards that domain
@@ -77,7 +77,11 @@ Card-level "confidence" (0–1) reflects how well the whole card is supported.
 - The index lists every existing card; reuse ids. Every parent, relation target and [[link]] must be an id in the
   index or a card created in this output — if you want to point to a topic from the domain schema that is not in
   the index yet, create that topic card (short summary) in this output.
-- To change an existing card use action "update", same id, and return the COMPLETE new card. Cards are shared by
+- To ENRICH an existing card with what this document adds, prefer action "append": {{"action":"append","id":"<existing
+  id>","add_md":"new paragraph(s) only, with [E1].. markers","evidence":[new items only],"relations":[new only],
+  "aliases":[new only],"change_note":"…"}}. The system merges it into the card (keeps everything already there).
+  Use this whenever the document discusses a concept that already has a card — do NOT create a near-duplicate.
+- To rewrite an existing card use action "update", same id, and return the COMPLETE new card. Cards are shared by
   many documents: keep the existing content and ALL existing evidence items that cite OTHER documents unchanged
   (same ids, same quotes); add the new document's evidence with new ids (continue the numbering). Merge, do not
   replace. Do not emit unchanged cards.
@@ -85,7 +89,7 @@ Card-level "confidence" (0–1) reflects how well the whole card is supported.
 
 ## Output
 Exactly one JSON object in a ```json fenced block, nothing else:
-{{"cards":[{{"action":"create|update","id":"…","title":"…","type":"…","parent":"…","aliases":["…"],
+{{"cards":[{{"action":"create|update|append","id":"…","title":"…","type":"…","parent":"…","aliases":["…"],
 "summary":"…","body_md":"…","relations":[…],"evidence":[…],"confidence":0.0,"change_note":"…"}}],
 "notes":"for the human reviewers: uncertainties, conflicts, ambiguous relations, what you chose not to compile"}}
 """.format(types=", ".join(CARD_TYPES), relations=", ".join(RELATIONS))
@@ -124,6 +128,20 @@ def build_prompt(kb: KB, cards: Cards, units: list[dict], instructions: str = ""
         blocks = [f'<card id="{cid}">\n{(kb.cards_dir / f"{cid}.md").read_text("utf-8")}\n</card>' for cid in related]
         parts.append("# Existing cards compiled from these sources (full text — update them, do not duplicate)\n"
                      + "\n".join(blocks))
+    texts = []
+    for u in units:
+        t = S.read_text(kb, u["path"])
+        if u.get("start") is not None:
+            t = "\n".join(t.splitlines()[u["start"] - 1:u["end"]])
+        texts.append(t)
+    mentioned = mentioned_cards(cards, "\n".join(texts), exclude=set(related))
+    if mentioned:
+        blocks = [f'<card id="{cid}" mentions="{n}">\n{(kb.cards_dir / f"{cid}.md").read_text("utf-8")}\n</card>'
+                  for cid, n in mentioned]
+        parts.append("# Existing cards this document talks about (full text). Enrich them with action \"append\" "
+                     "(new paragraphs + new evidence from this document) instead of creating near-duplicates.\n"
+                     + "\n".join(blocks))
+        related = related + [cid for cid, _ in mentioned]
     meta = S.load_meta(kb)
     task_lines = []
     for u in units:
@@ -151,6 +169,83 @@ def build_prompt(kb: KB, cards: Cards, units: list[dict], instructions: str = ""
         task += f"\n\nAdditional instructions from the operator:\n{instructions}"
     parts.append(task)
     return system, "\n\n".join(parts), related, sc
+
+
+def _names(m: dict) -> set[str]:
+    """Lexical handles of a card: title, title without the parenthesised part, the parenthesised
+    acronym/English name, aliases. Deterministic string matching — no embeddings."""
+    out = set()
+    for n in [m.get("title", "")] + list(m.get("aliases", []) or []):
+        n = str(n).strip()
+        if not n:
+            continue
+        out.add(n)
+        mm = re.match(r"^(.*?)\s*[（(]\s*([^()（）]+?)\s*[)）]\s*$", n)
+        if mm:
+            out.update({mm.group(1).strip(), mm.group(2).strip()})
+    keep = set()
+    for n in out:
+        if re.fullmatch(r"[A-Za-z0-9 .\-/]+", n):
+            if len(n) >= 3 or n.isupper() and len(n) >= 2:
+                keep.add(n)
+        elif len(n) >= 2:
+            keep.add(n)
+    return keep
+
+
+def mentioned_cards(cards: Cards, text: str, exclude: set, limit: int = 12, budget_chars: int = 60_000) -> list[tuple[str, int]]:
+    low = text.lower()
+    scored = []
+    for cid, m in cards.index().items():
+        if cid in exclude or m["type"] in ("summary", "topic") or m.get("lifecycle", "active") != "active" \
+                or m.get("status") == "rejected":
+            continue
+        n = 0
+        for name in _names(m):
+            nl = name.lower()
+            n += len(re.findall(r"(?<![a-z0-9])" + re.escape(nl) + r"(?![a-z0-9])", low)) if nl.isascii() else low.count(nl)
+        if n >= 2:
+            scored.append((n, cid))
+    out, used = [], 0
+    for n, cid in sorted(scored, reverse=True)[:limit]:
+        size = (cards.kb.cards_dir / f"{cid}.md").stat().st_size
+        if used + size > budget_chars:
+            break
+        used += size
+        out.append((cid, n))
+    return out
+
+
+def apply_append(cards: Cards, c: dict, add_md: str, run_paths: list[str]) -> tuple[dict, str]:
+    """Merge an 'append' into the existing card deterministically: existing body, evidence,
+    relations and aliases are kept; new evidence ids are renumbered to avoid collisions."""
+    head, body = cards.load(c["id"])
+    used = {e["id"] for e in head.get("evidence", [])}
+    mapping, new_ev, n = {}, [], 1
+    for e in c["evidence"]:
+        nid = e["id"]
+        if nid in used:
+            while f"E{n}" in used:
+                n += 1
+            nid = f"E{n}"
+        used.add(nid)
+        mapping[e["id"]] = nid
+        new_ev.append({**e, "id": nid})
+    add = re.sub(r"\[(E\d+)\]", lambda mm: f"[{mapping.get(mm.group(1), mm.group(1))}]", add_md).strip()
+    new_body = body.rstrip() + f"\n\n### 补充（来自 {', '.join(run_paths)}）\n\n{add}\n"
+    rels = [{k: v for k, v in r.items()} for r in head.get("relations", [])]
+    have = {(r["rel"], r["target"]) for r in rels}
+    for r in c["relations"]:
+        if (r["rel"], r["target"]) not in have:
+            rels.append(r)
+            have.add((r["rel"], r["target"]))
+    card = {"id": c["id"], "title": head["title"], "type": head["type"], "parent": head.get("parent", ""),
+            "aliases": list(dict.fromkeys(list(head.get("aliases", [])) + list(c.get("aliases", [])))),
+            "summary": head.get("summary", ""), "relations": rels,
+            "evidence": [{k: e[k] for k in ("id", "path", "lines", "quote")} for e in head.get("evidence", [])] + new_ev,
+            "sources": sorted({s["path"] for s in head.get("sources", [])} | set(run_paths)),
+            "confidence": head.get("confidence")}
+    return card, new_body
 
 
 def parse_response(text: str) -> dict:
@@ -197,9 +292,15 @@ def validate(cards: Cards, data: dict, paths: list[str], expect_summaries: list[
     idx = cards.index()
     findings: list[dict] = []
     out: list[dict] = []
-    batch_ids = {slug(c.get("id", "") or c.get("title", "")) for c in data["cards"]}
+    items = []
     for i, c in enumerate(data["cards"]):
-        raw_id = c.get("id", "") or c.get("title", "")
+        if isinstance(c, dict):
+            items.append(c)
+        else:
+            findings.append({"level": "error", "card": f"#{i}", "msg": f"card is not an object ({type(c).__name__}) — dropped"})
+    batch_ids = {slug(str(c.get("id", "") or c.get("title", ""))) for c in items}
+    for i, c in enumerate(items):
+        raw_id = str(c.get("id", "") or c.get("title", ""))
         cid = slug(raw_id)
         if not cid:
             findings.append({"level": "error", "card": f"#{i}", "msg": "missing id — card dropped"})
@@ -211,15 +312,22 @@ def validate(cards: Cards, data: dict, paths: list[str], expect_summaries: list[
             findings.append({"level": "warn", "card": cid, "msg": f"id normalised from {raw_id!r}"})
         exists = cid in idx
         action = c.get("action", "update" if exists else "create")
+        append = action == "append" and exists
+        if action == "append" and not exists:
+            findings.append({"level": "warn", "card": cid, "msg": "append to a card that does not exist → treated as create"})
+            c.setdefault("body_md", c.get("add_md", ""))
         if action == "create" and exists:
             findings.append({"level": "warn", "card": cid, "msg": "declared create but card exists → treated as update"})
         if action == "update" and not exists:
             findings.append({"level": "warn", "card": cid, "msg": "declared update but card is new → treated as create"})
-        if c.get("type") not in CARD_TYPES:
+        if not append and c.get("type") not in CARD_TYPES:
             findings.append({"level": "warn", "card": cid, "msg": f"unknown type {c.get('type')!r} → concept"})
             c["type"] = "concept"
         ev = []
         for e in c.get("evidence", []) or []:
+            if not isinstance(e, dict):
+                findings.append({"level": "warn", "card": cid, "msg": "evidence item is not an object — dropped"})
+                continue
             if e.get("path") not in paths:
                 findings.append({"level": "warn", "card": cid, "msg": f"evidence cites {e.get('path')!r}, not a source of this run"})
             ev.append({"id": str(e.get("id", f"E{len(ev) + 1}")), "path": e.get("path", ""),
@@ -227,6 +335,9 @@ def validate(cards: Cards, data: dict, paths: list[str], expect_summaries: list[
         ev_ids = {e["id"] for e in ev}
         rels = []
         for r in c.get("relations", []) or []:
+            if not isinstance(r, dict):
+                findings.append({"level": "warn", "card": cid, "msg": "relation is not an object — dropped"})
+                continue
             nr = normalize_relation(r, cid, ev_ids, findings)
             if not nr:
                 continue
@@ -240,13 +351,18 @@ def validate(cards: Cards, data: dict, paths: list[str], expect_summaries: list[
             findings.append({"level": "warn", "card": cid, "msg": f"parent {parent!r} does not exist"})
         if not ev:
             findings.append({"level": "warn", "card": cid, "msg": "no evidence"})
-        body = c.get("body_md", "") or ""
+        body = str((c.get("add_md") if append else c.get("body_md")) or "")
         cited = set(re.findall(r"\[(E\d+)\]", body))
         if cited - ev_ids:
             findings.append({"level": "warn", "card": cid, "msg": f"body cites undefined evidence {sorted(cited - ev_ids)}"})
         if ev_ids - cited:
             findings.append({"level": "info", "card": cid, "msg": f"evidence not referenced in body: {sorted(ev_ids - cited)}"})
-        out.append({"id": cid, "title": c.get("title", cid), "type": c["type"], "parent": parent,
+        if append:
+            out.append({"id": cid, "append": True, "add_md": body, "aliases": c.get("aliases", []) or [],
+                        "relations": rels, "evidence": ev, "sources": paths, "body": body,
+                        "change_note": c.get("change_note", ""), "exists": True})
+            continue
+        out.append({"id": cid, "title": c.get("title", cid), "type": c.get("type", "concept"), "parent": parent,
                     "aliases": c.get("aliases", []) or [], "summary": c.get("summary", ""),
                     "relations": rels, "evidence": ev, "sources": paths, "confidence": c.get("confidence"),
                     "body": body, "change_note": c.get("change_note", ""), "exists": exists})
@@ -440,9 +556,24 @@ class Compiler:
             run["notes"] = data.get("notes", "")
             run["findings"] = findings
             step("validated", cards=len(norm), findings=len(findings))
+            for sid in schema_topic_stubs(self.kb, self.cards, norm):
+                head = self.cards.new_revision(actor, sid["card"], sid["body"], {"kind": "schema", "run": rid,
+                                                                               "schema": sc["version"]},
+                                               change_note="topic from the SCHEMA.md skeleton (referenced by compiled cards)")
+                run["written"].append({"id": head["id"], "rev": head["rev"], "action": "create", "type": "topic",
+                                       "grounding": head["grounding"], "bases": {}, "via": "schema"})
             for c in norm:
                 body = c.pop("body")
                 note, existed = c.pop("change_note"), c.pop("exists")
+                if c.pop("append", False):
+                    card, body = apply_append(self.cards, c, c.pop("add_md"), paths)
+                    head = self.cards.new_revision(actor, card, body, {"kind": "llm", "run": rid, "model": res.model,
+                                                                       "backend": cfg["backend"], "by": actor,
+                                                                       "schema": sc["version"]},
+                                                   change_note=note or f"enriched from {', '.join(paths)}", status="in_review")
+                    run["written"].append({"id": c["id"], "rev": head["rev"], "action": "append", "type": head["type"],
+                                           "grounding": head["grounding"], "bases": _basis_counts(c.get("relations", []))})
+                    continue
                 if existed:
                     kept = carry_forward_evidence(self.cards, c, paths)
                     if kept:
@@ -456,7 +587,7 @@ class Compiler:
                                        "type": head["type"], "grounding": head["grounding"],
                                        "bases": _basis_counts(head.get("relations", []))})
             run["grounding"] = _sum_grounding([w["grounding"] for w in run["written"]])
-            run["bases"] = _basis_counts([r for c in norm for r in c["relations"]])
+            run["bases"] = _basis_counts([r for c in norm for r in c.get("relations", [])])
             run["status"] = "done"
             step("written", cards=len(run["written"]))
         except Exception as e:  # failures are traced, never swallowed
@@ -532,6 +663,26 @@ class Compiler:
         s["cost_usd"] = round(s["cost_usd"], 4)
         s["latency_s"] = round(s["latency_s"], 2)
         return s
+
+
+def schema_topic_stubs(kb: KB, cards: Cards, norm: list[dict]) -> list[dict]:
+    """Topics referenced by compiled cards that exist in the human-authored SCHEMA.md skeleton
+    but not yet as cards are created deterministically (title/description from the schema)."""
+    skel = SC.skeleton(kb)
+    idx = cards.index()
+    batch = {c["id"] for c in norm}
+    wanted = []
+    for c in norm:
+        for t in [c.get("parent", "")] + [r["target"] for r in c.get("relations", [])]:
+            if t and t in skel and t not in idx and t not in batch and t not in wanted:
+                wanted.append(t)
+    out = []
+    for t in wanted:
+        title, desc = skel[t]
+        out.append({"card": {"id": t, "title": title, "type": "topic", "parent": "", "aliases": [], "summary": desc,
+                             "relations": [], "evidence": [], "sources": []},
+                    "body": f"{desc}\n\n_主题来自编译规范 SCHEMA.md 的领域主题骨架，由系统自动建立；内容由下属卡片组成。_\n"})
+    return out
 
 
 def carry_forward_evidence(cards: Cards, c: dict, run_paths: list[str]) -> int:

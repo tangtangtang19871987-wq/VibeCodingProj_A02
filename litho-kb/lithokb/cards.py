@@ -447,7 +447,7 @@ class Cards:
             g = m.get("grounding", {})
             if g.get("missing"):
                 issues.append({"card": cid, "kind": "ungrounded_evidence", "detail": f"{g['missing']} of {g['total']} quotes not found in source"})
-            if not m.get("evidence"):
+            if not m.get("evidence") and m.get("origin", {}).get("kind") != "schema":
                 issues.append({"card": cid, "kind": "no_evidence", "detail": "card cites nothing"})
             amb = [f"{r.get('rel')} → {r['target']}" for r in m.get("relations", []) if r.get("basis") == "ambiguous"]
             if amb and m.get("status") != "published":

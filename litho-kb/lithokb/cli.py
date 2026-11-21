@@ -213,7 +213,7 @@ def main(argv=None) -> None:
             return print("nothing to compile (all sources unchanged; use --all to force)")
         if args.dry_run:
             from .compiler import build_prompt
-            sysp, user, rel = build_prompt(kb, cards, paths[:1])
+            sysp, user, rel, _ = build_prompt(kb, cards, comp.work_units(paths[:1])[0])
             return _out({"plan": paths, "first_call_prompt_chars": len(sysp) + len(user), "related_cards": rel}, args)
         job = comp.start(me["name"], paths, backend=args.backend, model=args.model, instructions=args.instructions,
                          background=False, files_per_call=args.files_per_call)
