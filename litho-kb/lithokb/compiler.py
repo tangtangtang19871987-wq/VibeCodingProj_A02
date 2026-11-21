@@ -100,8 +100,18 @@ Exactly one JSON object in a ```json fenced block, nothing else:
 
 
 def system_prompt(kb: KB) -> tuple[str, dict]:
+    from .quality import granularity_cfg
     sc = SC.current(kb)
-    return PROTOCOL + f"\n\n---\n# DOMAIN SCHEMA (SCHEMA.md v{sc['version']}, sha {sc['sha']})\n\n" + sc["text"], sc
+    g = granularity_cfg(kb)
+    gran = (f"\n\n## Granularity (one card = one concept, readable in one sitting)\n"
+            f"- Card body size: {g['min_units']}–{g['target_max']} reading units (CJK characters + Latin words); "
+            f"never above {g['hard_max']}.\n"
+            f"- Below {g['min_units']} units it is a single fact, not a concept: put it into the related card "
+            f"(append) instead of creating a card.\n"
+            f"- Each existing card below shows its current size (units=…). If appending would push a card beyond "
+            f"{g['target_max']} units, create a SUB-CONCEPT card instead (parent = that card) for the new material.\n"
+            f"- A card should not need more than {g['max_evidence']} evidence items; more means it covers several concepts.")
+    return PROTOCOL + gran + f"\n\n---\n# DOMAIN SCHEMA (SCHEMA.md v{sc['version']}, sha {sc['sha']})\n\n" + sc["text"], sc
 
 
 def _numbered(text: str, start: int = 1, end: int | None = None) -> str:
@@ -129,7 +139,7 @@ def build_prompt(kb: KB, cards: Cards, units: list[dict], instructions: str = ""
              ("\n".join(rows) if rows else "(empty — you are starting the knowledge base)")]
     related = sorted({cid for cid, m in idx.items() for s in m.get("sources", []) if s["path"] in paths})
     if related:
-        blocks = [f'<card id="{cid}">\n{(kb.cards_dir / f"{cid}.md").read_text("utf-8")}\n</card>' for cid in related]
+        blocks = [_card_block(kb, cid, idx) for cid in related]
         parts.append("# Existing cards compiled from these sources (full text — update them, do not duplicate)\n"
                      + "\n".join(blocks))
     texts = []
@@ -140,8 +150,7 @@ def build_prompt(kb: KB, cards: Cards, units: list[dict], instructions: str = ""
         texts.append(t)
     mentioned = mentioned_cards(cards, "\n".join(texts), exclude=set(related))
     if mentioned:
-        blocks = [f'<card id="{cid}" mentions="{n}">\n{(kb.cards_dir / f"{cid}.md").read_text("utf-8")}\n</card>'
-                  for cid, n in mentioned]
+        blocks = [_card_block(kb, cid, idx, f' mentions="{n}"') for cid, n in mentioned]
         parts.append("# Existing cards this document talks about (full text). Enrich them with action \"append\" "
                      "(new paragraphs + new evidence from this document) instead of creating near-duplicates.\n"
                      + "\n".join(blocks))
@@ -173,6 +182,13 @@ def build_prompt(kb: KB, cards: Cards, units: list[dict], instructions: str = ""
         task += f"\n\nAdditional instructions from the operator:\n{instructions}"
     parts.append(task)
     return system, "\n\n".join(parts), related, sc
+
+
+def _card_block(kb: KB, cid: str, idx: dict, extra: str = "") -> str:
+    from .quality import units
+    m = idx.get(cid, {})
+    return (f'<card id="{cid}" units="{units(m.get("_body", ""))}"{extra}>\n'
+            f'{(kb.cards_dir / f"{cid}.md").read_text("utf-8")}\n</card>')
 
 
 def _names(m: dict) -> set[str]:
@@ -239,7 +255,9 @@ def apply_append(cards: Cards, c: dict, add_md: str, run_paths: list[str]) -> tu
     add = re.sub(r"\[(E\d+)\]", lambda mm: f"[{mapping.get(mm.group(1), mm.group(1))}]", add_md).strip()
     # the model sometimes imitates the "补充（来自 …）" headings it sees in the card: drop its own copy
     add = re.sub(r"^\s*#{1,6}\s*补充[（(][^\n]*\n+", "", add).strip()
-    new_body = body.rstrip() + f"\n\n### 补充（来自 {', '.join(run_paths)}）\n\n{add}\n"
+    titles = S.doc_titles(cards.kb, run_paths)
+    origin = "、".join(f"[《{titles.get(p, p)}》](src:{p})" for p in run_paths)  # titled link to the original
+    new_body = body.rstrip() + f"\n\n### 补充（来自 {origin}）\n\n{add}\n"
     rels = [{k: v for k, v in r.items()} for r in head.get("relations", [])]
     have = {(r["rel"], r["target"]) for r in rels}
     for r in c["relations"]:
@@ -336,6 +354,8 @@ def validate(cards: Cards, data: dict, paths: list[str], expect_summaries: list[
             findings.append({"level": "error", "card": f"#{i}", "msg": f"card is not an object ({type(c).__name__}) — dropped"})
     batch_ids = {slug(str(c.get("id", "") or c.get("title", ""))) for c in items}
     resolver = IdResolver(cards, batch_ids)
+    from .quality import granularity_cfg, units
+    gcfg = granularity_cfg(cards.kb)
 
     def fix(cid: str, t: str, what: str) -> str:
         r, how = resolver.resolve(t)
@@ -407,6 +427,12 @@ def validate(cards: Cards, data: dict, paths: list[str], expect_summaries: list[
             findings.append({"level": "warn", "card": cid, "msg": f"body cites undefined evidence {sorted(cited - ev_ids)}"})
         if ev_ids - cited:
             findings.append({"level": "info", "card": cid, "msg": f"evidence not referenced in body: {sorted(ev_ids - cited)}"})
+        if gcfg and not append and c.get("type") not in ("topic", "summary"):
+            u = units(body)
+            if u < gcfg["min_units"]:
+                findings.append({"level": "info", "card": cid, "msg": f"thin card ({u} units < {gcfg['min_units']}): a single fact may belong in a related card"})
+            elif u > gcfg["hard_max"]:
+                findings.append({"level": "warn", "card": cid, "msg": f"card body {u} units > hard max {gcfg['hard_max']}: consolidate or split"})
         if append:
             out.append({"id": cid, "append": True, "add_md": body, "aliases": c.get("aliases", []) or [],
                         "relations": rels, "evidence": ev, "sources": paths, "body": body,

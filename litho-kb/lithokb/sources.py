@@ -287,3 +287,25 @@ def near_duplicates(kb: KB, threshold: float = 0.6, containment: float = 0.8, ma
             if j >= threshold or (contain >= containment and min(len(sa), len(sb)) >= 200):
                 out.append({"a": a, "b": b, "similarity": round(j, 2), "containment": round(contain, 2)})
     return sorted(out, key=lambda x: -x["similarity"])
+
+
+_TITLE_CACHE: dict[tuple, str] = {}
+
+
+def doc_titles(kb: KB, paths) -> dict[str, str]:
+    """Human titles of source documents (frontmatter title or first H1), cached by content hash.
+    Readers must see document names linked to the original, never bare file paths."""
+    meta = load_meta(kb)
+    out = {}
+    for p in {p for p in paths if p}:
+        rec = meta.get(p)
+        if not rec:
+            continue
+        key = (p, rec["sha256"])
+        if key not in _TITLE_CACHE:
+            try:
+                _TITLE_CACHE[key] = title_of(read_text(kb, p), posixpath.basename(p))
+            except SourceError:
+                _TITLE_CACHE[key] = posixpath.basename(p)
+        out[p] = _TITLE_CACHE[key]
+    return out

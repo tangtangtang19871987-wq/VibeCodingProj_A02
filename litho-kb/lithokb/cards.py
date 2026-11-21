@@ -207,11 +207,56 @@ class Cards:
                                      if src_meta.get(s["path"], {}).get("sha256") != s.get("sha")
                                      or src_meta.get(s["path"], {}).get("deleted")]
             meta["_links"] = sorted({slug(x) for x in WIKILINK_RE.findall(body)})
+            meta["_body"] = body
             meta["_text"] = (meta.get("title", "") + " " + " ".join(meta.get("aliases", [])) + " "
                              + meta.get("summary", "") + " " + body).lower()
             idx[meta["id"]] = meta
         self._index, self._stamp = idx, stamp
         return idx
+
+    def risk(self, cid: str) -> dict:
+        from .quality import assess, granularity_cfg
+        m = self.index()[cid]
+        return assess(m, m.get("_body", ""), granularity_cfg(self.kb))
+
+    def batch(self, user: dict, ids: list[str], action: str, comment: str) -> dict:
+        """Batch approve (reviewer, LOW-risk cards only) or batch publish (admin, approved cards).
+        A comment is mandatory; every card gets its own review record carrying the batch id,
+        and one batch event with the criteria snapshot goes to the audit log."""
+        import uuid
+        from .auth import require
+        from .quality import RISK_RULES_VERSION, granularity_cfg
+        comment = (comment or "").strip()
+        if len(comment) < 10:
+            raise CardError("批量操作必须填写评语（至少 10 个字），说明依据与核对方式")
+        if action not in ("approve", "publish"):
+            raise CardError("batch supports approve | publish")
+        require(user, "reviewer" if action == "approve" else "admin")
+        bid = "batch-" + uuid.uuid4().hex[:8]
+        done, skipped = [], []
+        for cid in dict.fromkeys(ids):
+            try:
+                m = self.index().get(cid)
+                if not m:
+                    raise CardError("no such card")
+                if action == "approve":
+                    r = self.risk(cid)
+                    if r["level"] != "low":  # server-side rule: only low risk may be batch-approved
+                        raise CardError(f"风险等级 {r['level']}：" + "；".join(r["reasons"][:3]))
+                    if m["status"] != "in_review":
+                        raise CardError(f"状态为 {m['status']}，不在审阅中")
+                elif m["status"] != "approved":
+                    raise CardError(f"状态为 {m['status']}，未通过审阅")
+                self.act(user, cid, action, f"[批量 {bid}] {comment}", extra={"batch": bid})
+                done.append(cid)
+            except (CardError, PermissionError) as e:
+                skipped.append({"id": cid, "reason": str(e)})
+        criteria = {"rules": RISK_RULES_VERSION, "granularity": granularity_cfg(self.kb)} if action == "approve" else {}
+        self.kb.event(user["name"], f"review.batch_{action}", bid, comment=comment, done=done, skipped=skipped,
+                      criteria=criteria)
+        if action == "publish" and done:
+            self.write_exports()
+        return {"batch": bid, "action": action, "done": done, "skipped": skipped}
 
     def listing(self, status: str | None = None, visible_only: bool = False) -> list[dict]:
         out = []
@@ -322,7 +367,7 @@ class Cards:
         return {"votes": votes, "reviewers": sorted(latest), "comments": len(rs)}
 
     def act(self, user: dict, cid: str, action: str, comment: str = "", target: str = "",
-            anchor: str = "") -> dict:
+            anchor: str = "", extra: dict | None = None) -> dict:
         """The single entry point for every workflow transition (UI, API and CLI)."""
         from .auth import require
         cfg = self.kb.config["review"]
@@ -333,6 +378,8 @@ class Cards:
                    "verdict": action, "comment": comment}
             if anchor:
                 rec["anchor"] = anchor
+            if extra:
+                rec.update(extra)
             if action in VERDICTS:
                 require(user, "reviewer")
                 if action != "comment" and st not in ("in_review", "approved"):
@@ -432,12 +479,22 @@ class Cards:
         ea = {ekey(e): e for e in ma.get("evidence", [])}
         eb = {ekey(e): e for e in mb.get("evidence", [])}
         body = "".join(difflib.unified_diff(ba.splitlines(True), bb.splitlines(True), f"r{a}", f"r{b}", n=2))
-        return {"a": a, "b": b, "fields": fields,
+        # evidence that left this card but lives on in another card (split / merge) is "moved", not "removed"
+        where: dict = {}
+        for oid, om in self.index().items():
+            if oid == cid:
+                continue
+            for e in om.get("evidence", []):
+                where.setdefault(ekey(e), []).append(oid)
+        gone = [ea[k] for k in ea.keys() - eb.keys()]
+        moved = [{**e, "moved_to": where[ekey(e)]} for e in gone if ekey(e) in where]
+        removed = [e for e in gone if ekey(e) not in where]
+        return {"a": a, "b": b, "fields": fields, "evidence_moved": moved,
                 "relations_added": [rb[k] for k in rb.keys() - ra.keys()],
                 "relations_removed": [ra[k] for k in ra.keys() - rb.keys()],
                 "relations_changed": rel_changed,
                 "evidence_added": [eb[k] for k in eb.keys() - ea.keys()],
-                "evidence_removed": [ea[k] for k in ea.keys() - eb.keys()],
+                "evidence_removed": removed,
                 "evidence_renumbered": sum(1 for k in ea.keys() & eb.keys() if ea[k].get("id") != eb[k].get("id")),
                 "body": body, "change_note": mb.get("change_note", ""), "origin": mb.get("origin", {})}
 
@@ -504,6 +561,16 @@ class Cards:
                 issues.append({"card": cid, "kind": "ambiguous_relation", "detail": "; ".join(amb)})
             if m.get("lifecycle") == "superseded" and m.get("replaced_by") not in idx:
                 issues.append({"card": cid, "kind": "dangling_replacement", "detail": m.get("replaced_by")})
+        from .quality import granularity_cfg, measure
+        gcfg = granularity_cfg(self.kb)
+        for cid, m in idx.items():
+            if m.get("lifecycle", "active") != "active":
+                continue
+            g = measure(m, m.get("_body", ""), gcfg)
+            for k in g["issues"]:
+                if k != "long":
+                    issues.append({"card": cid, "kind": f"granularity_{k}",
+                                   "detail": f"{g['units']} 字/词 · {g['appends']} 段补充 · {g['evidence']} 条证据"})
         for d in S.near_duplicates(self.kb):
             issues.append({"card": summary_id(d["b"]), "kind": "duplicate_source",
                            "detail": f"{d['b']} ≈ {d['a']} (similarity {d['similarity']}, containment {d['containment']}) — consider retiring one"})

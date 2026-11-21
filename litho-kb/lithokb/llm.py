@@ -215,7 +215,9 @@ def _terms(q: str) -> list[str]:
 
 
 def _mock(system: str, user: str) -> LLMResult:
-    if "[[LKB:NAVIGATE]]" in system:
+    if "[[LKB:CONSOLIDATE]]" in system:
+        text, note = _mock_consolidate(user)
+    elif "[[LKB:NAVIGATE]]" in system:
         text, note = _mock_navigate(user)
     elif "[[LKB:ANSWER]]" in system:
         text, note = _mock_answer(user)
@@ -280,6 +282,25 @@ def _mock_compile(user: str):
                       "confidence": 0.6, "change_note": f"mock summary of {path}"})
         notes.append(f"mock: {path}: {len(lines)} lines")
     return _fence({"cards": cards, "notes": "; ".join(notes)}), "headings→cards, first sentence→evidence"
+
+
+def _mock_consolidate(user: str):
+    """Drop the '补充' headings, keep the evidence-marked paragraphs; split the second half off
+    into one child card when the card is long."""
+    m = re.search(r'<card id="([^"]+)">\ntitle: (.*?)\n.*?\n\n(.*)\n</card>', user, re.S)
+    cid, title, body = m.group(1), m.group(2), m.group(3)
+    paras = [p_.strip() for p_ in re.split(r"\n\s*\n", body) if p_.strip() and not re.match(r"#{1,6}\s*补充", p_.strip())]
+    split = len(paras) >= 6
+    keep, rest = (paras[: len(paras) // 2], paras[len(paras) // 2:]) if split else (paras, [])
+    children = []
+    if rest:
+        ids = sorted(set(re.findall(r"\[(E\d+)\]", "\n".join(rest))), key=lambda x: int(x[1:]))
+        children.append({"id": f"{cid}-details", "title": f"{title}：细节", "type": "concept",
+                         "summary": "从原卡拆分出的细节。", "body_md": "\n\n".join(rest), "evidence": ids})
+    out = {"decision": "split" if children else "rewrite",
+           "card": {"title": title, "summary": "整合后的卡片。", "body_md": "\n\n".join(keep), "aliases": []},
+           "children": children, "notes": "mock consolidation"}
+    return _fence(out), "dropped addendum headings; halves when long"
 
 
 def _mock_navigate(user: str):

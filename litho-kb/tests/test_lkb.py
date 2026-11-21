@@ -572,7 +572,7 @@ class TestMergeMechanisms(unittest.TestCase):
         from lithokb.compiler import build_prompt, mentioned_cards
         self.assertEqual(mentioned_cards(self.cards, S.read_text(self.kb, "b.md"), set()), [("edge-placement-error", 2)])
         _, user, related, _ = build_prompt(self.kb, self.cards, [{"path": "b.md", "start": None, "end": None}])
-        self.assertIn('<card id="edge-placement-error" mentions="2">', user)
+        self.assertIn('<card id="edge-placement-error" units="2" mentions="2">', user)  # size shown so the model can respect granularity
         self.assertIn("edge-placement-error", related)
 
     def test_append_merges_deterministically(self):
@@ -586,7 +586,7 @@ class TestMergeMechanisms(unittest.TestCase):
         from lithokb.compiler import apply_append
         card, body = apply_append(self.cards, norm[0], norm[0]["add_md"], ["b.md"])
         self.assertIn("定义 [E1]", body)                       # existing content kept
-        self.assertIn("### 补充（来自 b.md）\n\n模型型 OPC 以它为目标 [E2]。", body)  # new evidence renumbered
+        self.assertIn("### 补充（来自 [《B》](src:b.md)）\n\n模型型 OPC 以它为目标 [E2]。", body)  # titled link, not a path  # new evidence renumbered
         self.assertEqual([e["id"] for e in card["evidence"]], ["E1", "E2"])
         self.assertEqual(card["sources"], ["a.md", "b.md"])
         self.assertIn("边放误差", card["aliases"])
@@ -715,7 +715,7 @@ class TestReviewUX(unittest.TestCase):
         c = {"id": "pw", "aliases": [], "relations": [],
              "evidence": [{"id": "E1", "path": "b.md", "lines": "3", "quote": "SMO 扩大工艺窗口。"}]}
         card, body = apply_append(self.cards, c, "### 补充（来自 b.md）\n\nSMO 的作用 [E1]。", ["b.md"])
-        self.assertEqual(body.count("补充（来自 b.md）"), 1)
+        self.assertEqual(body.count("补充（来自"), 1)
         self.assertEqual([e["id"] for e in card["evidence"]], ["E1", "E2"])
 
     def test_semantic_diff_ignores_number_formatting(self):
@@ -726,3 +726,89 @@ class TestReviewUX(unittest.TestCase):
         self.assertEqual((sd["fields"], sd["relations_changed"], sd["relations_added"]), ([], [], []))
         self.assertIn("+定义（修订） [E1]", sd["body"])
         self.assertEqual(self.cards.reverify("admin")["evidence"], 1)
+
+
+class TestRiskBatchGranularity(unittest.TestCase):
+    def setUp(self):
+        self.kb = fresh_kb()
+        text = "# A\n\n" + "".join(f"第{i}点：光刻工艺窗口与掩模优化的关系说明，包含较多的描述性文字。\n\n" for i in range(1, 61))
+        S.put(self.kb, "rev", [{"path": "a.md", "text": text}, {"path": "b.md", "text": "# B\n\nSMO 扩大工艺窗口。\n"}])
+        self.cards = Cards(self.kb)
+        self.rev, self.rev2, self.admin = (user(self.kb, n) for n in ("rev", "rev2", "admin"))
+
+    def tearDown(self):
+        shutil.rmtree(self.kb.root)
+
+    def mk(self, cid, body, ev, **kw):
+        card = {"id": cid, "title": kw.pop("title", cid), "type": kw.pop("type", "concept"), "relations": kw.pop("relations", []),
+                "evidence": ev, "confidence": kw.pop("confidence", 0.9)}
+        return self.cards.new_revision("x", card, body, kw.pop("origin", {"kind": "llm"}))
+
+    def test_risk_levels(self):
+        from lithokb.quality import units
+        self.assertEqual(units("光刻 OPC model [E1] [[x]]"), 4)  # 2 CJK + 2 words; markers ignored
+        good = [{"id": "E1", "path": "a.md", "lines": "3", "quote": "第1点：光刻工艺窗口与掩模优化的关系说明，包含较多的描述性文字。"}]
+        self.mk("low1", "工艺窗口与掩模优化之间的关系：" + "说明文字" * 20 + " [E1]", good)
+        self.assertEqual(self.cards.risk("low1")["level"], "low")
+        self.mk("amb", "工艺窗口" * 30 + " [E1]", good, relations=[{"rel": "uses", "target": "low1", "basis": "ambiguous"}])
+        self.assertEqual(self.cards.risk("amb")["level"], "high")
+        bad = [{"id": "E1", "path": "a.md", "lines": "3", "quote": "原文中不存在的一句话"}]
+        self.mk("bad", "工艺窗口" * 30 + " [E1]", bad)
+        self.assertIn("无法核验", self.cards.risk("bad")["reasons"][0])
+        self.mk("thin", "一句话 [E1]", good)
+        r = self.cards.risk("thin")
+        self.assertEqual(r["level"], "medium")
+        self.assertIn("thin", r["granularity"]["issues"])
+
+    def test_batch_requires_comment_low_risk_and_audits(self):
+        good = [{"id": "E1", "path": "a.md", "lines": "3", "quote": "第1点：光刻工艺窗口与掩模优化的关系说明，包含较多的描述性文字。"}]
+        self.mk("c1", "关系说明" * 30 + " [E1]", good)
+        self.mk("c2", "关系说明" * 30 + " [E1]", good, relations=[{"rel": "uses", "target": "c1", "basis": "ambiguous"}])
+        with self.assertRaises(CardError):
+            self.cards.batch(self.rev, ["c1"], "approve", "太短")
+        with self.assertRaises(PermissionError):
+            self.cards.batch(self.rev, ["c1"], "publish", "这是一条足够长的发布评语。")
+        res = self.cards.batch(self.rev, ["c1", "c2", "nope"], "approve", "抽查原文一致，证据全部精确匹配。")
+        self.assertEqual(res["done"], ["c1"])
+        self.assertEqual({x["id"] for x in res["skipped"]}, {"c2", "nope"})
+        rec = self.cards.reviews("c1")[-1]
+        self.assertEqual((rec["verdict"], rec["batch"]), ("approve", res["batch"]))
+        self.assertIn(res["batch"], rec["comment"])
+        ev = [e for e in self.kb.events(50) if e["action"] == "review.batch_approve"][0]
+        self.assertEqual(ev["detail"]["done"], ["c1"])
+        self.assertIn("rules", ev["detail"]["criteria"])
+        pub = self.cards.batch(self.admin, ["c1", "c2"], "publish", "第一批低风险卡片，已审阅通过。")
+        self.assertEqual(pub["done"], ["c1"])
+        self.assertTrue(is_public(self.cards.load("c1")[0]))
+
+    def test_consolidate_split_keeps_evidence_and_merge(self):
+        from lithokb.consolidate import Consolidator, merge
+        ev = [{"id": f"E{i}", "path": "a.md", "lines": str(1 + 2 * i), "quote": f"第{i}点：光刻工艺窗口与掩模优化的关系说明，包含较多的描述性文字。"}
+              for i in range(1, 31)]
+        body = "定义段落 [E1]\n\n" + "".join(f"### 补充（来自 [《A》](src:a.md)）\n\n第{i}点的展开说明，" + "细节描述" * 40 + f" [E{i}]\n\n"
+                                         for i in range(2, 31))
+        self.mk("big", body, ev, title="工艺窗口")
+        con = Consolidator(self.kb, self.cards, Compiler(self.kb, self.cards))
+        self.assertEqual([c["id"] for c in con.candidates()], ["big"])
+        run = con.run(self.admin, "big", {**self.kb.config["llm"], "backend": "mock"})
+        self.assertEqual(run["status"], "done", run.get("error"))
+        self.assertLess(run["after"]["units"], run["before"]["units"])
+        head, hbody = self.cards.load("big")
+        self.assertEqual(head["origin"]["op"], "consolidate")
+        self.assertNotIn("补充（来自", hbody)
+        self.assertIn("[[big-details", hbody)  # parent links its child
+        child, _ = self.cards.load("big-details")
+        self.assertEqual((child["parent"], child["status"]), ("big", "in_review"))
+        quotes = {e["quote"] for e in head["evidence"]} | {e["quote"] for e in child["evidence"]}
+        self.assertEqual(quotes, {e["quote"] for e in ev})  # no provenance lost
+        self.assertEqual(child["grounding"]["score"], 1.0)
+        self.assertIn("整合重写，需通读", self.cards.risk("big")["reasons"])
+        # merge a thin card into another
+        self.mk("thin", "SMO 扩大工艺窗口 [E1]", [{"id": "E1", "path": "b.md", "lines": "3", "quote": "SMO 扩大工艺窗口。"}], title="SMO 作用")
+        with self.assertRaises(PermissionError):
+            merge(self.cards, self.rev, "thin", "big")
+        h = merge(self.cards, self.admin, "thin", "big")
+        self.assertIn("### 并入：SMO 作用", self.cards.load("big")[1])
+        self.assertIn("SMO 作用", h["aliases"])
+        t, _ = self.cards.load("thin")
+        self.assertEqual((t["lifecycle"], t["replaced_by"]), ("superseded", "big"))

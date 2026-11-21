@@ -115,6 +115,28 @@ def main(argv=None) -> None:
         if verb == "supersede":
             s.add_argument("--by", required=True, help="replacement card id")
 
+    s = sub.add_parser("risk", help="review risk + granularity of one card, or a summary of the queue")
+    s.add_argument("id", nargs="?")
+    s = sub.add_parser("batch-approve", help="batch-approve LOW-risk cards in review (comment required)")
+    s.add_argument("ids", nargs="*", help="card ids (default with --low-risk: all low-risk cards in review)")
+    s.add_argument("--low-risk", action="store_true")
+    s.add_argument("--limit", type=int)
+    s.add_argument("-m", "--comment", required=True)
+    s = sub.add_parser("batch-publish", help="batch-publish approved cards (admin, comment required)")
+    s.add_argument("ids", nargs="*")
+    s.add_argument("--all-approved", action="store_true")
+    s.add_argument("-m", "--comment", required=True)
+    s = sub.add_parser("consolidate", help="rewrite / split over-grown cards (LLM; result goes to review)")
+    s.add_argument("ids", nargs="*")
+    s.add_argument("--auto", action="store_true", help="all cards flagged by the granularity policy")
+    s.add_argument("--list", action="store_true", help="only list candidates")
+    s.add_argument("--from-rev", type=int, help="consolidate from an earlier revision of the card")
+    s.add_argument("--limit", type=int)
+    s.add_argument("--backend", choices=["mock", "anthropic", "openrouter", "command"])
+    s.add_argument("--model")
+    s = sub.add_parser("merge", help="fold a (thin) card into another card; the source is superseded (admin)")
+    s.add_argument("id")
+    s.add_argument("--into", required=True)
     s = sub.add_parser("reviews", help="review log of a card")
     s.add_argument("id")
     s = sub.add_parser("queue", help="review queue (in_review / approved / changes_requested)")
@@ -248,6 +270,52 @@ def main(argv=None) -> None:
         if action in ("publish", "withdraw", "restore", "supersede"):
             cards.write_exports()
         return print(f"{args.id}: r{m['rev']} status={m['status']} lifecycle={m.get('lifecycle')} published_rev={m.get('published_rev')}")
+    if cmd == "risk":
+        A.require(me, "reviewer")
+        if args.id:
+            return _out(cards.risk(args.id), args)
+        from collections import Counter
+        rows = [(m["id"], cards.risk(m["id"])) for m in cards.listing(status="in_review")]
+        print("in review by risk:", dict(Counter(r["level"] for _, r in rows)))
+        reasons = Counter(x.split("（")[0] for _, r in rows for x in r["reasons"])
+        for k, v in reasons.most_common(12):
+            print(f"  {v:>3}  {k}")
+        return
+    if cmd in ("batch-approve", "batch-publish"):
+        action = "approve" if cmd == "batch-approve" else "publish"
+        ids = list(args.ids)
+        if action == "approve" and args.low_risk and not ids:
+            ids = [m["id"] for m in cards.listing(status="in_review") if cards.risk(m["id"])["level"] == "low"]
+            ids = ids[:args.limit] if args.limit else ids
+        if action == "publish" and args.all_approved and not ids:
+            ids = [m["id"] for m in cards.listing(status="approved")]
+        res = cards.batch(me, ids, action, args.comment)
+        if args.json:
+            return _out(res, args)
+        print(f"{res['batch']}: {action} {len(res['done'])} card(s); skipped {len(res['skipped'])}")
+        for x in res["skipped"]:
+            print(f"  skipped {x['id']}: {x['reason']}")
+        return
+    if cmd == "consolidate":
+        from .compiler import llm_config
+        from .consolidate import Consolidator
+        A.require(me, "reviewer")
+        con = Consolidator(kb, cards, comp)
+        cands = con.candidates()
+        if args.list or (not args.ids and not args.auto):
+            return _out([{"id": c["id"], "units": c["units"], "min": c["minutes"], "appends": c["appends"],
+                          "evidence": c["evidence"], "issues": ",".join(c["issues"])} for c in cands], args)
+        ids = args.ids or [c["id"] for c in cands][: args.limit or None]
+        for cid in ids:
+            r = con.run(me, cid, llm_config(kb, args.backend, args.model), from_rev=args.from_rev)
+            print(f"[{r['status']}] {cid}: {r.get('before', {}).get('units')} → {r.get('after', {}).get('units')} units; "
+                  f"written {[(w['id'], w['action']) for w in r['written']]}" + (f"  ERROR {r['error']}" if r.get("error") else ""))
+        return
+    if cmd == "merge":
+        from .consolidate import merge
+        h = merge(cards, me, args.id, args.into)
+        cards.write_exports()
+        return print(f"merged {args.id} into {args.into}: r{h['rev']} ({h['status']}); {args.id} superseded")
     if cmd == "reviews":
         return _out(cards.reviews(args.id), args)
     if cmd == "queue":

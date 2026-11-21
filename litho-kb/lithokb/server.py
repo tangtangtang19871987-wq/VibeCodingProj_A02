@@ -34,6 +34,16 @@ class App:
         self.cards = Cards(kb)
         self.compiler = Compiler(kb, self.cards)
         self.asker = Asker(kb, self.cards, self.compiler)
+        from .consolidate import Consolidator
+        self.consolidator = Consolidator(kb, self.cards, self.compiler)
+
+
+def card_source_paths(meta: dict, body: str) -> set:
+    """Every source document a card refers to: sources, evidence, and links in its body."""
+    paths = {x["path"] for x in meta.get("sources", [])} | {e.get("path", "") for e in meta.get("evidence", [])}
+    paths |= set(re.findall(r"\(src:([^)\s]+)\)", body))
+    paths |= set(re.findall(r"补充（来自 ([^）\[\]]+?\.(?:md|markdown|mdx))）", body))
+    return {p for p in paths if p}
 
 
 class HTTPError(Exception):
@@ -206,7 +216,15 @@ def make_handler(app: App):
             # ---- Layer 1: cards ------------------------------------------------
             if head == "cards":
                 if method == "GET" and len(parts) == 1:
-                    return self._json(C.listing(status=q.get("status") or None, visible_only=not reviewer))
+                    rows = C.listing(status=q.get("status") or None, visible_only=not reviewer)
+                    if reviewer:  # risk + granularity are governance signals for reviewers/admins
+                        for row in rows:
+                            row["risk"] = C.risk(row["id"])
+                    return self._json(rows)
+                if method == "POST" and parts[1] == "_batch":
+                    b = self._body()
+                    return self._json(C.batch(user or {"name": "anonymous", "role": "anonymous"}, list(b.get("ids", [])),
+                                              b.get("action", ""), b.get("comment", "")))
                 cid = parts[1]
                 if method == "GET" and len(parts) == 2:
                     meta, body = C.load(cid)
@@ -218,6 +236,7 @@ def make_handler(app: App):
                             raise FileNotFoundError(cid)
                     view = q.get("view", "published" if not reviewer else "head")
                     out = {"head": {**meta, "body": body}}
+                    paths = card_source_paths(meta, body)
                     if meta.get("published_rev"):
                         pm, pb = C.load_rev(cid, meta["published_rev"])
                         out["published"] = {**pm, "body": pb}
@@ -226,6 +245,7 @@ def make_handler(app: App):
                                "head": {k: meta.get(k) for k in ("id", "lifecycle", "published_rev", "replaced_by")}}
                     else:
                         out["reviews"] = C.review_summary(cid, meta["rev"])
+                        out["risk"] = C.risk(cid)
                         out["review_log"] = C.reviews(cid)
                         out["revisions"] = list(range(1, meta["rev"] + 1))
                         out["events"] = card_history(kb, cid)[-100:]
@@ -234,6 +254,9 @@ def make_handler(app: App):
                     out["backlinks"] = [{"id": m["id"], "title": m["title"]} for m in idx.values()
                                         if (cid in m.get("_links", []) or any(r["target"] == cid for r in m.get("relations", []))
                                             or m.get("parent") == cid) and (reviewer or is_public(m))]
+                    if out.get("published"):
+                        paths |= card_source_paths(out["published"], out["published"].get("body", ""))
+                    out["source_titles"] = S.doc_titles(kb, paths)
                     out["view"] = view
                     return self._json(out)
                 if method == "GET" and parts[2:3] == ["rev"]:
@@ -255,6 +278,20 @@ def make_handler(app: App):
                     A.require(user, "reviewer")
                     m = C.human_edit(user, cid, self._body())
                     return self._json(m)
+                if method == "POST" and parts[2:3] == ["consolidate"]:
+                    A.require(user, "reviewer")
+                    from .compiler import llm_config
+                    b = self._body()
+                    adm = user["role"] == "admin"
+                    run = app.consolidator.run(user, cid, llm_config(kb, b.get("backend") if adm else None,
+                                                                     b.get("model") if adm else None))
+                    return self._json(run)
+                if method == "POST" and parts[2:3] == ["merge"]:
+                    from .consolidate import merge
+                    b = self._body()
+                    h = merge(C, user, cid, (b.get("into") or "").strip())
+                    C.write_exports()
+                    return self._json({k: v for k, v in h.items() if not k.startswith("_")})
 
             # ---- ask: reasoning-based navigation + verified answer ----------------
             if head == "ask" and method == "POST":
@@ -280,7 +317,9 @@ def make_handler(app: App):
                     A.require(user, "reviewer")
                     b = self._body()
                     return self._json(app.asker.file_back(user, parts[1], b.get("title", ""), b.get("parent", "")))
-                return self._json(run)
+                paths = {s_["path"] for s_ in (run.get("navigation") or {}).get("sections", [])} | \
+                    {e.get("path", "") for e in (run.get("answer") or {}).get("evidence", [])}
+                return self._json({**run, "source_titles": S.doc_titles(kb, paths)})
 
             if head == "graph":
                 return self._json(C.graph(visible_only=not (reviewer and q.get("all") == "1")))
@@ -332,6 +371,8 @@ def make_handler(app: App):
                     A.require(user, "admin")
                     b = self._body()
                     return self._json(SC.save(kb, user["name"], b.get("text", ""), b.get("note", "")))
+            if head == "consolidate" and parts[1:] == ["candidates"]:
+                return self._json(app.consolidator.candidates())
             if head == "lint":
                 return self._json(C.lint())
             if head == "events":

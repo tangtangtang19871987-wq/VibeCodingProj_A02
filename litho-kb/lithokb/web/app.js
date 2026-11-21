@@ -3,7 +3,7 @@
 'use strict';
 const $ = s => document.querySelector(s);
 const esc = MD.esc;
-const S = { me: null, token: localStorage.getItem('lkb_token') || '', site: '', srcCache: {} };
+const S = { me: null, token: localStorage.getItem('lkb_token') || '', site: '', srcCache: {}, titles: {} };
 const RANK = { anonymous: 0, reader: 1, reviewer: 2, admin: 3 };
 const can = r => RANK[S.me ? S.me.role : 'anonymous'] >= RANK[r];
 const TYPE_ZH = { topic:'主题', summary:'文档摘要', synthesis:'问答综合', concept:'概念', method:'方法', model:'模型', algorithm:'算法', parameter:'参数', metric:'指标',
@@ -25,6 +25,7 @@ async function api(method, path, body) {
   const r = await fetch('/api/' + path, opt);
   const data = await r.json().catch(() => ({ error: r.statusText }));
   if (!r.ok) { const e = new Error(data.error || r.statusText); e.status = r.status; throw e; }
+  if (data && data.source_titles) Object.assign(S.titles, data.source_titles);
   return data;
 }
 const get = p => api('GET', p);
@@ -71,15 +72,19 @@ $('#qform').onsubmit = e => { e.preventDefault(); location.hash = '#/search?q=' 
 function cardHref(id) { return '#/k/' + encodeURIComponent(id); }
 function srcHref(path, q) { return '#/src/' + path.split('/').map(encodeURIComponent).join('/') + (q ? '?' + q : ''); }
 
+const docTitle = p => S.titles[p] || p.split('/').pop().replace(/\.(md|markdown|mdx)$/i, '');
+const docLink = (p, q, label) => `<a href="${srcHref(p, q)}" title="${esc(p)}">《${esc(docTitle(p))}》${label ? ' ' + label : ''}</a>`;
 function renderCardBody(card, known) {
-  return MD.render(card.body || '', {
+  // legacy bodies say "补充（来自 path.md）": show the document title, linked to the original
+  const body = (card.body || '').replace(/补充（来自 ([^）\[\]]+?\.(?:md|markdown|mdx))）/g, (_, p) => `补充（来自 [《${docTitle(p)}》](src:${p})）`);
+  return MD.render(body, {
     wiki: (id, label) => {
       const k = MD.slug(id).replace(/[^a-z0-9-]/g, '');
       const miss = known && !known.has(k);
       return `<a href="${cardHref(k)}" class="${miss ? 'muted' : ''}" title="${miss ? '尚未发布/不存在' : ''}">${esc(label)}</a>`;
     },
     ev: id => `<a class="ev" data-ev="${esc(id)}" href="javascript:void 0">${esc(id)}</a>`,
-    link: h => h, img: s => s,
+    link: h => h.startsWith('src:') ? srcHref(h.slice(4)) : h, img: s => s,
   });
 }
 
@@ -90,7 +95,7 @@ function evidenceList(card, withLines) {
     if (e.card) return `<li id="ev-${esc(e.id)}"><b>${esc(e.id)}</b> ${badge(e.check === 'card' ? 'exact' : 'missing', zh(e.check))}
       <a href="${cardHref(e.card)}">卡片 ${esc(e.card)}</a><div class="quote">${esc(e.quote)}</div></li>`;
     return `<li id="ev-${esc(e.id)}"><b>${esc(e.id)}</b> ${badge(e.check || 'missing')}${e.not_read ? ' <span class="badge b-warn">未在阅读计划中</span>' : ''}
-      <a href="${srcHref(e.path, 'L=' + encodeURIComponent(ln))}">${esc(e.path)} · L${esc(ln)}</a>
+      ${docLink(e.path, 'L=' + encodeURIComponent(ln), '· 第 ' + esc(ln) + ' 行')}
       ${e.found_lines && e.found_lines !== e.lines ? `<span class="small muted">（模型声称 L${esc(e.lines)}）</span>` : ''}
       <div class="quote">${esc(e.quote)}</div>${withLines ? `<details ${['exact', 'moved'].includes(e.check) ? '' : 'open'}><summary class="small muted">原文上下文${['exact', 'moved'].includes(e.check) ? '' : '（需人工确认）'}</summary><div class="srclines" data-path="${esc(e.path)}" data-lines="${esc(ln)}"></div></details>` : ''}</li>`;
   }).join('') + '</ol>';
@@ -218,7 +223,7 @@ routes.k = async ([id], q) => {
     <p><i>${esc(card.summary || '')}</i></p>${renderCardBody(card, known)}
     ${relationsBlock(card, d.backlinks)}${(card.relations || []).length ? '<p>' + basisSummary(card.relations) + '</p>' : ''}
     <h3>证据（原文引用，系统自动核验）</h3>${evidenceList(card, false)}
-    <p class="small muted">来源：${(card.sources || []).map(s => `<a href="${srcHref(s.path)}">${esc(s.path)}</a> v${s.version}`).join('，')}
+    <p class="small muted">来源：${(card.sources || []).map(s => `${docLink(s.path)} <span title="版本">v${s.version}</span>`).join('，')}
     ${can('reviewer') && card.origin && card.origin.run ? ` · <a href="#/traces/${esc(card.origin.run)}">查看编译过程</a>` : ''}</p></article></div>`);
   bindTree($('#main')); bindEvidence($('#main'));
 };
@@ -386,27 +391,62 @@ function drawGraph(cv, g) {
 }
 
 // ---------------------------------------------------------------- reviewer
+const RISK_ZH = { low: '低风险', medium: '中风险', high: '高风险' };
+const riskBadge = r => r ? `<span class="badge b-${r.level === 'low' ? 'exact' : r.level === 'medium' ? 'request_changes' : 'missing'}" title="${esc((r.reasons || []).join('\n') || '证据全部精确命中原文；无存疑/矛盾关系；单一来源；粒度合规')}">${RISK_ZH[r.level]}</span>` : '';
+const sizeBadge = g => g ? `<span class="small muted" title="阅读单位：汉字或英文单词">${g.units} 字/词 · ${g.minutes} 分钟</span>${(g.issues || []).map(i => ' ' + badge(i === 'long' ? 'comment' : 'warn', { thin: '过薄', long: '偏长', too_long: '过长', fragmented: '补充段多', broad: '证据过多' }[i] || i)).join('')}` : '';
 routes.review = async ([id], q) => {
   if (id) return reviewWorkspace(id, q);
   const cards = await get('cards');
   const tab = q.s || 'in_review';
+  const risk = q.r || '';
   const tabs = ['in_review', 'changes_requested', 'approved', 'rejected', 'draft', 'published'];
-  const amb = c => (c.relations || []).filter(r => r.basis === 'ambiguous').length;
-  const gscore = c => (c.grounding || {}).total ? c.grounding.score : 1;
-  const rows = cards.filter(c => c.status === tab).sort((a, b) => amb(b) - amb(a) || gscore(a) - gscore(b) || (a.type === 'topic') - (b.type === 'topic'));
+  const order = { high: 0, medium: 1, low: 2 };
+  let rows = cards.filter(c => c.status === tab);
+  const counts = { high: 0, medium: 0, low: 0 };
+  rows.forEach(c => c.risk && counts[c.risk.level]++);
+  if (risk) rows = rows.filter(c => c.risk && c.risk.level === risk);
+  rows.sort((a, b) => order[(a.risk || {}).level] - order[(b.risk || {}).level] || (a.type === 'topic') - (b.type === 'topic'));
+  const batchable = tab === 'in_review';
   set(`<div class="panel"><h1>审阅队列</h1><div class="tabs">${tabs.map(t => `<a href="#/review?s=${t}" class="${t === tab ? 'on' : ''}">${zh(t)} (${cards.filter(c => c.status === t).length})</a>`).join('')}</div>
-    <table class="grid"><tr><th>卡片</th><th>类型</th><th>修订</th><th>来源</th><th>证据核验</th><th>关系</th><th>编译来源</th><th>更新</th></tr>
-    ${rows.map(c => `<tr><td><a href="#/review/${encodeURIComponent(c.id)}"><b>${esc(c.title)}</b></a><br><span class="mono muted">${esc(c.id)}</span>
+    <div class="row small">按风险：${['', 'high', 'medium', 'low'].map(r => `<a href="#/review?s=${tab}${r ? '&r=' + r : ''}" class="badge ${r === risk ? 'b-in_review' : ''}">${r ? RISK_ZH[r] + ' ' + counts[r] : '全部 ' + (counts.high + counts.medium + counts.low)}</a>`).join(' ')}
+      <span class="muted">· 高/中风险须逐张审阅；只有低风险卡片可以批量通过（服务器强制），批量必须填写评语并留下审计记录。</span></div>
+    ${batchable && counts.low ? `<details class="panel" style="margin:8px 0;padding:10px 14px" ${risk === 'low' ? 'open' : ''}><summary><b>批量通过低风险卡片</b> <span class="small muted">（已选 <span id="bsel">0</span> 张）</span></summary>
+      <p class="small muted">低风险判定：证据全部逐字命中原文（精确/位置偏移）；无存疑或矛盾关系；单一来源；非人工修改、非更新已发布内容；置信度 ≥ 0.7；粒度合规。批量通过后，每张卡片各自留下审阅记录（带批次号），审计日志记录批次与判定标准。</p>
+      <div class="row"><button id="bsall">选中本页全部低风险</button><button id="bsnone">清空</button></div>
+      <textarea id="bcomment" placeholder="评语（必填，至少 10 个字）：说明批量通过的依据与你的核对方式，例如“抽查其中 5 张对照原文，均与原文一致；其余依据证据全部精确匹配”"></textarea>
+      <div class="row"><button class="primary" id="bgo">批量通过所选</button><span id="bres" class="small"></span></div></details>` : ''}
+    <table class="grid"><tr>${batchable ? '<th></th>' : ''}<th>卡片</th><th>风险</th><th>类型</th><th>篇幅</th><th>来源</th><th>证据核验</th><th>关系</th><th>编译来源</th></tr>
+    ${rows.map(c => `<tr>${batchable ? `<td>${c.risk && c.risk.level === 'low' ? `<input type="checkbox" class="bsel" value="${esc(c.id)}">` : ''}</td>` : ''}
+      <td><a href="#/review/${encodeURIComponent(c.id)}"><b>${esc(c.title)}</b></a><br><span class="mono muted">${esc(c.id)}</span>
         ${c.lifecycle !== 'active' ? badge(c.lifecycle) : ''}${(c.stale_sources || []).length ? badge('stale', '原文已变') : ''}${c.published_rev ? badge('published', '在线 r' + c.published_rev) : ''}</td>
-      <td>${esc(TYPE_ZH[c.type] || c.type)}</td><td>r${c.rev}</td><td class="small">${(c.sources || []).map(s => esc(s.path)).join('<br>')}</td>
-      <td>${gbadge(c.grounding, c)}</td><td>${basisSummary(c.relations)}</td><td class="small">${originLabel(c.origin)}</td><td class="small">${fmtTime(c.updated)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">空</td></tr>'}</table></div>`);
+      <td>${riskBadge(c.risk)}${c.risk && c.risk.reasons.length ? `<div class="small muted" style="max-width:260px">${c.risk.reasons.slice(0, 2).map(esc).join('；')}${c.risk.reasons.length > 2 ? '…' : ''}</div>` : ''}</td>
+      <td>${esc(TYPE_ZH[c.type] || c.type)} <span class="small muted">r${c.rev}</span></td><td>${sizeBadge(c.risk && c.risk.granularity)}</td>
+      <td class="small">${(c.sources || []).map(s => docLink(s.path)).join('<br>')}</td>
+      <td>${gbadge(c.grounding, c)}</td><td>${basisSummary(c.relations)}</td><td class="small">${originLabel(c.origin)}</td></tr>`).join('') || '<tr><td colspan="9" class="muted">空</td></tr>'}</table></div>`);
+  const boxes = () => [...document.querySelectorAll('.bsel')];
+  const upd = () => { const el = $('#bsel'); if (el) el.textContent = boxes().filter(b => b.checked).length; };
+  boxes().forEach(b => b.onchange = upd);
+  if ($('#bsall')) $('#bsall').onclick = () => { boxes().forEach(b => b.checked = true); upd(); };
+  if ($('#bsnone')) $('#bsnone').onclick = () => { boxes().forEach(b => b.checked = false); upd(); };
+  if ($('#bgo')) $('#bgo').onclick = async () => {
+    const ids = boxes().filter(b => b.checked).map(b => b.value), comment = $('#bcomment').value.trim();
+    if (!ids.length) return toast('未选择卡片');
+    if (comment.length < 10) return toast('批量操作必须填写评语（至少 10 个字）');
+    if (!confirm(`确认批量通过 ${ids.length} 张低风险卡片？每张卡片都会记录你的评语与批次号。`)) return;
+    try {
+      const r = await api('POST', 'cards/_batch', { ids, action: 'approve', comment });
+      toast(`${r.batch}：通过 ${r.done.length} 张${r.skipped.length ? '，跳过 ' + r.skipped.length + ' 张' : ''}`, 6000);
+      if (r.skipped.length) alert('以下卡片未通过批量检查，需逐张审阅：\n' + r.skipped.map(x => x.id + '：' + x.reason).join('\n'));
+      route();
+    } catch (e) { toast(e.message); }
+  };
 };
 const FIELD_ZH = { title: '标题', type: '类型', parent: '上级主题', summary: '摘要', aliases: '别名', confidence: '置信度' };
 function semanticDiff(sd) {
   if (!sd) return '';
   const val = v => Array.isArray(v) ? v.map(esc).join('，') || '（空）' : (v === null || v === undefined || v === '' ? '（空）' : esc(String(v)));
   const rel = r => `<span class="badge">${esc(r.rel)}</span> ${esc(r.target)}${basisBadge(r)}`;
-  const ev = e => `<b>${esc(e.id)}</b> <span class="mono small">${esc(e.path)} L${esc(e.lines)}</span> <span class="small">${esc((e.quote || '').slice(0, 120))}</span>`;
+  const ev = e => `<b>${esc(e.id)}</b> ${docLink(e.path, 'L=' + encodeURIComponent(e.lines), '· 第 ' + esc(e.lines) + ' 行')} <span class="small">${esc((e.quote || '').slice(0, 120))}</span>`;
   const sec = (title, items, cls) => items.length ? `<h4 style="margin:12px 0 4px">${title}（${items.length}）</h4><ul class="small">${items.map(x => `<li class="${cls || ''}">${x}</li>`).join('')}</ul>` : '';
   const nothing = !sd.fields.length && !sd.relations_added.length && !sd.relations_removed.length && !sd.relations_changed.length &&
     !sd.evidence_added.length && !sd.evidence_removed.length && !sd.body;
@@ -415,7 +455,11 @@ function semanticDiff(sd) {
     ${sec('字段变化', sd.fields.map(f => `<b>${esc(FIELD_ZH[f.field] || f.field)}</b>：<span class="diff"><span class="d">${val(f.before)}</span> → <span class="a">${val(f.after)}</span></span>`))}
     ${sec('新增关系', sd.relations_added.map(rel), 'a')}${sec('移除关系', sd.relations_removed.map(rel), 'd')}
     ${sec('关系状态变化', sd.relations_changed.map(c => `${rel(c.before)} → ${basisBadge(c.after)}`))}
-    ${sec('新增证据', sd.evidence_added.map(ev), 'a')}${sec('移除证据', sd.evidence_removed.map(ev), 'd')}
+    ${sec('新增证据', sd.evidence_added.map(ev), 'a')}
+    ${(sd.evidence_moved || []).length ? (() => { const by = {}; sd.evidence_moved.forEach(e => e.moved_to.forEach(t => (by[t] = by[t] || []).push(e)));
+      return `<h4 style="margin:12px 0 4px">移至其他卡片的证据（${sd.evidence_moved.length}，未丢失）</h4><ul class="small">${Object.entries(by).map(([t, es]) =>
+        `<li>→ <a href="#/review/${encodeURIComponent(t)}">${esc(t)}</a>：${es.length} 条（${es.map(e => esc(e.id)).join('、')}）</li>`).join('')}</ul>`; })() : ''}
+    ${sec('移除证据（不再出现在任何卡片中）', sd.evidence_removed.map(ev), 'd')}
     ${sd.evidence_renumbered ? `<p class="small muted">${sd.evidence_renumbered} 条证据仅编号变化</p>` : ''}
     ${sd.body ? `<h4 style="margin:12px 0 4px">正文改动</h4><div class="diff">${sd.body.split('\n').slice(2).map(l => `<div class="${l.startsWith('+') ? 'a' : l.startsWith('-') ? 'd' : l.startsWith('@') ? 'h' : ''}">${esc(l) || ' '}</div>`).join('')}</div>` : '<p class="small muted">正文无改动。</p>'}`;
 }
@@ -494,6 +538,9 @@ async function reviewWorkspace(id, q) {
       <div class="row"><button class="ok" data-act="approve">通过</button><button class="warn" data-act="request_changes">要求修改</button><button class="bad" data-act="reject">拒绝</button><button data-act="comment">仅评论</button>
         ${['draft', 'changes_requested'].includes(h.status) ? '<button data-act="submit">提交审阅</button>' : ''}</div>
       ${adminBtns}
+      ${d.risk ? `<h3>审阅风险 ${riskBadge(d.risk)}</h3>${d.risk.reasons.length ? `<ul class="small">${d.risk.reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul>` : '<p class="small muted">证据全部精确命中原文，无存疑关系，单一来源，粒度合规。</p>'}
+        <p class="small">篇幅：${sizeBadge(d.risk.granularity)}${d.risk.granularity.needs_consolidation ? ` <button id="consolidate" class="warn">整合重写 / 拆分</button>` : ''}
+        ${can('admin') && (d.risk.granularity.issues || []).includes('thin') ? ` <button id="mergeinto">并入其他卡片…</button>` : ''}</p>` : ''}
       <h3>关系的认识论状态</h3><p>${basisSummary(h.relations)}</p>
       <h3>证据核验 ${gbadge(h.grounding, h)}</h3>
       <p class="small muted">模型给出的每条引用都被逐字核对原文行。精确匹配的原文上下文默认折叠，需人工确认的默认展开。</p>
@@ -520,6 +567,20 @@ async function reviewWorkspace(id, q) {
     try { await api('POST', `cards/${encodeURIComponent(id)}/action`, { action: act, comment, target, anchor: $('#rv_anchor').value.trim() }); toast(zh(act) + ' ✓'); route(); }
     catch (e) { toast(e.message); }
   });
+  const cb = $('#consolidate'); if (cb) cb.onclick = async () => {
+    if (!confirm('调用 LLM 整合重写（必要时拆分为子概念卡）？只使用卡片已有的、已核验的证据；结果作为新修订进入审阅。')) return;
+    cb.disabled = true; cb.textContent = '整合中…';
+    try { const r = await api('POST', `cards/${encodeURIComponent(id)}/consolidate`, {});
+      if (r.status !== 'done') throw new Error(r.error || '失败');
+      toast(`整合完成：${r.before.units} → ${r.after.units} 字/词；写出 ${r.written.length} 张卡片修订`, 6000);
+      location.hash = `#/review/${encodeURIComponent(id)}?tab=diff`; route();
+    } catch (e) { toast('整合失败：' + e.message); cb.disabled = false; cb.textContent = '整合重写 / 拆分'; }
+  };
+  const mb = $('#mergeinto'); if (mb) mb.onclick = async () => {
+    const into = prompt('把本卡并入哪张卡片（id）？本卡将被标记为“已被替换”。'); if (!into) return;
+    try { const r = await api('POST', `cards/${encodeURIComponent(id)}/merge`, { into }); toast('已并入 ' + into + '（r' + r.rev + '，待审阅）'); location.hash = '#/review/' + encodeURIComponent(into) + '?tab=diff'; }
+    catch (e) { toast(e.message); }
+  };
   const sv = $('#e_save'); if (sv) sv.onclick = async () => {
     try {
       const body = { title: $('#e_title').value, type: $('#e_type').value, parent: $('#e_parent').value.trim(), summary: $('#e_summary').value,
@@ -597,7 +658,9 @@ routes.lint = async () => {
   const issues = await get('lint');
   const KIND = { dangling_relation: '关系指向不存在的卡片', dangling_wikilink: '正文链接指向不存在的卡片', dangling_parent: '上级主题不存在', stale_source: '原文已更新（需重新编译）',
     ungrounded_evidence: '引用未在原文中找到', no_evidence: '没有证据', dangling_replacement: '替换目标不存在',
-    ambiguous_relation: '存在“存疑”关系待人工判断', missing_summary: '文档缺少摘要卡片（需重新编译）', duplicate_source: '原始文档内容高度重复' };
+    ambiguous_relation: '存在“存疑”关系待人工判断', missing_summary: '文档缺少摘要卡片（需重新编译）', duplicate_source: '原始文档内容高度重复',
+    granularity_thin: '粒度过薄（单一事实，宜并入相关卡片）', granularity_too_long: '篇幅过长（需整合或拆分）',
+    granularity_fragmented: '补充段过多（需整合重写）', granularity_broad: '证据过多（可能包含多个概念）' };
   set(`<div class="panel"><h1>知识库健康检查</h1><p class="muted">${issues.length} 项</p><table class="grid"><tr><th>卡片</th><th>问题</th><th>详情</th></tr>${issues.map(i =>
     `<tr><td><a href="#/review/${encodeURIComponent(i.card)}">${esc(i.card)}</a></td><td>${esc(KIND[i.kind] || i.kind)}</td><td class="small">${esc(i.detail)}</td></tr>`).join('')}</table></div>`);
 };
@@ -608,13 +671,28 @@ routes.publish = async () => {
   const appr = cards.filter(c => c.status === 'approved');
   const pub = cards.filter(c => c.published_rev);
   set(`<div class="panel"><h1>发布台</h1><h3>审阅通过、等待发布（${appr.length}）</h3>
-    <table class="grid"><tr><th>卡片</th><th>修订</th><th>核验</th><th>当前在线</th><th></th></tr>${appr.map(c => `<tr><td><a href="#/review/${encodeURIComponent(c.id)}">${esc(c.title)}</a></td><td>r${c.rev}</td><td>${gbadge(c.grounding)}</td>
-      <td>${c.published_rev ? 'r' + c.published_rev : '—'}</td><td><button class="primary" data-pub="${esc(c.id)}">发布</button> <button class="warn" data-ret="${esc(c.id)}">打回</button></td></tr>`).join('') || '<tr><td colspan=5 class="muted">无</td></tr>'}</table>
+    ${appr.length > 1 ? `<details style="margin:6px 0"><summary class="small"><b>批量发布</b>（已选 <span id="psel">0</span> 张；必须填写评语，留下审计记录）</summary>
+      <div class="row"><button id="psall">全选</button></div><textarea id="pcomment" placeholder="发布评语（必填，至少 10 个字），例如“本批为第14讲相关卡片，均已经两位审阅者通过”"></textarea>
+      <div class="row"><button class="primary" id="pgo">批量发布所选</button></div></details>` : ''}
+    <table class="grid"><tr><th></th><th>卡片</th><th>修订</th><th>核验</th><th>当前在线</th><th></th></tr>${appr.map(c => `<tr><td><input type="checkbox" class="psel" value="${esc(c.id)}"></td><td><a href="#/review/${encodeURIComponent(c.id)}">${esc(c.title)}</a></td><td>r${c.rev}</td><td>${gbadge(c.grounding, c)}</td>
+      <td>${c.published_rev ? 'r' + c.published_rev : '—'}</td><td><button class="primary" data-pub="${esc(c.id)}">发布</button> <button class="warn" data-ret="${esc(c.id)}">打回</button></td></tr>`).join('') || '<tr><td colspan=6 class="muted">无</td></tr>'}</table>
     <h3>已发布内容管理（${pub.length}）</h3><table class="grid"><tr><th>卡片</th><th>在线修订</th><th>状态</th><th>发布</th><th></th></tr>${pub.map(c => `<tr><td><a href="${cardHref(c.id)}">${esc(c.title)}</a></td><td>r${c.published_rev}${c.rev !== c.published_rev ? ` <span class="small muted">（新修订 r${c.rev} ${zh(c.status)}）</span>` : ''}</td>
       <td>${badge(c.lifecycle)}${c.replaced_by ? ' → ' + esc(c.replaced_by) : ''}${(c.stale_sources || []).length ? badge('stale', '原文已变') : ''}</td><td class="small">${esc(c.published_by || '')} ${fmtTime(c.published_at)}</td>
       <td>${c.lifecycle === 'active' ? `<button class="bad" data-wd="${esc(c.id)}">下架</button> <button data-sup="${esc(c.id)}">替换为…</button>` : `<button class="ok" data-rs="${esc(c.id)}">恢复</button>`}</td></tr>`).join('')}</table></div>`);
   const act = async (id, action, extra = {}) => { try { await api('POST', `cards/${encodeURIComponent(id)}/action`, { action, ...extra }); toast(zh(action) + ' ✓'); route(); } catch (e) { toast(e.message); } };
   document.querySelectorAll('[data-pub]').forEach(b => b.onclick = () => act(b.dataset.pub, 'publish'));
+  const pboxes = () => [...document.querySelectorAll('.psel')];
+  const pupd = () => { const el = $('#psel'); if (el) el.textContent = pboxes().filter(b => b.checked).length; };
+  pboxes().forEach(b => b.onchange = pupd);
+  if ($('#psall')) $('#psall').onclick = () => { pboxes().forEach(b => b.checked = true); pupd(); };
+  if ($('#pgo')) $('#pgo').onclick = async () => {
+    const ids = pboxes().filter(b => b.checked).map(b => b.value), comment = $('#pcomment').value.trim();
+    if (!ids.length) return toast('未选择卡片');
+    if (comment.length < 10) return toast('批量发布必须填写评语（至少 10 个字）');
+    if (!confirm(`确认批量发布 ${ids.length} 张卡片？发布后读者可见。`)) return;
+    try { const r = await api('POST', 'cards/_batch', { ids, action: 'publish', comment }); toast(`${r.batch}：发布 ${r.done.length} 张`); route(); }
+    catch (e) { toast(e.message); }
+  };
   document.querySelectorAll('[data-ret]').forEach(b => b.onclick = () => { const c = prompt('打回理由：'); if (c) act(b.dataset.ret, 'return', { comment: c }); });
   document.querySelectorAll('[data-wd]').forEach(b => b.onclick = () => { const c = prompt('下架理由：'); if (c !== null) act(b.dataset.wd, 'withdraw', { comment: c }); });
   document.querySelectorAll('[data-rs]').forEach(b => b.onclick = () => act(b.dataset.rs, 'restore'));
