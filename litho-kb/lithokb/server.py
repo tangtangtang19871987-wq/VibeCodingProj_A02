@@ -242,7 +242,8 @@ def make_handler(app: App):
                     return self._json({**m, "body": b})
                 if method == "GET" and parts[2:3] == ["diff"]:
                     A.require(user, "reviewer")
-                    return self._json({"diff": C.diff(cid, int(q.get("a", 0)), int(q.get("b", 1)))})
+                    a_, b_ = int(q.get("a", 0)), int(q.get("b", 1))
+                    return self._json({"diff": C.diff(cid, a_, b_), "semantic": C.semantic_diff(cid, a_, b_)})
                 if method == "POST" and parts[2:3] == ["action"]:
                     b = self._body()
                     m = C.act(user or {"name": "anonymous", "role": "anonymous"}, cid, b.get("action", ""),

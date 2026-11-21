@@ -225,17 +225,20 @@ def apply_append(cards: Cards, c: dict, add_md: str, run_paths: list[str]) -> tu
     relations and aliases are kept; new evidence ids are renumbered to avoid collisions."""
     head, body = cards.load(c["id"])
     used = {e["id"] for e in head.get("evidence", [])}
-    mapping, new_ev, n = {}, [], 1
+    # new evidence continues after the highest existing number, so ids stay in reading order
+    n = max([int(m.group(1)) for x in used if (m := re.fullmatch(r"E(\d+)", x))] or [0])
+    mapping, new_ev = {}, []
     for e in c["evidence"]:
-        nid = e["id"]
-        if nid in used:
-            while f"E{n}" in used:
-                n += 1
-            nid = f"E{n}"
+        n += 1
+        while f"E{n}" in used:
+            n += 1
+        nid = f"E{n}"
         used.add(nid)
         mapping[e["id"]] = nid
         new_ev.append({**e, "id": nid})
     add = re.sub(r"\[(E\d+)\]", lambda mm: f"[{mapping.get(mm.group(1), mm.group(1))}]", add_md).strip()
+    # the model sometimes imitates the "补充（来自 …）" headings it sees in the card: drop its own copy
+    add = re.sub(r"^\s*#{1,6}\s*补充[（(][^\n]*\n+", "", add).strip()
     new_body = body.rstrip() + f"\n\n### 补充（来自 {', '.join(run_paths)}）\n\n{add}\n"
     rels = [{k: v for k, v in r.items()} for r in head.get("relations", [])]
     have = {(r["rel"], r["target"]) for r in rels}

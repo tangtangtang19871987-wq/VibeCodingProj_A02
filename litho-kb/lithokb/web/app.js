@@ -92,7 +92,7 @@ function evidenceList(card, withLines) {
     return `<li id="ev-${esc(e.id)}"><b>${esc(e.id)}</b> ${badge(e.check || 'missing')}${e.not_read ? ' <span class="badge b-warn">未在阅读计划中</span>' : ''}
       <a href="${srcHref(e.path, 'L=' + encodeURIComponent(ln))}">${esc(e.path)} · L${esc(ln)}</a>
       ${e.found_lines && e.found_lines !== e.lines ? `<span class="small muted">（模型声称 L${esc(e.lines)}）</span>` : ''}
-      <div class="quote">${esc(e.quote)}</div>${withLines ? `<div class="srclines" data-path="${esc(e.path)}" data-lines="${esc(ln)}"></div>` : ''}</li>`;
+      <div class="quote">${esc(e.quote)}</div>${withLines ? `<details ${['exact', 'moved'].includes(e.check) ? '' : 'open'}><summary class="small muted">原文上下文${['exact', 'moved'].includes(e.check) ? '' : '（需人工确认）'}</summary><div class="srclines" data-path="${esc(e.path)}" data-lines="${esc(ln)}"></div></details>` : ''}</li>`;
   }).join('') + '</ol>';
 }
 
@@ -213,7 +213,7 @@ routes.k = async ([id], q) => {
   if ((head.stale_sources || []).length) banners += `<div class="banner warn">原始文档已更新，此卡片可能过时：${head.stale_sources.map(esc).join('，')}</div>`;
   set(`<div class="cols"><aside class="panel side">${topicTree(visible, id)}</aside>
     <article class="panel doc"><div class="row">${badge('t', TYPE_ZH[card.type] || card.type)}${can('reviewer') ? badge(head.status) : ''}
-      <span class="small muted">r${card.rev} · 证据核验 ${Math.round((card.grounding || {}).score * 100 || 0)}% · ${card.origin && card.origin.kind === 'llm' ? 'LLM 编译 ' + esc(card.origin.model || '') : '人工编辑 ' + esc((card.origin || {}).user || '')}${card.published_by ? ' · 由 ' + esc(card.published_by) + ' 发布于 ' + fmtTime(card.published_at) : ''}</span></div>
+      <span class="small muted">r${card.rev} · 证据核验 ${Math.round((card.grounding || {}).score * 100 || 0)}% · ${originLabel(card.origin, false)}${card.published_by ? ' · 由 ' + esc(card.published_by) + ' 发布于 ' + fmtTime(card.published_at) : ''}</span></div>
     ${banners}<h1>${esc(card.title)}</h1>${(card.aliases || []).length ? `<p class="muted small">别名：${card.aliases.map(esc).join('，')}</p>` : ''}
     <p><i>${esc(card.summary || '')}</i></p>${renderCardBody(card, known)}
     ${relationsBlock(card, d.backlinks)}${(card.relations || []).length ? '<p>' + basisSummary(card.relations) + '</p>' : ''}
@@ -392,16 +392,45 @@ routes.review = async ([id], q) => {
   const tab = q.s || 'in_review';
   const tabs = ['in_review', 'changes_requested', 'approved', 'rejected', 'draft', 'published'];
   const amb = c => (c.relations || []).filter(r => r.basis === 'ambiguous').length;
-  const rows = cards.filter(c => c.status === tab).sort((a, b) => amb(b) - amb(a) || ((a.grounding || {}).score || 0) - ((b.grounding || {}).score || 0));
+  const gscore = c => (c.grounding || {}).total ? c.grounding.score : 1;
+  const rows = cards.filter(c => c.status === tab).sort((a, b) => amb(b) - amb(a) || gscore(a) - gscore(b) || (a.type === 'topic') - (b.type === 'topic'));
   set(`<div class="panel"><h1>审阅队列</h1><div class="tabs">${tabs.map(t => `<a href="#/review?s=${t}" class="${t === tab ? 'on' : ''}">${zh(t)} (${cards.filter(c => c.status === t).length})</a>`).join('')}</div>
     <table class="grid"><tr><th>卡片</th><th>类型</th><th>修订</th><th>来源</th><th>证据核验</th><th>关系</th><th>编译来源</th><th>更新</th></tr>
     ${rows.map(c => `<tr><td><a href="#/review/${encodeURIComponent(c.id)}"><b>${esc(c.title)}</b></a><br><span class="mono muted">${esc(c.id)}</span>
         ${c.lifecycle !== 'active' ? badge(c.lifecycle) : ''}${(c.stale_sources || []).length ? badge('stale', '原文已变') : ''}${c.published_rev ? badge('published', '在线 r' + c.published_rev) : ''}</td>
       <td>${esc(TYPE_ZH[c.type] || c.type)}</td><td>r${c.rev}</td><td class="small">${(c.sources || []).map(s => esc(s.path)).join('<br>')}</td>
-      <td>${gbadge(c.grounding)}</td><td>${basisSummary(c.relations)}</td><td class="small">${c.origin.kind === 'llm' ? `<a href="#/traces/${esc(c.origin.run)}">LLM ${esc(c.origin.model)}</a>` : c.origin.kind === 'query' ? `<a href="#/ask/${esc(c.origin.run)}">问答回写 ${esc(c.origin.user)}</a>` : '人工 ' + esc(c.origin.user)}</td><td class="small">${fmtTime(c.updated)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">空</td></tr>'}</table></div>`);
+      <td>${gbadge(c.grounding, c)}</td><td>${basisSummary(c.relations)}</td><td class="small">${originLabel(c.origin)}</td><td class="small">${fmtTime(c.updated)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">空</td></tr>'}</table></div>`);
 };
-function gbadge(g) {
-  g = g || {}; const s = Math.round((g.score || 0) * 100);
+const FIELD_ZH = { title: '标题', type: '类型', parent: '上级主题', summary: '摘要', aliases: '别名', confidence: '置信度' };
+function semanticDiff(sd) {
+  if (!sd) return '';
+  const val = v => Array.isArray(v) ? v.map(esc).join('，') || '（空）' : (v === null || v === undefined || v === '' ? '（空）' : esc(String(v)));
+  const rel = r => `<span class="badge">${esc(r.rel)}</span> ${esc(r.target)}${basisBadge(r)}`;
+  const ev = e => `<b>${esc(e.id)}</b> <span class="mono small">${esc(e.path)} L${esc(e.lines)}</span> <span class="small">${esc((e.quote || '').slice(0, 120))}</span>`;
+  const sec = (title, items, cls) => items.length ? `<h4 style="margin:12px 0 4px">${title}（${items.length}）</h4><ul class="small">${items.map(x => `<li class="${cls || ''}">${x}</li>`).join('')}</ul>` : '';
+  const nothing = !sd.fields.length && !sd.relations_added.length && !sd.relations_removed.length && !sd.relations_changed.length &&
+    !sd.evidence_added.length && !sd.evidence_removed.length && !sd.body;
+  return `<div class="banner info small">r${sd.a || '（空）'} → r${sd.b} · ${originLabel(sd.origin, false)}${sd.change_note ? ' · ' + esc(sd.change_note) : ''}</div>
+    ${nothing ? '<p class="muted">两个修订内容相同。</p>' : ''}
+    ${sec('字段变化', sd.fields.map(f => `<b>${esc(FIELD_ZH[f.field] || f.field)}</b>：<span class="diff"><span class="d">${val(f.before)}</span> → <span class="a">${val(f.after)}</span></span>`))}
+    ${sec('新增关系', sd.relations_added.map(rel), 'a')}${sec('移除关系', sd.relations_removed.map(rel), 'd')}
+    ${sec('关系状态变化', sd.relations_changed.map(c => `${rel(c.before)} → ${basisBadge(c.after)}`))}
+    ${sec('新增证据', sd.evidence_added.map(ev), 'a')}${sec('移除证据', sd.evidence_removed.map(ev), 'd')}
+    ${sd.evidence_renumbered ? `<p class="small muted">${sd.evidence_renumbered} 条证据仅编号变化</p>` : ''}
+    ${sd.body ? `<h4 style="margin:12px 0 4px">正文改动</h4><div class="diff">${sd.body.split('\n').slice(2).map(l => `<div class="${l.startsWith('+') ? 'a' : l.startsWith('-') ? 'd' : l.startsWith('@') ? 'h' : ''}">${esc(l) || ' '}</div>`).join('')}</div>` : '<p class="small muted">正文无改动。</p>'}`;
+}
+function originLabel(o, link = true) {
+  o = o || {};
+  if (o.kind === 'llm') return link && o.run ? `<a href="#/traces/${esc(o.run)}">LLM ${esc(o.model || '')}</a>` : 'LLM 编译 ' + esc(o.model || '');
+  if (o.kind === 'query') return link && o.run ? `<a href="#/ask/${esc(o.run)}">问答回写 ${esc(o.user || '')}</a>` : '问答回写 ' + esc(o.user || '');
+  if (o.kind === 'schema') return '编译规范主题骨架' + (o.schema ? ' v' + esc(o.schema) : '');
+  if (o.kind === 'human') return '人工编辑 ' + esc(o.user || '');
+  return esc(o.kind || '—');
+}
+function gbadge(g, card) {
+  g = g || {};
+  if (!g.total) return card && card.type === 'topic' ? '<span class="small muted">主题卡，无需证据</span>' : badge('missing', '无证据');
+  const s = Math.round((g.score || 0) * 100);
   return `${badge(s >= 90 ? 'exact' : s >= 60 ? 'fuzzy' : 'missing', s + '%')}<span class="small muted">${(g.exact || 0) + (g.moved || 0) + (g.elided || 0) + (g.card || 0)}/${g.total || 0} 可核验${g.missing ? '，' + g.missing + ' 未找到' : ''}</span>`;
 }
 
@@ -421,7 +450,8 @@ async function reviewWorkspace(id, q) {
   if (tab === 'diff') {
     const df = await get(`cards/${encodeURIComponent(id)}/diff?a=${diffBase}&b=${h.rev}`);
     tabBody = `<div class="row small">对比：<select id="dbase">${[0, ...d.revisions.filter(r => r !== h.rev)].map(r => `<option value="${r}" ${r === diffBase ? 'selected' : ''}>${r ? 'r' + r + (r === h.published_rev ? '（已发布）' : '') : '（空）'}</option>`).join('')}</select> → r${h.rev}</div>
-      <div class="diff">${df.diff.split('\n').map(l => `<div class="${l.startsWith('+') ? 'a' : l.startsWith('-') ? 'd' : l.startsWith('@') ? 'h' : ''}">${esc(l) || ' '}</div>`).join('')}</div>`;
+      ${semanticDiff(df.semantic)}
+      <details style="margin-top:12px"><summary class="small muted">原始文本差异（frontmatter + 正文）</summary><div class="diff">${df.diff.split('\n').map(l => `<div class="${l.startsWith('+') ? 'a' : l.startsWith('-') ? 'd' : l.startsWith('@') ? 'h' : ''}">${esc(l) || ' '}</div>`).join('')}</div></details>`;
   }
   if (tab === 'edit') tabBody = `<p class="small muted">人工修改将生成新修订（来源记为你本人），重新进入审阅流程。</p>
       <div class="row"><label style="width:60px">标题</label><input id="e_title" value="${esc(h.title)}" style="flex:1"></div>
@@ -439,7 +469,7 @@ async function reviewWorkspace(id, q) {
     <h3>事件</h3><table class="grid">${(d.events || []).slice().reverse().map(e => `<tr><td class="small">${fmtTime(e.ts)}</td><td>${esc(e.actor)}</td><td class="mono">${esc(e.action)}</td><td class="small mono">${esc(JSON.stringify(e.detail || {}))}</td></tr>`).join('')}</table>`;
   if (tab === 'rev') {
     const r = await get(`cards/${encodeURIComponent(id)}/rev/${+q.r}`);
-    tabBody = `<p class="small muted">修订 r${r.rev} · ${fmtTime(r.created)} · ${r.origin.kind === 'llm' ? 'LLM ' + esc(r.origin.model) : '人工 ' + esc(r.origin.user)} · ${esc(r.change_note || '')}</p><div class="doc"><h1>${esc(r.title)}</h1>${renderCardBody(r, known)}</div>${evidenceList(r)}`;
+    tabBody = `<p class="small muted">修订 r${r.rev} · ${fmtTime(r.created)} · ${originLabel(r.origin, false)} · ${esc(r.change_note || '')}</p><div class="doc"><h1>${esc(r.title)}</h1>${renderCardBody(r, known)}</div>${evidenceList(r)}`;
   }
   const v = d.reviews.votes;
   const isAdmin = can('admin');
@@ -451,7 +481,7 @@ async function reviewWorkspace(id, q) {
       ${h.published_rev && h.lifecycle === 'active' ? '<button class="bad" data-act="withdraw">下架</button><button data-act="supersede">替换为…</button>' : ''}
       ${h.lifecycle !== 'active' ? '<button class="ok" data-act="restore">恢复上架</button>' : ''}</div>` : '';
   set(`<div class="row"><a href="#/review?s=${h.status}">← 审阅队列</a> <span class="mono muted">${esc(id)}</span> ${badge(h.status)} ${badge(h.lifecycle)}
-      <span class="small muted">r${h.rev}${h.published_rev ? ' · 已发布 r' + h.published_rev : ''} · ${h.origin.kind === 'llm' ? 'LLM 编译 ' + esc(h.origin.model) : '人工编辑 ' + esc(h.origin.user)} · <a href="${cardHref(id)}?view=head">读者视图</a></span></div>
+      <span class="small muted">r${h.rev}${h.published_rev ? ' · 已发布 r' + h.published_rev : ''} · ${originLabel(h.origin, false)} · <a href="${cardHref(id)}?view=head">读者视图</a></span></div>
     ${h.change_note ? `<div class="banner info">修订说明：${esc(h.change_note)}</div>` : ''}
     ${(h.stale_sources || []).length ? `<div class="banner warn">原文在编译后已变更：${h.stale_sources.map(esc).join('，')} —— 建议重新编译</div>` : ''}
     <div class="cols3"><section class="panel"><div class="tabs">${[['card', '卡片'], ['diff', '差异'], ['edit', '编辑'], ['history', '审阅记录']].map(([t, n]) =>
@@ -465,8 +495,8 @@ async function reviewWorkspace(id, q) {
         ${['draft', 'changes_requested'].includes(h.status) ? '<button data-act="submit">提交审阅</button>' : ''}</div>
       ${adminBtns}
       <h3>关系的认识论状态</h3><p>${basisSummary(h.relations)}</p>
-      <h3>证据核验 ${gbadge(h.grounding)}</h3>
-      <p class="small muted">模型给出的每条引用都被逐字核对原文行；高亮行为原文。</p>
+      <h3>证据核验 ${gbadge(h.grounding, h)}</h3>
+      <p class="small muted">模型给出的每条引用都被逐字核对原文行。精确匹配的原文上下文默认折叠，需人工确认的默认展开。</p>
       ${evidenceList(h, true)}
       ${findings.length ? `<h3>编译器校验发现</h3><ul class="small">${findings.map(f => `<li>${badge(f.level === 'error' ? 'error' : 'warn', f.level)} ${esc(f.msg)}</li>`).join('')}</ul>` : ''}
       ${h.origin.kind === 'query' ? `<div class="banner info">此卡片来自问答回写：<a href="#/ask/${esc(h.origin.run)}">查看原问答与阅读计划</a></div>` : ''}

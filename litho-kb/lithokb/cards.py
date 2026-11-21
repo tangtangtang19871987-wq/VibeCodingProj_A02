@@ -65,6 +65,7 @@ def _norm(s: str) -> str:
     lower-cased. Removing (not replacing) markers matters for CJK text, where a marker
     turned into a space would break an otherwise verbatim match."""
     s = unicodedata.normalize("NFKC", s).translate(_QUOTES)  # full/half width, curly/straight quotes
+    s = re.sub(r"\\([\\`*_{}\[\]()#+\-.!|>~])", r"\1", s)  # Markdown escapes (e.g. "\|" in converted tables)
     return re.sub(r"\s+", "", _MARKS.sub("", s)).lower()
 
 
@@ -287,6 +288,24 @@ class Cards:
         return self.new_revision(user["name"], card, new_body, {"kind": "human", "user": user["name"]},
                                  change_note=changes.get("change_note", "human edit"))
 
+    def reverify(self, actor: str) -> dict:
+        """Re-run evidence verification on every head revision (the checks are derived data:
+        when the verifier improves, stored results can be refreshed without a new revision)."""
+        changed, total = [], 0
+        cache: dict = {}
+        with LOCK:
+            for cid in list(self.index()):
+                meta, body = self.load(cid)
+                ev = [verify_evidence(self.kb, {k: e[k] for k in ("id", "path", "lines", "quote") if k in e}, cache)
+                      for e in meta.get("evidence", [])]
+                total += len(ev)
+                if [e.get("check") for e in ev] != [e.get("check") for e in meta.get("evidence", [])]:
+                    meta["evidence"], meta["grounding"] = ev, grounding(ev)
+                    self._write_head(meta, body)
+                    changed.append(cid)
+        self.kb.event(actor, "cards.reverify", "*", evidence=total, changed=changed[:200])
+        return {"evidence": total, "cards_changed": changed}
+
     # ---- reviews -----------------------------------------------------------------
     def reviews(self, cid: str) -> list[dict]:
         return read_jsonl(self.kb.reviews_dir / f"{cid}.jsonl")
@@ -390,6 +409,37 @@ class Cards:
         ta = fm.dump(*self.load_rev(cid, a)) if a else ""
         tb = fm.dump(*self.load_rev(cid, b))
         return "".join(difflib.unified_diff(ta.splitlines(True), tb.splitlines(True), f"r{a}", f"r{b}", n=2))
+
+    def semantic_diff(self, cid: str, a: int, b: int) -> dict:
+        """Reviewer-oriented diff: field by field (compared by value, so 1.0 == 1),
+        relations and evidence as added/removed sets, body as a line diff."""
+        ma, ba = self.load_rev(cid, a) if a else ({}, "")
+        mb, bb = self.load_rev(cid, b)
+        fields = []
+        for k in ("title", "type", "parent", "summary", "aliases", "confidence"):
+            if ma.get(k) != mb.get(k) and not (ma.get(k) in (None, "", []) and mb.get(k) in (None, "", [])):
+                fields.append({"field": k, "before": ma.get(k), "after": mb.get(k)})
+
+        def rkey(r):
+            return (r.get("rel"), r.get("target"))
+        ra = {rkey(r): r for r in ma.get("relations", [])}
+        rb = {rkey(r): r for r in mb.get("relations", [])}
+        rel_changed = [{"before": ra[k], "after": rb[k]} for k in ra.keys() & rb.keys()
+                       if (ra[k].get("basis"), float(ra[k].get("confidence") or 0)) != (rb[k].get("basis"), float(rb[k].get("confidence") or 0))]
+
+        def ekey(e):
+            return (e.get("path"), _norm(e.get("quote", "")))
+        ea = {ekey(e): e for e in ma.get("evidence", [])}
+        eb = {ekey(e): e for e in mb.get("evidence", [])}
+        body = "".join(difflib.unified_diff(ba.splitlines(True), bb.splitlines(True), f"r{a}", f"r{b}", n=2))
+        return {"a": a, "b": b, "fields": fields,
+                "relations_added": [rb[k] for k in rb.keys() - ra.keys()],
+                "relations_removed": [ra[k] for k in ra.keys() - rb.keys()],
+                "relations_changed": rel_changed,
+                "evidence_added": [eb[k] for k in eb.keys() - ea.keys()],
+                "evidence_removed": [ea[k] for k in ea.keys() - eb.keys()],
+                "evidence_renumbered": sum(1 for k in ea.keys() & eb.keys() if ea[k].get("id") != eb[k].get("id")),
+                "body": body, "change_note": mb.get("change_note", ""), "origin": mb.get("origin", {})}
 
     def graph(self, visible_only: bool) -> dict:
         idx = self.index()

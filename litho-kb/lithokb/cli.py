@@ -144,6 +144,7 @@ def main(argv=None) -> None:
     s = sub.add_parser("search", help="search cards and sources")
     s.add_argument("q", nargs="+")
     s = sub.add_parser("lint", help="integrity report")
+    s = sub.add_parser("reverify", help="re-run evidence verification on all cards (after verifier upgrades)")
     s = sub.add_parser("log", help="audit log")
     s.add_argument("--target")
     s.add_argument("--limit", type=int, default=50)
@@ -327,6 +328,9 @@ def main(argv=None) -> None:
         return _out(tree, args) if args.json else print(doctree.outline(tree) or "(no headings)")
     if cmd == "search":
         return _out(cards.search(" ".join(args.q), visible_only=A.RANK[me["role"]] < 2), args)
+    if cmd == "reverify":
+        A.require(me, "admin")
+        return _out(cards.reverify(me["name"]), args)
     if cmd == "lint":
         issues = cards.lint()
         _out(issues if issues else ["no issues"], args)

@@ -687,3 +687,42 @@ class TestFixRound(unittest.TestCase):
             else:
                 os.environ["OPEN_ROUTER_API_KEY"] = old_key
             srv.shutdown()
+
+
+class TestReviewUX(unittest.TestCase):
+    """Fixes found while walking the review/publish workflow on real compiled cards."""
+
+    def setUp(self):
+        self.kb = fresh_kb()
+        S.put(self.kb, "rev", [{"path": "a.md", "text": "# A\n\n工艺窗口定义。\n\n| 模型 | 轮廓 |\n|---|---|\n| 阈值 | Contour = { (x,y) \\| I = Ith } |\n"},
+                               {"path": "b.md", "text": "# B\n\nSMO 扩大工艺窗口。\n"}])
+        self.cards = Cards(self.kb)
+        self.cards.new_revision("x", {"id": "pw", "title": "工艺窗口", "type": "concept",
+                                      "relations": [{"rel": "uses", "target": "smo", "basis": "extracted", "confidence": 1.0, "evidence": "E1"}],
+                                      "evidence": [{"id": "E1", "path": "a.md", "lines": "3", "quote": "工艺窗口定义。"}]},
+                                "定义 [E1]", {"kind": "llm"})
+
+    def tearDown(self):
+        shutil.rmtree(self.kb.root)
+
+    def test_escaped_pipe_in_converted_table_is_exact(self):
+        from lithokb.cards import verify_evidence
+        r = verify_evidence(self.kb, {"id": "E", "path": "a.md", "lines": "7", "quote": "| 阈值 | Contour = { (x,y) | I = Ith } |"})
+        self.assertEqual(r["check"], "exact")
+
+    def test_append_heading_not_duplicated_and_ids_monotonic(self):
+        from lithokb.compiler import apply_append
+        c = {"id": "pw", "aliases": [], "relations": [],
+             "evidence": [{"id": "E1", "path": "b.md", "lines": "3", "quote": "SMO 扩大工艺窗口。"}]}
+        card, body = apply_append(self.cards, c, "### 补充（来自 b.md）\n\nSMO 的作用 [E1]。", ["b.md"])
+        self.assertEqual(body.count("补充（来自 b.md）"), 1)
+        self.assertEqual([e["id"] for e in card["evidence"]], ["E1", "E2"])
+
+    def test_semantic_diff_ignores_number_formatting(self):
+        m, body = self.cards.load("pw")
+        rel = [{**m["relations"][0], "confidence": 1}]  # browser round-trip turns 1.0 into 1
+        self.cards.human_edit({"name": "rev"}, "pw", {"relations": rel, "body": body.replace("定义", "定义（修订）")})
+        sd = self.cards.semantic_diff("pw", 1, 2)
+        self.assertEqual((sd["fields"], sd["relations_changed"], sd["relations_added"]), ([], [], []))
+        self.assertIn("+定义（修订） [E1]", sd["body"])
+        self.assertEqual(self.cards.reverify("admin")["evidence"], 1)
