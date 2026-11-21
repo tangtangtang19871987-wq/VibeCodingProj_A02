@@ -252,6 +252,8 @@ def parse_response(text: str) -> dict:
     m = re.search(r"```(?:json)?\s*\n(.*?)\n```", text, re.S)
     raw = m.group(1) if m else text[text.find("{"): text.rfind("}") + 1]
     data = json.loads(raw)
+    if isinstance(data, str):  # observed: the whole JSON object returned again as an escaped string
+        data = json.loads(data)
     if not isinstance(data, dict) or not isinstance(data.get("cards"), list):
         raise ValueError("response JSON must be an object with a 'cards' list")
     return data
@@ -431,8 +433,6 @@ class Compiler:
         run["llm_meta"] = res.raw_meta
         atomic_write(tdir / f"{prefix}response.md", res.text)
         atomic_write(tdir / f"{prefix}thinking.md", res.thinking or "(no thinking returned)")
-        if res.stop_reason == "max_tokens":
-            raise llm.LLMError("output truncated at max_tokens — raise the limit or compile smaller units")
         if res.stop_reason == "refusal":
             raise llm.LLMError(f"model refused: {res.raw_meta.get('refusal')}")
         return res
@@ -537,9 +537,14 @@ class Compiler:
                 res = self.llm_step(run, cfg, system, prompt_now, prefix=prefix)
                 step("llm_returned", attempt=attempt, latency_s=res.latency_s, stop_reason=res.stop_reason)
                 try:
+                    if res.stop_reason == "max_tokens":
+                        raise ValueError("output truncated at max_tokens (too long or looping)")
                     data = parse_response(res.text)
                     if not data["cards"]:
                         raise ValueError("empty 'cards' list")
+                    bad = sum(not isinstance(c, dict) for c in data["cards"])
+                    if bad * 2 >= len(data["cards"]):
+                        raise ValueError(f"{bad} of {len(data['cards'])} card entries are not objects (malformed JSON)")
                     break
                 except (ValueError, json.JSONDecodeError) as e:
                     # degenerate output (observed with cheap models in JSON mode: {"": [""]}) → one corrective retry
@@ -548,7 +553,8 @@ class Compiler:
                     if attempt == attempts:
                         raise
                     prompt_now = (user + "\n\n# Correction\nYour previous answer was not usable (" + str(e)[:160] +
-                                  "). Return the complete JSON object exactly as specified in the protocol: "
+                                  "). Return the complete JSON object exactly as specified in the protocol — a JSON object, not a string "
+                                  "containing JSON; be concise (fewer, well-formed cards are better than many): "
                                   '{"cards":[ ...full card objects... ],"notes":"..."} — with every card fully written out.')
             run["attempts"] = attempt
             atomic_write(self._trace_dir(rid) / "parsed.json", json.dumps(data, ensure_ascii=False, indent=1))
