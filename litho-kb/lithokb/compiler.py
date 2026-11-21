@@ -37,7 +37,7 @@ from . import sources as S
 from .cards import BASES, CARD_TYPES, RELATIONS, Cards, slug, summary_id
 from .store import KB, atomic_write, now, read_jsonl
 
-PROMPT_VERSION = "lkb-compile/2"
+PROMPT_VERSION = "lkb-compile/3"
 
 PROTOCOL = """You are the knowledge compiler of LithoKB, a curated knowledge base for computational lithography.
 You read source documents and maintain a persistent wiki of atomic, interlinked knowledge cards that domain
@@ -62,6 +62,8 @@ id, title, type, parent, aliases, summary, body_md, relations, evidence, confide
 ## Grounding (strict, machine-checked)
 - Every factual statement needs an evidence item {{"id":"E1","path":"<exact path>","lines":"a-b","quote":"…"}};
   the quote is copied character-for-character from those numbered lines (without the "NNNN|" prefix), ≤ 300 chars.
+  Never shorten a quote with "…" and never stitch non-adjacent fragments (e.g. cells from different table rows):
+  quote one shorter contiguous span instead, and use several evidence items if needed.
 - Never assert facts from outside knowledge; domain knowledge may only be used to name, organise and link.
 
 ## Epistemic labels (required on every relation)
@@ -72,10 +74,13 @@ relation = {{"rel":"…","target":"…","basis":"extracted|inferred|ambiguous","
 Card-level "confidence" (0–1) reflects how well the whole card is supported.
 
 ## Working with the existing wiki
-- The index lists every existing card; reuse ids. Relations and [[links]] may only target ids in the index or
-  created in this output.
-- To change an existing card use action "update", same id, and return the COMPLETE new card (keep valid existing
-  content and evidence unless the source supersedes it). Do not emit unchanged cards.
+- The index lists every existing card; reuse ids. Every parent, relation target and [[link]] must be an id in the
+  index or a card created in this output — if you want to point to a topic from the domain schema that is not in
+  the index yet, create that topic card (short summary) in this output.
+- To change an existing card use action "update", same id, and return the COMPLETE new card. Cards are shared by
+  many documents: keep the existing content and ALL existing evidence items that cite OTHER documents unchanged
+  (same ids, same quotes); add the new document's evidence with new ids (continue the numbering). Merge, do not
+  replace. Do not emit unchanged cards.
 - If a source contradicts an existing card, say so in the body, add a "contradicts" relation, lower confidence.
 
 ## Output
@@ -420,6 +425,11 @@ class Compiler:
             for c in norm:
                 body = c.pop("body")
                 note, existed = c.pop("change_note"), c.pop("exists")
+                if existed:
+                    kept = carry_forward_evidence(self.cards, c, paths)
+                    if kept:
+                        findings.append({"level": "info", "card": c["id"],
+                                         "msg": f"update omitted {kept} evidence item(s) from other documents — kept automatically"})
                 head = self.cards.new_revision(actor, c, body, {"kind": "llm", "run": rid, "model": res.model,
                                                                 "backend": cfg["backend"], "by": actor,
                                                                 "schema": sc["version"]},
@@ -473,7 +483,7 @@ class Compiler:
     def stats(self) -> dict:
         runs = self.runs(limit=10_000)
         s = {"runs": len(runs), "done": 0, "failed": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0,
-             "latency_s": 0.0, "cards_written": 0, "grounding": {"exact": 0, "moved": 0, "fuzzy": 0, "missing": 0, "total": 0},
+             "latency_s": 0.0, "cards_written": 0, "grounding": {"exact": 0, "moved": 0, "elided": 0, "fuzzy": 0, "missing": 0, "total": 0},
              "bases": {b: 0 for b in BASES}, "findings": {}, "by_model": {}, "by_kind": {}, "by_schema": {}}
         for r in runs:
             s[r.get("status", "failed")] = s.get(r.get("status", "failed"), 0) + 1
@@ -506,6 +516,29 @@ class Compiler:
         return s
 
 
+def carry_forward_evidence(cards: Cards, c: dict, run_paths: list[str]) -> int:
+    """Cross-document cards must not lose provenance when one document updates them.
+    Evidence from documents outside this run (which the model could not re-verify) is
+    kept deterministically if the model's update dropped it. Returns how many were kept."""
+    prev, _ = cards.load(c["id"])
+    have = {(e["path"], e["quote"]) for e in c["evidence"]}
+    used = {e["id"] for e in c["evidence"]}
+    kept = 0
+    for e in prev.get("evidence", []):
+        if e["path"] in run_paths or (e["path"], e["quote"]) in have:
+            continue
+        eid, n = e["id"], 1
+        while eid in used:
+            n += 1
+            eid = f"{e['id']}-{n}"
+        used.add(eid)
+        c["evidence"].append({"id": eid, "path": e["path"], "lines": e["lines"], "quote": e["quote"]})
+        kept += 1
+    c["sources"] = sorted(set(c["sources"]) | {s["path"] for s in prev.get("sources", []) if s["path"] not in run_paths
+                                               and any(e["path"] == s["path"] for e in c["evidence"])})
+    return kept
+
+
 def _basis_counts(rels: list[dict]) -> dict:
     c = {b: 0 for b in BASES}
     for r in rels:
@@ -514,9 +547,9 @@ def _basis_counts(rels: list[dict]) -> dict:
 
 
 def _sum_grounding(gs: list[dict]) -> dict:
-    g = {k: sum(x.get(k, 0) for x in gs) for k in ("exact", "moved", "fuzzy", "missing", "no_source")}
+    g = {k: sum(x.get(k, 0) for x in gs) for k in ("exact", "moved", "elided", "fuzzy", "missing", "no_source")}
     g["total"] = sum(x.get("total", 0) for x in gs)
-    g["score"] = round((g["exact"] + g["moved"] + 0.5 * g["fuzzy"]) / g["total"], 2) if g["total"] else 0.0
+    g["score"] = round((g["exact"] + g["moved"] + g["elided"] + 0.5 * g["fuzzy"]) / g["total"], 2) if g["total"] else 0.0
     return g
 
 

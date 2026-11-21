@@ -17,6 +17,7 @@ published revision stays visible to readers until the new one is published.
 from __future__ import annotations
 
 import difflib
+import unicodedata
 import json
 import re
 from pathlib import Path
@@ -52,12 +53,38 @@ def summary_id(path: str) -> str:
 
 
 # ---- evidence grounding: mechanical check that quotes really are in the source ----
+_MARKS = re.compile(r"[`*_>#|~]|^\s*(?:[-+]|\d+[.)])\s+", re.M)
+# segment separators inside a quote: ellipses, line breaks (multi-line quotes often keep only the start of each
+# line) and the " — " the outline uses between heading and gist (models sometimes quote the outline view)
+_ELLIPSIS = re.compile(r"…+|\.{3,}|。。。|\n+| — ")
+_QUOTES = str.maketrans({"“": '"', "”": '"', "„": '"', "‟": '"', "「": '"', "」": '"', "‘": "'", "’": "'", "『": '"', "』": '"'})
+
+
 def _norm(s: str) -> str:
-    return re.sub(r"\s+", " ", re.sub(r"[`*_>#|]", " ", s)).strip().lower()
+    """Comparison form: Markdown markers and list bullets removed, ALL whitespace removed,
+    lower-cased. Removing (not replacing) markers matters for CJK text, where a marker
+    turned into a space would break an otherwise verbatim match."""
+    s = unicodedata.normalize("NFKC", s).translate(_QUOTES)  # full/half width, curly/straight quotes
+    return re.sub(r"\s+", "", _MARKS.sub("", s)).lower()
+
+
+def _find_in_order(segs: list[str], hay: str) -> bool:
+    pos = 0
+    for sg in segs:
+        k = hay.find(sg, pos)
+        if k < 0:
+            return False
+        pos = k + len(sg)
+    return True
 
 
 def verify_evidence(kb: KB, ev: dict, text_cache: dict | None = None) -> dict:
-    """Return ev + {check: exact|moved|fuzzy|missing|no_source, found_lines, sha}."""
+    """Return ev + {check, found_lines, sha}. check:
+    exact   – quote found verbatim (modulo Markdown markers/whitespace) in the cited lines
+    moved   – found verbatim, but elsewhere in the document (citation drift)
+    elided  – quote abbreviated with "…": every segment found, in order, in the cited lines
+    fuzzy   – substantial overlap only (likely paraphrase) → needs human eyes
+    missing – not found;  no_source – the cited document does not exist"""
     text_cache = text_cache if text_cache is not None else {}
     path = ev.get("path", "")
     out = dict(ev)
@@ -70,31 +97,41 @@ def verify_evidence(kb: KB, ev: dict, text_cache: dict | None = None) -> dict:
         return out
     lines = text.splitlines()
     out["sha"] = S.load_meta(kb).get(path, {}).get("sha256", "")
-    q = _norm(ev.get("quote", ""))
+    raw = ev.get("quote", "")
+    whole = _norm(raw)  # line breaks vanish in the comparison form: a verbatim multi-line quote is one string
+    segs = [x for x in (_norm(t) for t in _ELLIPSIS.split(raw)) if len(x) >= 2]
+    multi = len(segs) > 1 or bool(re.search(r"…|\.{3,}|。。。", raw))  # a trailing "…" also marks an abbreviation
     a, b = _parse_lines(ev.get("lines", ""), len(lines))
-    window = _norm(" ".join(lines[a - 1:b])) if a else ""
-    if q and window and q in window:
-        out["check"] = "exact"
-        out["found_lines"] = f"{a}-{b}"
+    window = _norm("\n".join(lines[a - 1:b])) if a else ""
+    if not whole:
+        out["check"] = "missing"
         return out
-    if q:
-        # search whole document line-by-line for the quote (citation drift)
-        norm_lines = [_norm(x) for x in lines]
-        for i in range(len(lines)):
-            acc = ""
-            for j in range(i, min(i + 40, len(lines))):
-                acc = (acc + " " + norm_lines[j]).strip()
-                if q in acc:
-                    out["check"] = "moved"
-                    out["found_lines"] = f"{i + 1}-{j + 1}"
-                    return out
-                if len(acc) > len(q) * 3 + 200:
-                    break
-        ratio = difflib.SequenceMatcher(None, q, window).find_longest_match(0, len(q), 0, len(window)).size / max(1, len(q)) if window else 0
+    if window and whole in window:
+        out["check"], out["found_lines"] = "exact", f"{a}-{b}"
+        return out
+    if multi and window and _find_in_order(segs, window):
+        out["check"], out["found_lines"] = "elided", f"{a}-{b}"
+        return out
+    # citation drift: search the document with a sliding line window
+    norm_lines = [_norm(x) for x in lines]
+    for i in range(len(lines)):
+        acc = ""
+        for j in range(i, min(i + 60, len(lines))):
+            acc += norm_lines[j]
+            if whole in acc:
+                out["check"], out["found_lines"] = "moved", f"{i + 1}-{j + 1}"
+                return out
+            if multi and _find_in_order(segs, acc):
+                out["check"], out["found_lines"] = "elided", f"{i + 1}-{j + 1}"
+                return out
+            if len(acc) > len(whole) * 3 + 300:
+                break
+    if window:
+        sm = difflib.SequenceMatcher(None, whole, window, autojunk=False)
+        covered = sum(blk.size for blk in sm.get_matching_blocks() if blk.size >= 4)
+        ratio = covered / max(1, len(whole))
         if ratio >= 0.6:
-            out["check"] = "fuzzy"
-            out["found_lines"] = f"{a}-{b}"
-            out["overlap"] = round(ratio, 2)
+            out["check"], out["found_lines"], out["overlap"] = "fuzzy", f"{a}-{b}", round(ratio, 2)
             return out
     out["check"] = "missing"
     return out
@@ -110,12 +147,12 @@ def _parse_lines(spec, n: int) -> tuple[int, int]:
 
 
 def grounding(evidence: list[dict]) -> dict:
-    c = {"exact": 0, "moved": 0, "fuzzy": 0, "missing": 0, "no_source": 0}
+    c = {"exact": 0, "moved": 0, "elided": 0, "fuzzy": 0, "missing": 0, "no_source": 0}
     for e in evidence:
         c[e.get("check", "missing")] = c.get(e.get("check", "missing"), 0) + 1
     total = len(evidence)
     c["total"] = total
-    c["score"] = round((c["exact"] + c["moved"] + 0.5 * c["fuzzy"]) / total, 2) if total else 0.0
+    c["score"] = round((c["exact"] + c["moved"] + c["elided"] + 0.5 * c["fuzzy"]) / total, 2) if total else 0.0
     return c
 
 

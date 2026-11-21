@@ -36,7 +36,7 @@ h1{font-size:24px;margin:0 0 6px}h2{font-size:19px;margin:22px 0 8px}h3{font-siz
 .tree a.on{background:var(--accent-soft);color:var(--accent)}.tree .dir>span{font-weight:600;cursor:pointer;display:block;padding:2px 6px}
 .tree .dir.closed>ul{display:none}.tree .dir>span::before{content:"▾ ";color:var(--muted)}.tree .dir.closed>span::before{content:"▸ "}
 .badge{display:inline-block;font-size:12px;padding:1px 8px;border-radius:10px;background:var(--code);color:var(--muted);margin-right:4px;white-space:nowrap}
-.b-published,.b-exact,.b-approve,.b-active,.b-done,.b-added,.b-updated{background:var(--ok-soft);color:var(--ok)}
+.b-published,.b-exact,.b-elided,.b-approve,.b-active,.b-done,.b-added,.b-updated{background:var(--ok-soft);color:var(--ok)}
 .b-in_review,.b-approved,.b-moved,.b-fuzzy,.b-comment{background:var(--accent-soft);color:var(--accent)}
 .b-changes_requested,.b-draft,.b-request_changes,.b-stale,.b-warn{background:var(--warn-soft);color:var(--warn)}
 .b-rejected,.b-missing,.b-no_source,.b-withdrawn,.b-superseded,.b-reject,.b-error,.b-failed{background:var(--bad-soft);color:var(--bad)}

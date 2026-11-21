@@ -476,3 +476,56 @@ class TestHTMLIngest(unittest.TestCase):
         r = S.put(self.kb, "rev", [{"path": "course/ch3.html", "text": self.PAGE}])
         self.assertIn("authored", r[0]["note"])
         self.assertEqual(S.read_text(self.kb, "course/ch3.md"), "# authored\n")
+
+
+class TestGroundingRealCases(unittest.TestCase):
+    """Cases observed when compiling real course material with a cheap LLM."""
+
+    def setUp(self):
+        self.kb = fresh_kb()
+        S.put(self.kb, "rev", [{"path": "d.md", "text": (
+            "# ILT\n\n而ILT是**逆向求解**：直接计算出*最优或近似最优的掩模图形*。\n\n"
+            "- **解析梯度：**通过光刻模型的解析表达式求导，计算精确但复杂\n"
+            "- **数值梯度：**通过有限差分法近似计算，简单但计算量大\n\n"
+            "**核心价值：**利用物理模型进行“预失真”补偿。\n\n"
+            "| 维度 | 规则型 | 模型型 |\n|---|---|---|\n| 灵活性 | 低 | 高，可处理任意二维图形 |\n| 计算成本 | 低 | 高，需要大量仿真迭代 |\n")}])
+
+    def tearDown(self):
+        shutil.rmtree(self.kb.root)
+
+    def check(self, quote, lines):
+        from lithokb.cards import verify_evidence
+        return verify_evidence(self.kb, {"id": "E1", "path": "d.md", "lines": lines, "quote": quote})["check"]
+
+    def test_cases(self):
+        self.assertEqual(self.check("而ILT是逆向求解：直接计算出最优或近似最优的掩模图形。", "3"), "exact")  # markers removed, not spaced (CJK)
+        self.assertEqual(self.check('**核心价值：** 利用物理模型进行"预失真"补偿。', "8"), "exact")  # curly vs straight quotes, width
+        self.assertEqual(self.check("**解析梯度：**通过光刻模型的解析表达式求导…", "5"), "elided")  # trailing ellipsis
+        self.assertEqual(self.check("**解析梯度：**通过光刻模型的解析表达式求导\n**数值梯度：**通过有限差分法近似计算", "5-6"), "elided")
+        self.assertEqual(self.check("- **解析梯度：**通过光刻模型的解析表达式求导，计算精确但复杂\n- **数值梯度：**通过有限差分法近似计算，简单但计算量大", "5-6"), "exact")
+        self.assertEqual(self.check("## ILT — 而ILT是逆向求解", "1-3"), "elided")  # quoted from the outline view
+        self.assertEqual(self.check("而ILT是逆向求解", "1"), "moved")
+        self.assertIn(self.check("高，可处理任意二维图形 | 高，需要大量仿真迭代", "12-13"), ("fuzzy", "missing"))  # stitched table cells
+        self.assertEqual(self.check("ILT 是唯一正确的方法", "3"), "missing")
+
+
+class TestCarryForward(unittest.TestCase):
+    def test_update_keeps_evidence_from_other_documents(self):
+        from lithokb.compiler import carry_forward_evidence
+        kb = fresh_kb()
+        try:
+            S.put(kb, "rev", [{"path": "a.md", "text": "# A\n\nOPC 修改掩模。\n"}, {"path": "b.md", "text": "# B\n\nOPC 依赖模型。\n"}])
+            cards = Cards(kb)
+            cards.new_revision("x", {"id": "opc", "title": "OPC", "type": "method",
+                                     "evidence": [{"id": "E1", "path": "a.md", "lines": "3", "quote": "OPC 修改掩模。"}],
+                                     "sources": ["a.md"]}, "body [E1]", {"kind": "llm"})
+            upd = {"id": "opc", "title": "OPC", "type": "method", "relations": [], "sources": ["b.md"],
+                   "evidence": [{"id": "E1", "path": "b.md", "lines": "3", "quote": "OPC 依赖模型。"}]}
+            self.assertEqual(carry_forward_evidence(cards, upd, ["b.md"]), 1)
+            self.assertEqual({e["path"] for e in upd["evidence"]}, {"a.md", "b.md"})
+            self.assertEqual(len({e["id"] for e in upd["evidence"]}), 2)  # id collision renumbered
+            self.assertEqual(sorted(upd["sources"]), ["a.md", "b.md"])
+            m = cards.new_revision("x", upd, "body", {"kind": "llm"})
+            self.assertEqual(m["grounding"]["exact"], 2)
+        finally:
+            shutil.rmtree(kb.root)
