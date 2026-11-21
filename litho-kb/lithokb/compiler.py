@@ -414,9 +414,27 @@ class Compiler:
             run["context"] = {"related_cards": related, "system_chars": len(system), "prompt_chars": len(user),
                               "index_cards": len(self.cards.index())}
             step("prompt_built")
-            res = self.llm_step(run, cfg, system, user)
-            step("llm_returned", latency_s=res.latency_s, stop_reason=res.stop_reason)
-            data = parse_response(res.text)
+            attempts = max(1, int(self.kb.config["compile"].get("max_attempts", 2)))
+            data, prompt_now = None, user
+            for attempt in range(1, attempts + 1):
+                prefix = "" if attempt == 1 else f"retry{attempt - 1}-"
+                res = self.llm_step(run, cfg, system, prompt_now, prefix=prefix)
+                step("llm_returned", attempt=attempt, latency_s=res.latency_s, stop_reason=res.stop_reason)
+                try:
+                    data = parse_response(res.text)
+                    if not data["cards"]:
+                        raise ValueError("empty 'cards' list")
+                    break
+                except (ValueError, json.JSONDecodeError) as e:
+                    # degenerate output (observed with cheap models in JSON mode: {"": [""]}) → one corrective retry
+                    run.setdefault("attempt_errors", []).append(f"attempt {attempt}: {type(e).__name__}: {e}")
+                    step("invalid_response", attempt=attempt, error=str(e)[:200])
+                    if attempt == attempts:
+                        raise
+                    prompt_now = (user + "\n\n# Correction\nYour previous answer was not usable (" + str(e)[:160] +
+                                  "). Return the complete JSON object exactly as specified in the protocol: "
+                                  '{"cards":[ ...full card objects... ],"notes":"..."} — with every card fully written out.')
+            run["attempts"] = attempt
             atomic_write(self._trace_dir(rid) / "parsed.json", json.dumps(data, ensure_ascii=False, indent=1))
             norm, findings = validate(self.cards, data, paths, [summary_id(p) for p in paths])
             run["notes"] = data.get("notes", "")

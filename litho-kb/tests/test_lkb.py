@@ -529,3 +529,24 @@ class TestCarryForward(unittest.TestCase):
             self.assertEqual(m["grounding"]["exact"], 2)
         finally:
             shutil.rmtree(kb.root)
+
+
+class TestRetry(unittest.TestCase):
+    def test_degenerate_json_is_retried_once(self):
+        kb = fresh_kb()
+        try:
+            S.put(kb, "rev", [{"path": "a.md", "text": "# A\n\nOPC 修改掩模图形。\n"}])
+            comp = Compiler(kb, Cards(kb))
+            run = comp.run_once("admin", ["a.md"], {**kb.config["llm"], "backend": "mock"}, instructions="[[MOCK:DEGENERATE]]")
+            self.assertEqual((run["status"], run["attempts"]), ("done", 2))
+            self.assertEqual(len(run["calls"]), 2)
+            t = comp.trace(run["id"])
+            self.assertIn('{"": [""]', t["response.md"])        # the bad answer is kept in the trace
+            self.assertIn("# Correction", t["retry1-prompt.md"])
+            cfg = json.loads((kb.root / "config.json").read_text())
+            cfg["compile"] = {"max_attempts": 1}
+            (kb.root / "config.json").write_text(json.dumps(cfg))
+            run = comp.run_once("admin", ["a.md"], {**kb.config["llm"], "backend": "mock"}, instructions="[[MOCK:DEGENERATE]]")
+            self.assertEqual(run["status"], "failed")
+        finally:
+            shutil.rmtree(kb.root)

@@ -49,6 +49,7 @@ DEFAULT_CONFIG = {
     "compile": {
         "files_per_call": 1,
         "max_doc_chars": 300_000,  # larger documents are compiled section-by-section along their outline
+        "max_attempts": 2,  # one corrective retry when the model returns unusable JSON
     },
     "query": {"min_role": "reader", "unpublished_for_reviewers": True},
 }

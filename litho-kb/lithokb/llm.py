@@ -211,6 +211,8 @@ def _fence(obj) -> str:
 
 
 def _mock_compile(user: str):
+    if "[[MOCK:DEGENERATE]]" in user and "# Correction" not in user:  # test hook: first answer unusable
+        return '{"": [""], "notes": "planned but did not write cards"}', "degenerate on purpose"
     """headings→cards, first sentence→evidence, plus one summary card per document."""
     cards, notes = [], []
     for m in re.finditer(r'<source path="([^"]+)"[^>]*>\n(.*?)\n</source>', user, re.S):

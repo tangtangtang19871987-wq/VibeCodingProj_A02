@@ -527,8 +527,11 @@ async function traceView(rid, q) {
   const STEP = { 'nav-': '导航·', 'ans-': '回答·' };
   const order = ['thinking.md', 'prompt.md', 'system.md', 'response.md', 'parsed.json', 'error.txt'];
   const files = Object.keys(t).filter(k => k !== 'run');
-  files.sort((a, b) => (a.startsWith('ans-') - b.startsWith('ans-')) || order.indexOf(a.replace(/^(nav|ans)-/, '')) - order.indexOf(b.replace(/^(nav|ans)-/, '')));
-  const tabs = [['overview', '概览'], ...files.map(f => [f, (STEP[f.slice(0, 4)] || '') + (NAMES[f.replace(/^(nav|ans)-/, '')] || f)])];
+  const rank = f => (f.startsWith('ans-') ? 1 : 0) + (/^retry/.test(f) ? 2 : 0);
+  files.sort((a, b) => rank(a) - rank(b) || order.indexOf(a.replace(/^(nav|ans|retry\d+)-/, '')) - order.indexOf(b.replace(/^(nav|ans|retry\d+)-/, '')));
+  const pre = f => (f.match(/^(nav|ans|retry\d+)-/) || [''])[0];
+  const label = f => { const p = pre(f); return (STEP[p] || (p ? '重试' + p.slice(5, -1) + '·' : '')) + (NAMES[f.slice(p.length)] || f); };
+  const tabs = [['overview', '概览'], ...files.map(f => [f, label(f)])];
   const u = r.usage || {};
   let body = '';
   if (tab === 'overview' && r.kind === 'query') body = `<div class="kv"><div>问题</div><div><b>${esc(r.question)}</b></div><div>状态</div><div>${badge(r.status)} ${esc(r.error || '')}</div>
@@ -544,7 +547,8 @@ async function traceView(rid, q) {
       <div>关系状态</div><div>${r.bases ? Object.entries(r.bases).map(([b, n]) => zh(b) + ' ' + n).join(' · ') : '—'}</div>
       <div>来源文档</div><div>${r.sources.map(s => `<a href="${srcHref(s)}">${esc(s)}</a> <span class="mono small muted">${esc((r.source_shas[s] || '').slice(0, 10))}</span>`).join('<br>')}</div>
       <div>上下文</div><div class="small">${r.context ? `索引 ${r.context.index_cards} 张卡片 · 关联卡片全文 ${r.context.related_cards.length} 张 · 提示 ${(r.context.prompt_chars / 1000).toFixed(1)}k 字符` : ''}</div>
-      <div>用量</div><div class="small mono">${esc(JSON.stringify(u))}</div><div>耗时 / 费用</div><div>${r.latency_s}s ${r.cost_usd !== undefined ? '· $' + r.cost_usd : ''} · stop=${esc(r.stop_reason || '')}</div>
+      <div>用量</div><div class="small mono">${esc(JSON.stringify(u))}</div><div>耗时 / 费用</div><div>${r.latency_s}s ${r.cost_usd !== undefined ? '· $' + r.cost_usd : ''} · stop=${esc(r.stop_reason || '')}${r.attempts > 1 ? ' · ' + badge('warn', '重试 ' + (r.attempts - 1) + ' 次') : ''}</div>
+      ${(r.attempt_errors || []).length ? `<div>无效输出</div><div class="small">${r.attempt_errors.map(esc).join('<br>')}</div>` : ''}
       <div>证据核验</div><div>${r.grounding ? gbadge(r.grounding) : ''}</div></div>
     ${r.notes ? `<h3>编译器备注（给审阅者）</h3><div class="banner info">${esc(r.notes)}</div>` : ''}
     <h3>写出的卡片修订</h3><table class="grid">${(r.written || []).map(w => `<tr><td><a href="#/review/${encodeURIComponent(w.id)}">${esc(w.id)}</a></td><td>${w.action === 'create' ? '新建' : '更新'}</td><td>r${w.rev}</td><td>${gbadge(w.grounding)}</td></tr>`).join('') || '<tr><td class="muted">无</td></tr>'}</table>
