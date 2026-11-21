@@ -219,6 +219,14 @@ def _mock(system: str, user: str) -> LLMResult:
         text, note = _mock_annotate(user)
     elif "[[LKB:CONSOLIDATE]]" in system:
         text, note = _mock_consolidate(user)
+    elif "[[LKB:HUB]]" in system:
+        pages = re.findall(r'<page id="([^"]+)"[^>]*>\n# (.*?)\n(.*?)\n', user)
+        body = "本主题包括：\n\n" + "\n".join(f"- [[{i}]]：{s}" for i, t, s in pages)
+        text, note = _fence({"summary": "主题概览", "body_md": body}), "list of sub-pages"
+    elif "[[LKB:INDEX]]" in system:
+        text, note = _mock_index(user)
+    elif "[[LKB:NAVIGATE]]" in system and "<tree>" in user:
+        text, note = _mock_tree_navigate(user)
     elif "[[LKB:NAVIGATE]]" in system:
         text, note = _mock_navigate(user)
     elif "[[LKB:ANSWER]]" in system:
@@ -320,6 +328,51 @@ def _mock_consolidate(user: str):
            "card": {"title": title, "summary": "整合后的卡片。", "body_md": "\n\n".join(keep), "aliases": []},
            "children": children, "notes": "mock consolidation"}
     return _fence(out), "dropped addendum headings; halves when long"
+
+
+def _mock_index(user: str):
+    """PageIndex mock: node summary = first non-empty text line after the heading; entities = CamelCase /
+    ALL-CAPS product-like words that occur in the text."""
+    toc = re.search(r"# Table of contents\n(.*?)\n# Text\n", user, re.S)
+    body = user.split("# Text\n", 1)[-1]
+    lines = {int(m.group(1)): m.group(2) for m in re.finditer(r"^\s*(\d+)\|(.*)$", body, re.M)}
+    nodes = {}
+    for m in re.finditer(r"^\s*(n\d+) \[L(\d+)-(\d+)\] #+ (.*?)(?: — .*)?$", toc.group(1) if toc else "", re.M):
+        nid, a, b, title = m.group(1), int(m.group(2)), int(m.group(3)), m.group(4)
+        first = next((lines[i].strip() for i in range(a + 1, b + 1) if i in lines and lines[i].strip()
+                      and not lines[i].lstrip().startswith("#")), "")
+        nodes[nid] = (title + "：" + re.sub(r"[*`]", "", first))[:60]
+    title = re.search(r'title="([^"]*)"', user)
+    words = re.findall(r"\b([A-Z][a-z]+[A-Z][A-Za-z]+|[A-Z]{3,}[0-9]*)\b", body)
+    ents = [{"name": w, "type": "tool", "aliases": [], "nodes": []} for w in dict.fromkeys(words)][:5]
+    return _fence({"doc_summary": f"{title.group(1) if title else ''}：" + "；".join(list(nodes.values())[:3])[:110],
+                   "keywords": list(dict.fromkeys(_terms(title.group(1) if title else "")))[:6],
+                   "nodes": nodes, "virtual_sections": [], "entities": ents}), "first line per section"
+
+
+def _mock_tree_navigate(user: str):
+    """Tree-search mock: read nodes whose line matches question terms (hints first); expand matching
+    collapsed nodes in the first round."""
+    q = re.search(r"<question>(.*?)</question>", user, re.S).group(1)
+    terms = _terms(q)
+    rnd = int((re.search(r'<round n="(\d+)"', user) or [0, 1])[1])
+    read, expand = [], []
+    for block in (re.search(r"<hints>\n(.*?)\n</hints>", user, re.S), re.search(r"<tree>\n(.*?)\n</tree>", user, re.S)):
+        for ln in (block.group(1).splitlines() if block else []):
+            m = re.match(r"\s*(\S+) \[([^\]]+)\]", ln)
+            if not m or m.group(1) in ("k", "d"):
+                continue
+            h, tag = m.group(1), m.group(2)
+            hit = sum(t in ln.lower() for t in terms)
+            if not hit:
+                continue
+            if "[+" in ln and rnd == 1 and tag in ("dir", "doc", "topic") and h not in expand:
+                expand.append(h)
+            if tag not in ("dir", "doc") and h not in read:
+                read.append(h)
+    done = not expand or rnd >= 2
+    return _fence({"reasoning": f"mock round {rnd}: matched terms {terms[:6]}", "read": read[:10],
+                   "expand": [] if done else expand[:4], "done": done}), "term matching over the tree"
 
 
 def _mock_navigate(user: str):

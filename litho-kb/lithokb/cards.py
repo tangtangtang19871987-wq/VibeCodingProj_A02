@@ -17,6 +17,8 @@ published revision stays visible to readers until the new one is published.
 from __future__ import annotations
 
 import difflib
+import os
+import threading
 import unicodedata
 import json
 import re
@@ -163,6 +165,9 @@ class Cards:
         self.kb = kb
         self._index: dict[str, dict] | None = None
         self._stamp = None
+        self._files: dict[str, tuple] = {}
+        self._ilock = threading.RLock()
+        self.generation = 0
 
     def _card_path(self, cid: str) -> Path:
         return self.kb.cards_dir / f"{cid}.md"
@@ -192,42 +197,65 @@ class Cards:
         self._index = None
 
     # ---- in-memory index (rebuilt lazily when files change) -----------------
+    def _parse_file(self, p: Path) -> dict:
+        """Parse one head file into its index entry (cached per file by mtime+size; revisions are immutable)."""
+        meta, body, _ = fm.split(p.read_text("utf-8"))
+        meta["_links"] = sorted({slug(x) for x in WIKILINK_RE.findall(body)})
+        meta["_body"] = body
+        meta["_text"] = (meta.get("title", "") + " " + " ".join(meta.get("aliases", [])) + " "
+                         + meta.get("summary", "") + " " + body).lower()
+        # what readers may see: the PUBLISHED revision's content (the head may be a revision under review)
+        meta["_pub"] = None
+        if is_public(meta):
+            if meta.get("published_rev") == meta.get("rev"):
+                meta["_pub"] = meta
+            else:
+                try:
+                    pm, pb = self.load_rev(meta["id"], meta["published_rev"])
+                    pub = {**meta, **{k: pm.get(k, [] if k in _LIST_KEYS else "") for k in _CONTENT_KEYS}}
+                    pub.update(_body=pb, _links=sorted({slug(x) for x in WIKILINK_RE.findall(pb)}), _pub=None,
+                               _text=(pm.get("title", "") + " " + " ".join(pm.get("aliases", [])) + " " +
+                                      pm.get("summary", "") + " " + pb).lower(), status="published", rev=pm["rev"])
+                    meta["_pub"] = pub
+                except CardError:
+                    meta["_pub"] = None
+        return meta
+
     def index(self) -> dict[str, dict]:
+        """All cards, id → meta (+ _body/_text/_links/_pub). Incremental: a directory stamp
+        short-circuits when nothing changed; otherwise only files whose (mtime, size) changed
+        are re-parsed. Cost of an unchanged-but-stat'ed index is one stat per card."""
         d = self.kb.cards_dir
         sm = self.kb.meta / "sources.json"
-        stamp = ((d.stat().st_mtime_ns, len(list(d.glob("*.md"))),
-                  sm.stat().st_mtime_ns if sm.exists() else 0) if d.exists() else None)
-        if self._index is not None and stamp == self._stamp:
-            return self._index
-        idx = {}
-        src_meta = S.load_meta(self.kb)
-        for p in sorted(d.glob("*.md")) if d.exists() else []:
-            meta, body, _ = fm.split(p.read_text("utf-8"))
-            meta["stale_sources"] = [s["path"] for s in meta.get("sources", [])
-                                     if src_meta.get(s["path"], {}).get("sha256") != s.get("sha")
-                                     or src_meta.get(s["path"], {}).get("deleted")]
-            meta["_links"] = sorted({slug(x) for x in WIKILINK_RE.findall(body)})
-            meta["_body"] = body
-            meta["_text"] = (meta.get("title", "") + " " + " ".join(meta.get("aliases", [])) + " "
-                             + meta.get("summary", "") + " " + body).lower()
-            # what readers may see: the PUBLISHED revision's content (the head may be a revision under review)
-            meta["_pub"] = None
-            if is_public(meta):
-                if meta.get("published_rev") == meta.get("rev"):
-                    meta["_pub"] = meta
-                else:
-                    try:
-                        pm, pb = self.load_rev(meta["id"], meta["published_rev"])
-                        pub = {**meta, **{k: pm.get(k, [] if k in _LIST_KEYS else "") for k in _CONTENT_KEYS}}
-                        pub.update(_body=pb, _links=sorted({slug(x) for x in WIKILINK_RE.findall(pb)}), _pub=None,
-                                   _text=(pm.get("title", "") + " " + " ".join(pm.get("aliases", [])) + " " +
-                                          pm.get("summary", "") + " " + pb).lower(), status="published", rev=pm["rev"])
-                        meta["_pub"] = pub
-                    except CardError:
-                        meta["_pub"] = None
-            idx[meta["id"]] = meta
-        self._index, self._stamp = idx, stamp
-        return idx
+        try:
+            stamp = (d.stat().st_mtime_ns, sm.stat().st_mtime_ns if sm.exists() else 0)
+        except FileNotFoundError:
+            stamp = None
+        with self._ilock:
+            if self._index is not None and stamp == self._stamp:
+                return self._index
+            files: dict[str, tuple] = {}
+            if d.exists():
+                with os.scandir(d) as it:
+                    for e in it:
+                        if e.name.endswith(".md") and not e.name.startswith("."):
+                            st = e.stat()
+                            files[e.name] = (st.st_mtime_ns, st.st_size)
+            fresh = {}
+            for name, sig in sorted(files.items()):
+                hit = self._files.get(name)
+                fresh[name] = hit if hit and hit[0] == sig else (sig, self._parse_file(d / name))
+            self._files = fresh
+            src_meta = S.load_meta(self.kb)
+            idx = {}
+            for _, meta in fresh.values():
+                meta["stale_sources"] = [s["path"] for s in meta.get("sources", [])
+                                         if src_meta.get(s["path"], {}).get("sha256") != s.get("sha")
+                                         or src_meta.get(s["path"], {}).get("deleted")]
+                idx[meta["id"]] = meta
+            self._index, self._stamp = idx, stamp
+            self.generation += 1  # derived indexes (search, graph, tree) key their caches on this
+            return idx
 
     def view(self, m: dict, readers: bool) -> dict | None:
         """The card as a reader sees it (published revision) or as a reviewer sees it (head)."""
@@ -554,24 +582,49 @@ class Cards:
                     edges.append({"s": i, "t": t, "rel": "links_to"})
         return {"nodes": nodes, "edges": edges}
 
-    def search(self, q: str, visible_only: bool, limit: int = 50) -> list[dict]:
-        terms = [t for t in q.lower().split() if t]
-        if not terms:
-            return []
-        hits = []
-        for m in self.index().values():
-            if visible_only and not is_public(m):
+    def text_index(self, readers: bool):
+        """BM25 index over cards (published content for readers, head for reviewers); incremental."""
+        from .textindex import BM25
+        idx = self.index()
+        key = "pub" if readers else "head"
+        cache = self.__dict__.setdefault("_bm25", {})
+        ent = cache.get(key)
+        if ent and ent[0] == self.generation:
+            return ent[1]
+        bm = ent[1] if ent else BM25()
+        keep = set()
+        for cid, m in idx.items():
+            v = self.view(m, readers) if (not readers or is_public(m)) else None
+            if v is None or v.get("status") == "rejected":
                 continue
-            m = self.view(m, visible_only)
+            keep.add(cid)
+            bm.put(cid, (v.get("rev"), v.get("lifecycle"), v.get("status"), id(v.get("_body"))),
+                   [(v.get("title", "") + " " + " ".join(v.get("aliases", [])) + " " + cid.replace("-", " "), 6),
+                    (v.get("summary", ""), 3), (v.get("_body", ""), 1)], payload=cid)
+        bm.sync(keep)
+        cache[key] = (self.generation, bm)
+        return bm
+
+    def search(self, q: str, visible_only: bool, limit: int = 50) -> list[dict]:
+        """Ranked full-text search (BM25, CJK bigrams; no vectors). Exact id/title hits first."""
+        q = (q or "").strip()
+        if not q:
+            return []
+        idx = self.index()
+        hits = self.text_index(visible_only).search(q, limit=limit * 2)
+        ql = q.lower()
+        out = []
+        for score, cid in hits:
+            m = self.view(idx[cid], visible_only)
             if m is None:
                 continue
-            text = m["_text"]
-            if all(t in text for t in terms):
-                title = (m.get("title", "") + " " + " ".join(m.get("aliases", []))).lower()
-                score = sum(5 * (t in title) + text.count(t) for t in terms)
-                hits.append((score, {"id": m["id"], "title": m["title"], "type": m["type"],
-                                     "summary": m.get("summary", ""), "status": m["status"]}))
-        return [h for _, h in sorted(hits, key=lambda x: -x[0])[:limit]]
+            exact = ql in (m.get("title", "").lower(), cid) or ql in [a.lower() for a in m.get("aliases", [])]
+            out.append((score + (100 if exact else 0), {"id": cid, "title": m["title"], "type": m["type"],
+                                                       "summary": m.get("summary", ""), "status": m["status"],
+                                                       "lifecycle": m.get("lifecycle", "active"),
+                                                       "score": round(score, 2)}))
+        out.sort(key=lambda x: -x[0])
+        return [h for _, h in out[:limit]]
 
     def lint(self) -> list[dict]:
         """Integrity report: dangling links/relations/parents, stale sources, weak grounding."""
@@ -614,6 +667,11 @@ class Cards:
         for p in S.list_md(self.kb):
             if summary_id(p) not in idx and any(s["path"] == p for m in idx.values() for s in m.get("sources", [])):
                 issues.append({"card": summary_id(p), "kind": "missing_summary", "detail": p})
+        try:  # graph-level checks: ontology constraints (SCHEMA "图谱本体"), entity types
+            from . import graph as G
+            issues.extend(G.build(self.kb, self, readers=False).findings)
+        except Exception as e:  # noqa: BLE001 — lint must never fail because of a derived index
+            issues.append({"card": "", "kind": "graph_error", "detail": f"{type(e).__name__}: {e}"})
         return issues
 
     def write_log(self) -> None:

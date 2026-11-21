@@ -74,6 +74,21 @@ DEFAULT_SCHEMA = """# LithoKB 编译规范 (SCHEMA)
 - 目录页、导航页、版权声明、纯链接列表（可只生成 summary 卡片）。
 - 与计算光刻无关的行政信息；广告、推广、公众号 / 微信等联系方式、版权页脚。
 - 由 HTML 转换来的文档中，「图示文字：…」是示意图上的标签，只能作为辅助线索，不能单独作为事实证据。
+
+## 8. 图谱本体（实体类型与关系约束）
+实体是原文中出现、但不单独成卡的具名对象，由文档索引识别（名称须在原文中逐字出现），用于图谱与导航：
+- `tool` 软件/工具：如 Tachyon、Calibre、Proteus、Mentor
+- `equipment` 设备：如 NXE:3400、EXE:5000、CD-SEM、扫描仪
+- `organization` 机构/公司：如 ASML、imec、台积电、Brion
+- `material` 材料：如 化学放大光刻胶、金属氧化物光刻胶、吸收层材料
+- `standard` 格式/标准：如 GDSII、OASIS
+- `product` 产品/芯片：如 某代处理器、某型号存储器
+- `person` 人物
+关系约束（主体卡片类型 → 客体卡片类型；`*` 表示任意；lint 报告违反项）：
+- `parameter_of`：parameter|metric → *
+- `measured_by`：*  → metric|parameter|tool|equipment|method|process
+- `implements`：algorithm|method|tool|model|process → *
+- `example_of`：* → *
 """
 
 

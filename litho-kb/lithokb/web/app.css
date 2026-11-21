@@ -72,3 +72,17 @@ pre.box{background:var(--code);padding:10px;border-radius:6px;white-space:pre-wr
 .tl-item{display:grid;grid-template-columns:110px 1fr;gap:10px;padding:6px 0;border-bottom:1px dashed var(--line)}.tl-when{color:var(--muted);font-size:13px}
 
 .condbar input::placeholder{color:var(--muted);opacity:.55;font-style:italic}
+
+/* wiki / page index */
+.grid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
+.item.tile { display: block; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; text-decoration: none; color: inherit; }
+.item.tile:hover { border-color: var(--accent); }
+.chip { display: inline-block; padding: 2px 9px; margin: 2px 2px; border-radius: 12px; background: var(--accent-soft); text-decoration: none; font-size: 13px; }
+.chip:hover { filter: brightness(0.95); }
+.crumbs a { color: inherit; }
+ul.pitree, ul.pitree ul { list-style: none; padding-left: 18px; margin: 2px 0; }
+ul.pitree { padding-left: 0; }
+ul.pitree li.closed > ul { display: none; }
+ul.pitree .tw { display: inline-block; width: 14px; cursor: pointer; color: var(--muted); user-select: none; }
+ul.pitree .gist { margin-left: 18px; max-width: 900px; }
+@media (max-width: 700px) { .grid2 { grid-template-columns: 1fr; } }

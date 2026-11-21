@@ -24,9 +24,57 @@ import os
 import secrets
 import tempfile
 import threading
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover (non-POSIX)
+    fcntl = None
 from pathlib import Path
 
-LOCK = threading.RLock()  # single-process writer lock (all mutations go through it)
+class _WriterLock:
+    """Writer lock for every mutation: a re-entrant thread lock *plus* an OS file lock
+    (fcntl.flock on <root>/.lock) for each knowledge base opened in this process, so the
+    web server, CLI runs and the MCP server can safely write the same knowledge base
+    concurrently. Readers never lock: all writes are atomic renames."""
+
+    def __init__(self):
+        self._rl = threading.RLock()
+        self._depth = 0
+        self._roots: set[Path] = set()
+        self._fds: list[int] = []
+
+    def register(self, root: Path) -> None:
+        with self._rl:
+            self._roots.add(root)
+
+    def __enter__(self):
+        self._rl.acquire()
+        self._depth += 1
+        if self._depth == 1 and fcntl is not None:
+            for r in sorted(self._roots):
+                if r.exists():
+                    try:
+                        fd = os.open(r / ".lock", os.O_CREAT | os.O_RDWR, 0o644)
+                    except OSError:
+                        continue
+                    fcntl.flock(fd, fcntl.LOCK_EX)
+                    self._fds.append(fd)
+        return self
+
+    def __exit__(self, *exc):
+        self._depth -= 1
+        if self._depth == 0:
+            for fd in reversed(self._fds):
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                finally:
+                    os.close(fd)
+            self._fds = []
+        self._rl.release()
+        return False
+
+
+LOCK = _WriterLock()
 
 DEFAULT_CONFIG = {
     "site_name": "LithoKB · 计算光刻知识库",
@@ -70,9 +118,18 @@ def atomic_write(path: Path, data: bytes | str) -> None:
     if isinstance(data, str):
         data = data.encode("utf-8")
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tmp-")
-    with os.fdopen(fd, "wb") as f:
-        f.write(data)
-    os.replace(tmp, path)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())  # durable before it becomes visible
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def append_jsonl(path: Path, obj: dict) -> None:
@@ -114,6 +171,7 @@ class KB:
         self.events_path = self.root / "log" / "events.jsonl"
         self._cfg = None
         self._cfg_mtime = None
+        LOCK.register(self.root)
 
     # ---- lifecycle -------------------------------------------------------
     def init(self) -> None:

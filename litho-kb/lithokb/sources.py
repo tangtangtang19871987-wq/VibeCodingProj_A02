@@ -54,6 +54,33 @@ def load_meta(kb: KB) -> dict:
     return json.loads(p.read_text("utf-8")) if p.exists() else {}
 
 
+_META_RO: dict[str, tuple] = {}
+_NAV_CACHE: dict[tuple, bool] = {}
+
+
+def meta_stamp(kb: KB):
+    try:
+        st = _meta_path(kb).stat()
+        return (st.st_mtime_ns, st.st_size)
+    except FileNotFoundError:
+        return None
+
+
+def meta_ro(kb: KB) -> dict:
+    """Read-only, cached view of meta/sources.json (re-parsed only when the file changes).
+    Never mutate the result — writers use load_meta()."""
+    sig = meta_stamp(kb)
+    if sig is None:
+        return {}
+    key = str(_meta_path(kb))
+    ent = _META_RO.get(key)
+    if ent and ent[0] == sig:
+        return ent[1]
+    m = json.loads(_meta_path(kb).read_text("utf-8"))
+    _META_RO[key] = (sig, m)
+    return m
+
+
 def _save_meta(kb: KB, meta: dict) -> None:
     atomic_write(_meta_path(kb), json.dumps(meta, ensure_ascii=False, indent=1, sort_keys=True))
 
@@ -161,7 +188,7 @@ def remove(kb: KB, actor: str, rel: str) -> None:
 
 def read(kb: KB, rel: str, version: int | None = None) -> bytes:
     rel = clean_path(rel)
-    meta = load_meta(kb).get(rel)
+    meta = meta_ro(kb).get(rel)
     if version and meta and version != meta["version"]:
         p = kb.history / f"{rel}@{version}"
     else:
@@ -176,7 +203,7 @@ def read_text(kb: KB, rel: str, version: int | None = None) -> str:
 
 
 def version_by_sha(kb: KB, rel: str, sha: str) -> int | None:
-    rec = load_meta(kb).get(rel)
+    rec = meta_ro(kb).get(rel)
     for h in (rec or {}).get("history", []):
         if h["sha256"] == sha:
             return h["version"]
@@ -192,7 +219,7 @@ def title_of(text: str, fallback: str) -> str:
 
 
 def list_md(kb: KB) -> list[str]:
-    meta = load_meta(kb)
+    meta = meta_ro(kb)
     return sorted(p for p, r in meta.items() if not r.get("deleted") and p.lower().endswith(MD_EXT))
 
 
@@ -215,7 +242,7 @@ def _index_order(kb: KB, folder: str, names: set[str]) -> list[str]:
 
 
 def tree(kb: KB) -> dict:
-    meta = load_meta(kb)
+    meta = meta_ro(kb)
     live = {p: r for p, r in meta.items() if not r.get("deleted")
             and not (r.get("rendition") and not meta.get(r["rendition"], {}).get("deleted"))}
     root: dict = {"name": "", "path": "", "type": "dir", "children": {}}
@@ -295,7 +322,7 @@ _TITLE_CACHE: dict[tuple, str] = {}
 def doc_titles(kb: KB, paths) -> dict[str, str]:
     """Human titles of source documents (frontmatter title or first H1), cached by content hash.
     Readers must see document names linked to the original, never bare file paths."""
-    meta = load_meta(kb)
+    meta = meta_ro(kb)
     out = {}
     for p in {p for p in paths if p}:
         rec = meta.get(p)
@@ -335,15 +362,18 @@ def looks_like_navigation(text: str) -> bool:
 def policy_of(kb: KB, rel: str, meta: dict | None = None) -> dict:
     """{"policy": compile|reference|exclude, "auto": bool, "reason": str}. An explicit choice by a
     person always wins; otherwise navigation-like pages default to 'reference'."""
-    rec = (meta or load_meta(kb)).get(rel, {})
+    rec = (meta or meta_ro(kb)).get(rel, {})
     if rec.get("policy") in POLICIES:
         return {"policy": rec["policy"], "auto": False, "reason": rec.get("policy_note", ""), "by": rec.get("policy_by", "")}
     if rel.lower().endswith(MD_EXT):
-        try:
-            if looks_like_navigation(read_text(kb, rel)):
-                return {"policy": "reference", "auto": True, "reason": "自动识别为目录/导航页"}
-        except SourceError:
-            pass
+        key = (str(kb.root), rel, rec.get("sha256"))
+        if key not in _NAV_CACHE:  # content-addressed: a document is classified once per version
+            try:
+                _NAV_CACHE[key] = looks_like_navigation(read_text(kb, rel))
+            except SourceError:
+                _NAV_CACHE[key] = False
+        if _NAV_CACHE[key]:
+            return {"policy": "reference", "auto": True, "reason": "自动识别为目录/导航页"}
     return {"policy": "compile", "auto": True, "reason": ""}
 
 
@@ -366,5 +396,5 @@ def set_policy(kb: KB, actor: str, rel: str, policy: str, note: str = "") -> dic
 
 
 def list_md_by_policy(kb: KB, *policies: str) -> list[str]:
-    meta = load_meta(kb)
+    meta = meta_ro(kb)
     return [p for p in list_md(kb) if policy_of(kb, p, meta)["policy"] in policies]

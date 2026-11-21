@@ -173,6 +173,7 @@ def main(argv=None) -> None:
     s.add_argument("--backend", choices=["mock", "anthropic", "openrouter", "command"])
     s.add_argument("--model", help="model id for the chosen backend")
     s.add_argument("--file-back", metavar="TITLE", nargs="?", const="", help="file the answer as a synthesis card (reviewer+)")
+    s.add_argument("--cond", default="", help="applicability conditions, e.g. wavelength:EUV,node:5nm")
     s = sub.add_parser("file-back", help="file an earlier query answer as a synthesis card (reviewer+)")
     s.add_argument("run")
     s.add_argument("--title", default="")
@@ -194,12 +195,40 @@ def main(argv=None) -> None:
     s.add_argument("--target")
     s.add_argument("--limit", type=int, default=50)
     s = sub.add_parser("export", help="regenerate compiled/index.md and graph.json")
+    s = sub.add_parser("index", help="PageIndex: compile node summaries + entities for changed documents (LLM, incremental)")
+    s.add_argument("paths", nargs="*")
+    s.add_argument("--status", action="store_true")
+    s.add_argument("--force", action="store_true")
+    s.add_argument("--backend")
+    s.add_argument("--model")
+    s = sub.add_parser("tree", help="the unified knowledge tree (wiki topics + documents → sections) as the navigator sees it")
+    s.add_argument("--budget", type=int, default=12000)
+    s.add_argument("--open", nargs="*", default=[], help="node ids to expand (e.g. a card id or d:<path>)")
+    s = sub.add_parser("wiki", help="wiki: home | page ID | entities | entity ID | hubs [--auto|ID] | gaps | export")
+    s.add_argument("op", choices=["home", "page", "entities", "entity", "hubs", "gaps", "export"])
+    s.add_argument("id", nargs="?")
+    s.add_argument("--auto", action="store_true")
+    s.add_argument("--backend")
+    s.add_argument("--model")
+    s = sub.add_parser("kg", help="knowledge graph: stats | neighbors ID | path A B | central | communities | findings")
+    s.add_argument("op", choices=["stats", "neighbors", "path", "central", "communities", "findings"])
+    s.add_argument("ids", nargs="*")
+    s.add_argument("--depth", type=int, default=1)
+    s.add_argument("--layers", default="")
+    s = sub.add_parser("bench", help="performance benchmark on a synthetic knowledge base (does not touch --root)")
+    s.add_argument("--cards", type=int, default=2000)
+    s.add_argument("--docs", type=int, default=400)
+    s = sub.add_parser("fsck", help="integrity check of the files (heads vs revisions, reviews, traces, caches)")
+    s.add_argument("--repair", action="store_true", help="rebuild derived caches; never touches knowledge files")
     s = sub.add_parser("mcp", help="run the MCP server on stdio (tools for agents; acts as --user)")
     s = sub.add_parser("serve", help="start the Web UI")
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8765)
 
     args = p.parse_args(argv)
+    if args.cmd == "bench":
+        from .bench import run_bench
+        return _out(run_bench(args.cards, args.docs), args)
     kb = _kb(args)
     cmd = args.cmd
 
@@ -278,9 +307,14 @@ def main(argv=None) -> None:
         A.require(me, "reader")
         return _out([{"id": m["id"], "status": m["status"], "life": m.get("lifecycle"), "rev": m["rev"],
                       "pub": m.get("published_rev") or "-", "type": m["type"], "title": m["title"]}
-                     for m in cards.listing(status=args.status)], args)
+                     for m in cards.listing(status=args.status, visible_only=A.RANK[me["role"]] < 2)], args)
     if cmd == "show":
         from . import fm
+        if A.RANK[me["role"]] < 2:  # readers: the published revision only (same rule as the Web UI)
+            head, _ = cards.load(args.id)
+            if not head.get("published_rev") or head.get("lifecycle", "active") != "active" or args.rev:
+                sys.exit("not published" if not args.rev else "readers can only see the published revision")
+            return print(fm.dump(*cards.load_rev(args.id, head["published_rev"])))
         if args.rev or args.published:
             head, _ = cards.load(args.id)
             rev = args.rev or head.get("published_rev")
@@ -289,6 +323,7 @@ def main(argv=None) -> None:
             return print(fm.dump(*cards.load_rev(args.id, rev)))
         return print(fm.dump(*cards.load(args.id)))
     if cmd == "diff":
+        A.require(me, "reviewer")
         return print(cards.diff(args.id, args.a, args.b))
     if cmd.replace("-", "_") in ("approve", "request_changes", "reject", "comment", "submit", "publish", "return",
                                  "reopen", "withdraw", "restore", "supersede"):
@@ -377,6 +412,7 @@ def main(argv=None) -> None:
         cards.write_exports()
         return print(f"merged {args.id} into {args.into}: r{h['rev']} ({h['status']}); {args.id} superseded")
     if cmd == "reviews":
+        A.require(me, "reviewer")
         return _out(cards.reviews(args.id), args)
     if cmd == "queue":
         A.require(me, "reviewer")
@@ -401,8 +437,10 @@ def main(argv=None) -> None:
         A.require(me, kb.config["query"]["min_role"])
         from .compiler import llm_config
         cfg = llm_config(kb, args.backend, args.model)
+        from . import facets as F
         run = Asker(kb, cards, comp).ask(me, " ".join(args.question), cfg,
-                                         include_unpublished=args.all and A.RANK[me["role"]] >= 2)
+                                         include_unpublished=args.all and A.RANK[me["role"]] >= 2,
+                                         conditions=F.parse_filter(args.cond) or None)
         if args.json:
             return _out(run, args)
         if run["status"] != "done":
@@ -467,7 +505,80 @@ def main(argv=None) -> None:
         return _out(kb.events(limit=args.limit, target=args.target), args)
     if cmd == "export":
         cards.write_exports()
-        return print("wrote compiled/index.md and compiled/graph.json")
+        from .wiki import Wiki
+        w = Wiki(kb, cards).export()
+        return print(f"wrote compiled/index.md, compiled/graph.json and compiled/wiki/ ({w['pages']} pages, {w['entities']} entities)")
+    if cmd == "index":
+        from . import pageindex as PI
+        from .compiler import llm_config
+        ix = PI.Indexer(kb, Compiler(kb, cards))
+        if args.status:
+            return _out(ix.status(), args)
+        A.require(me, "admin")
+        return _out(ix.run(me["name"], llm_config(kb, args.backend, args.model), args.paths or None, args.force), args)
+    if cmd == "tree":
+        from . import pageindex as PI
+        readers = A.RANK[me["role"]] < 2
+        t = PI.knowledge_tree(kb, cards, readers)
+        H = PI.Handles(t)
+        txt, _ = t.render(["k", "d"], H, args.budget)
+        print(txt)
+        for nid in args.open:
+            nid = nid if nid in t.nodes else next((k for k in t.nodes if k.endswith(nid)), None)
+            if nid:
+                print("\n" + t.render([nid], H, args.budget)[0])
+        return
+    if cmd == "wiki":
+        from .wiki import Wiki
+        from .compiler import llm_config
+        W = Wiki(kb, cards)
+        readers = A.RANK[me["role"]] < 2
+        if args.op == "home":
+            return _out(W.home(readers), args)
+        if args.op == "page":
+            return _out(W.page(args.id, readers) or f"no page {args.id}", args)
+        if args.op == "entities":
+            return _out(W.entities(readers), args)
+        if args.op == "entity":
+            return _out(W.entity(args.id if args.id.startswith("e:") else "e:" + args.id, readers) or "no such entity", args)
+        if args.op == "gaps":
+            return _out(W.hub_gaps(readers), args)
+        if args.op == "export":
+            return _out(W.export(), args)
+        A.require(me, "reviewer")
+        ids = W.hub_candidates() if args.auto else [args.id]
+        if not ids or ids == [None]:
+            return print("no topic needs an overview (or pass an id)")
+        comp = Compiler(kb, cards)
+        cfg = llm_config(kb, args.backend, args.model)
+        return _out([{k: r.get(k) for k in ("id", "card", "status", "error", "findings", "written", "cost_usd")}
+                     for r in (W.write_hub(me, i, cfg, comp) for i in ids)], args)
+    if cmd == "kg":
+        from . import graph as G
+        g = G.build(kb, cards, A.RANK[me["role"]] < 2)
+        layers = tuple(x for x in args.layers.split(",") if x) or None
+        if args.op == "stats":
+            return _out(g.stats(), args)
+        if args.op == "findings":
+            return _out(g.findings or ["no findings"], args)
+        if args.op == "neighbors":
+            return _out(g.neighbors(args.ids[0], args.depth, layers), args)
+        if args.op == "path":
+            steps = g.path(args.ids[0], args.ids[1], layers=layers)
+            return print(G.explain_path(steps) if steps else "no path") if not args.json else _out(steps, args)
+        if args.op == "central":
+            pr = g.pagerank()
+            return _out([{"id": c, "title": g.nodes[c]["title"], "score": round(v * len(pr), 3)}
+                         for c, v in sorted(pr.items(), key=lambda kv: -kv[1])[:30]], args)
+        if args.op == "communities":
+            comm = g.communities()
+            groups: dict = {}
+            for c, lab in comm.items():
+                groups.setdefault(lab, []).append(c)
+            return _out(sorted(groups.values(), key=len, reverse=True), args)
+    if cmd == "fsck":
+        from .fsck import fsck
+        return _out(fsck(kb, cards, repair=args.repair), args)
 
 
 def run(argv=None) -> None:

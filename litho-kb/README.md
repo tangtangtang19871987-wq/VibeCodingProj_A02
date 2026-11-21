@@ -34,7 +34,27 @@ python3 -m unittest discover -s tests -v
 | **LLM 只提议，人类决定** | LLM 产出的每个修订都进入审阅队列；读者只看到管理员发布过的修订。已发布卡片的新修订在审阅期间，旧的已发布版本继续对读者可见。 |
 | **可核验，不靠信任** | 模型的每条结论必须附 `[E1]` 证据：原文路径 + 行号 + **逐字引用**。系统机械核对引用是否真的在那几行（精确 / 位置偏移 / 近似 / 未找到），把结果摆在审阅者面前。 |
 | **全程可观测** | 每次 LLM 调用落盘：系统提示、用户提示（原样）、原始输出、模型思考摘要、用量、耗时、费用、解析结果、校验发现、写了哪些卡片。 |
-| **轻量** | 单进程 `ThreadingHTTPServer`；卡片索引在内存，按目录 mtime 懒重建；静态资源 gzip。几千篇文档、上万张卡片在笔记本上即可流畅运行。 |
+| **轻量** | 单进程 `ThreadingHTTPServer`；卡片索引在内存、按文件增量更新；派生结构按状态缓存；静态资源 gzip。上万张卡片、两千篇文档实测见 1.5 节基准。 |
+
+## 1.5 核心技术：三种知识结构 + 一个引擎
+
+卡片只是"页面"。系统真正的核心是在同一份经过审阅的知识上，同时维护三种互补的结构，再由一个轻量引擎支撑：
+
+| 结构 | 回答的问题 | 实现（全部从文件派生，可随时重建） |
+|---|---|---|
+| **PageIndex 索引树**（`pageindex.py`） | "答案在哪里？"——像查手册目录一样逐层找到要读的内容 | **统一知识树**：`知识`（主题 → 卡片）+ `原文`（文件夹 → 文档 → 章节，带行号）。节点摘要分两级：结构摘要（标题 + 首句，免费）和 **LLM 编写的节点摘要**（`lkb index`：每篇文档一次调用，按 sha256 缓存，**增量**——文档不变就不再调用）。没有可用标题结构的长文档，由模型提出**虚拟章节**。问答时做**多轮树搜索**：在字符预算内广度优先渲染树（折叠节点标 `[+N]`），模型返回 `read / expand / done`；小库一轮看全，大库多一两次小调用——**提示词规模有上限，不随库增长**。 |
+| **Wiki**（`wiki.py`） | "这个概念的全貌是什么？"——每一页都是导航枢纽 | 每张卡片组装成 Wiki 页：面包屑（主题路径）、下级页面、经审阅的双向类型化关系、互相提及的卡片、**原文中讨论此概念的章节**、涉及的实体、反向链接、尚不存在的页面（红链）。**实体页**：工具、设备、机构等不成卡的具名对象。**主题综述**：LLM 根据已发布的下级卡片写"主题地图"（op `hub`），经机械核验（链接必须存在、数字必须出现在下级卡片中）后**进入审阅**。**结构缺口**：有下级页面却没有综述的主题、图谱中紧密相连却分属不同主题的卡片群。`lkb export` 导出静态 Markdown Wiki（`compiled/wiki/`）。 |
+| **知识图谱**（`graph.py`） | "它们之间是什么关系？怎么联系起来的？" | **分层的类型化图**，每条边带层与认识论标签：`reviewed`（审阅过的类型化关系、上下级、wiki 链接）· `linked`（**确定性实体链接**：文本中出现了某张卡片的标题或别名；歧义名不链接；按 idf 排序，每个来源最多保留 N 条——不会"提及爆炸"）· `indexed`（索引阶段识别的实体，名称须在原文中**逐字出现**，与卡片同名的实体即是该卡片）· `provenance`（出处）。**本体约束**写在 `SCHEMA.md` 第 8 节（实体类型；关系的主体 → 客体类型），违反项由 lint 报告。查询：k 跳邻居、**解释型最短路径**（优先走审阅过的关系）、自我中心子图、PageRank 中心度、标签传播社区。图谱同时参与问答导航（词匹配命中的卡片的强关系邻居作为线索）。 |
+| **引擎**（`textindex.py`、`store.py`、`fsck.py`、`bench.py`） | 快、稳、可靠 | **BM25 全文检索**（中文二元切分，无需分词词典、无需空格），覆盖卡片与原文章节，增量更新。**增量卡片索引**（按文件 mtime/size，只重新解析变化的文件）。所有派生结构（检索、树、图谱）按"卡片代数 + 原文状态 + 规范版本"缓存。**跨进程写锁**（fcntl.flock，Web 服务、CLI、MCP 可同时写同一数据目录）+ **fsync 后原子替换**。`lkb fsck` 校验文件一致性（当前修订 vs 不可变修订、原文 sha、可解析性、中断写入残留），`--repair` 只清理残留、重建缓存，从不改动知识。`lkb bench` 合成库基准测试。 |
+
+**基准**（`lkb bench`，单进程、纯 Python、无 LLM）：
+
+| 规模 | 卡片索引（冷 / 改一张后） | 卡片检索 p50 | 原文章节检索 p50 | 图谱查询（2 跳 / 路径） | Wiki 页 | 图谱冷构建 / 改一张后 | 内存峰值 |
+|---|---|---|---|---|---|---|---|
+| 2 000 卡片 · 400 文档 · 6 011 章节 | 155 ms / 9 ms | 4.6 ms | 7 ms | 0.1 / 1 ms | 0.09 ms | 1.0 s / — | 118 MB |
+| 10 000 卡片 · 2 000 文档 · 29 577 章节 | 640 ms / 52 ms | 24 ms | 46 ms | 0.2 / 8 ms | 0.1 ms | 4.7 s / 1.1 s | 532 MB |
+
+基准测试中发现并修复的问题：通用别名导致的"提及边爆炸"（530 万条边、1.7 GB → 1.2 万条边、118 MB）、每次调用都重新分类所有原文（403 ms → 7 ms 的章节检索）、名称扫描的线性前缀比较（图谱冷构建 10 s → 4.7 s，并按文本缓存，改一张卡片只重扫这一张）。
 
 ## 2. 两层知识结构
 
@@ -202,14 +222,14 @@ Hopkins 模型把照明光源和投影光瞳合并为传输交叉系数 TCC [E1]
 
 ## 4.10 面向智能体：MCP 服务（`mcp.py`）
 
-`lkb --user reader1 mcp` 以标准输入输出提供 MCP 工具（仅标准库）：`search_knowledge`、`get_card`、`knowledge_tree`、`list_documents`、`document_outline`、`read_source`、`verify_quote`、`facts`、`timeline`、`list_issues`、`ask`。权限随配置用户：读者身份只能看到**已发布修订**的内容；所有工具都支持适用条件；每次调用写入审计日志。接入 Claude Code：
+`lkb --user reader1 mcp` 以标准输入输出提供 MCP 工具（仅标准库）：`search_knowledge`、`get_card`、`knowledge_tree`、`list_documents`、`document_outline`、`read_source`、`verify_quote`、`facts`、`timeline`、`list_issues`、`search_sections`（原文章节 BM25）、`browse_tree`（PageIndex 逐层浏览）、`wiki_page`、`graph_neighbors`、`graph_path`、`ask`。权限随配置用户：读者身份只能看到**已发布修订**的内容；所有工具都支持适用条件；每次调用写入审计日志。接入 Claude Code：
 ```
 claude mcp add lithokb -- python3 /path/to/litho-kb/lkb --root /path/to/kbdata --user reader1 mcp
 ```
 
 ## 5. 问答：导航 → 精读 → 作答 → 回写（`ask.py`）
 
-1. **导航**（PageIndex）：模型看到问题、知识树（按主题层级排列的卡片与一句话摘要）、每篇文档的目录树，**说明理由**地选出要读的卡片（≤12）与原文章节（≤8）。没有向量、没有相似度阈值。
+1. **导航**（PageIndex 树搜索，`lkb-ask/2`）：模型在**统一知识树**上推理（见 1.5），同时看到线索（BM25 命中的卡片与原文章节、图谱中的强关系邻居），**说明理由**地选出要读的卡片（≤12）与原文章节（≤8）；树放不下时先展开折叠节点，最多 `query.nav_max_rounds` 轮，每轮提示词不超过 `query.nav_budget_chars`。每一轮（展开了什么、读了什么、提示词多大）都记录在 trace 中。没有向量、没有相似度阈值。
 2. **精读作答**：只读选中的卡片全文与章节原文（带行号），回答中用 `[[卡片]]` 链接，原文事实用 `[S1]` 引用——引用同样被逐字核验。资料不足时必须说明缺口。
 3. **回写**（LLM Wiki 的知识复利）：审阅者可把好的问答提交为 `synthesis`（问答综合）卡片，`[S1]` 自动转为 `[E1]` 证据，进入正常的审阅 → 发布流程。
 - 读者只能基于**已发布**知识提问；审阅者可选择包含审阅中的卡片。两次 LLM 调用都完整记录（`nav-*` 与 `ans-*` 文件）。
@@ -247,6 +267,11 @@ lkb traces [ls|show RUN [--part prompt|response|thinking|system|parsed]|stats]
 lkb ask 问题… [--all --file-back [标题]]   lkb queries   lkb file-back RUN [--title T --parent P]
 lkb schema [show|set FILE -m 说明|history|diff --a N --b M]   lkb outline PATH
 lkb search 词…   lkb lint   lkb log [--target ID]   lkb export      （全局：--root --user --json）
+lkb index [PATHS…] [--status --force]      PageIndex：为变化的文档编写节点摘要 + 识别实体（增量）
+lkb tree [--budget N --open ID…]           导航模型所见的统一知识树
+lkb wiki home|page ID|entities|entity ID|gaps|export|hubs [ID|--auto]
+lkb kg stats|neighbors ID|path A B|central|communities|findings [--depth N --layers reviewed,linked]
+lkb fsck [--repair]   lkb bench [--cards N --docs M]   lkb ask … --cond wavelength:EUV,node:5nm
 ```
 CLI 以 `--user`（或 `LKB_USER`）身份操作，同一套角色与流程规则约束（能运行 CLI 即已拥有数据目录的文件权限，因此信任其声明的身份）。
 
@@ -279,7 +304,12 @@ kbdata/
 | `lithokb/html2md.py` | HTML → Markdown 转换（原件保留，转换结果带出处） |
 | `lithokb/cards.py` | 第二层：卡片、修订、审阅状态机、证据核验、图谱、搜索、lint、导出 |
 | `lithokb/compiler.py` | 协议 + SCHEMA 提示构建、分章编译、解析、校验（含认识论标签）、写入、trace、统计 |
-| `lithokb/doctree.py` | 文档目录树（PageIndex 思路，确定性）、目录文本、按结构分章 |
+| `lithokb/doctree.py` | 文档目录树（确定性）、目录文本、按结构分章 |
+| `lithokb/pageindex.py` | 统一知识树、LLM 节点摘要与实体（增量）、预算内渲染、原文章节 BM25 |
+| `lithokb/wiki.py` | Wiki 页 / 实体页 / 首页 / 结构缺口、主题综述（LLM + 机械核验）、静态导出 |
+| `lithokb/graph.py` | 分层知识图谱：确定性实体链接、本体约束、邻居 / 路径 / 中心度 / 社区 |
+| `lithokb/textindex.py` | BM25 倒排索引（中文二元切分，增量） |
+| `lithokb/fsck.py` · `bench.py` | 文件一致性检查与修复 · 性能基准 |
 | `lithokb/schema.py` | `SCHEMA.md` 的版本管理与差异 |
 | `lithokb/ask.py` | 问答：导航 → 精读 → 作答 → 回写 |
 | `lithokb/quality.py` | 卡片粒度度量与审阅风险分级 |
@@ -293,10 +323,11 @@ kbdata/
 | `lithokb/server.py` | JSON API + 静态前端 |
 | `lithokb/web/` | 单页前端（自带安全 Markdown 渲染器与力导向图谱，无框架） |
 | `lithokb/cli.py` | CLI |
-| `tests/test_lkb.py` | 端到端测试（离线） |
+| `tests/test_lkb.py` · `test_core.py` | 端到端测试 · 核心引擎测试（树搜索、图谱、Wiki、跨进程锁、fsck；离线） |
 
 ## 11. 当前边界与下一步
 
 - 公式以 TeX 原文显示（未内置 KaTeX，保持离线零依赖；可后续按需本地引入）。原文中的 raw HTML 会被转义显示（安全优先）。
-- 单进程写锁：适合一个服务实例；CLI 与服务同时写同一数据目录时，原子写保证文件不损坏，但不做跨进程锁。
+- 写锁是跨进程的（fcntl.flock，POSIX）；读不加锁（全部写入都是 fsync 后的原子替换）。Windows 上退化为进程内锁。
+- 图谱在卡片变化后整体重建（文本扫描结果有缓存，1 万张卡片约 1 秒）；更大规模可做按卡片的增量图谱。
 - mock 后端只用于流程验证；真实编译质量需要接入 `anthropic`（或 `command`）后用真实资料评测——这正是下一阶段"真正意义上的测试"的内容：编译质量（证据核验率、重复率、审阅通过率）、性能（大库下的索引 / 编译吞吐）与提示词迭代（`PROMPT_VERSION` 已记录在每个 trace 中，便于对比）。

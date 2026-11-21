@@ -499,7 +499,8 @@ class Compiler:
     def llm_step(self, run: dict, cfg: dict, system: str, user: str, prefix: str = "") -> llm.LLMResult:
         """One traced LLM call: prompts, response, thinking, usage, cost go to the run's trace dir."""
         tdir = self._trace_dir(run["id"])
-        stage = {"nav-": "navigate", "ans-": "answer"}.get(prefix, "compile")
+        stage = ("navigate" if prefix.startswith("nav") else "answer" if prefix.startswith("ans")
+                 else "index" if prefix.startswith("idx") else "compile")
         by_stage = cfg.get("reasoning_by_stage") or {}
         if stage in by_stage:
             cfg = {**cfg, "openrouter_reasoning": by_stage[stage]}

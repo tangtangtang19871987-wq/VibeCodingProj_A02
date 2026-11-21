@@ -58,6 +58,26 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"conditions": COND}}},
     {"name": "list_issues", "description": "Open contradictions and open questions in the knowledge base.",
      "inputSchema": {"type": "object", "properties": {"card": {"type": "string"}}}},
+    {"name": "search_sections", "description": "Ranked search over sections of the original documents (BM25 over "
+     "author-defined sections, with PageIndex summaries). Returns path, node, line range, summary.",
+     "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer", "default": 10}},
+                     "required": ["query"]}},
+    {"name": "browse_tree", "description": "PageIndex: browse the unified knowledge tree (wiki topics → cards; folders → "
+     "documents → sections) top-down within a budget. Omit `node` for the top levels; pass a node id (card id, "
+     "'d:<path>', 's:<path>#<node>') to open it. '[+N]' marks collapsed nodes.",
+     "inputSchema": {"type": "object", "properties": {"node": {"type": "string"}, "budget": {"type": "integer", "default": 8000},
+                                                      "conditions": COND}}},
+    {"name": "wiki_page", "description": "A card as a wiki page with everything around it: topic path, sub-pages, typed "
+     "relations both ways, cards that mention it, source sections that discuss it, named entities.",
+     "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}},
+    {"name": "graph_neighbors", "description": "Knowledge-graph neighbours of a card or entity (k hops). layers: reviewed "
+     "(approved typed relations), linked (deterministic mentions), indexed (entities), provenance.",
+     "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}, "depth": {"type": "integer", "default": 1},
+                                                      "layers": {"type": "array", "items": {"type": "string"}}},
+                     "required": ["id"]}},
+    {"name": "graph_path", "description": "Explain how two cards/entities are connected: shortest path preferring reviewed relations.",
+     "inputSchema": {"type": "object", "properties": {"from": {"type": "string"}, "to": {"type": "string"}},
+                     "required": ["from", "to"]}},
     {"name": "ask", "description": "Ask a question: the knowledge base navigates its trees, reads cards and source sections, "
      "and answers with verified quotes (one LLM-backed query; slower than the other tools).",
      "inputSchema": {"type": "object", "properties": {"question": {"type": "string"}, "conditions": COND},
@@ -85,6 +105,48 @@ class Server:
             a = F.applies(F.ok(m.get("conditions", [])), conditions or {})
             if a != "no":
                 yield m, a
+
+    # ---- tools: PageIndex / wiki / graph ------------------------------------------------------
+    def search_sections(self, query, limit=10):
+        from . import pageindex as PI
+        bm, meta = PI.section_index(self.kb), S.meta_ro(self.kb)
+        out = []
+        for sc, key in bm.search(query, int(limit)):
+            pl = bm.payload(key)
+            nd = PI.find(PI.doc_tree(self.kb, pl["path"], meta), pl["node"])
+            if nd:
+                out.append({"path": pl["path"], "document": S.doc_titles(self.kb, [pl["path"]]).get(pl["path"]),
+                            "node": pl["node"], "title": nd["title"], "lines": f"{nd['start']}-{nd['end']}",
+                            "summary": nd.get("summary") or nd.get("gist", ""), "score": sc})
+        return out
+
+    def browse_tree(self, node=None, budget=8000, conditions=None):
+        from . import pageindex as PI
+        t = PI.knowledge_tree(self.kb, self.cards, True, conditions or None)
+        H = PI.Handles(t)
+        for nid in t.nodes:  # agents use real node ids (stable across calls), not per-run handles
+            H.fwd[nid] = nid
+            H.rev[nid] = nid
+        if node and node not in t.nodes:
+            raise ValueError(f"unknown node {node!r}")
+        txt, _ = t.render([node] if node else ["k", "d"], H, max(1000, min(int(budget), 40000)))
+        return {"tree": txt}
+
+    def wiki_page(self, id):
+        from .wiki import Wiki
+        p = Wiki(self.kb, self.cards).page(slug(id), readers=True)
+        if p is None:
+            raise ValueError(f"no published page {id!r}")
+        return p
+
+    def graph_neighbors(self, id, depth=1, layers=None):
+        from . import graph as G
+        return G.build(self.kb, self.cards, True).neighbors(id, int(depth), tuple(layers) if layers else None)
+
+    def graph_path(self, **kw):
+        from . import graph as G
+        steps = G.build(self.kb, self.cards, True).path(kw["from"], kw["to"])
+        return {"steps": steps, "text": G.explain_path(steps or [])} if steps else {"steps": None, "text": "no path"}
 
     # ---- tools ------------------------------------------------------------------------
     def search_knowledge(self, query, conditions=None, limit=20):

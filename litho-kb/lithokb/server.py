@@ -36,7 +36,9 @@ class App:
         self.compiler = Compiler(kb, self.cards)
         self.asker = Asker(kb, self.cards, self.compiler)
         from .consolidate import Consolidator
+        from .wiki import Wiki
         self.consolidator = Consolidator(kb, self.cards, self.compiler)
+        self.wiki = Wiki(kb, self.cards)
 
 
 def card_source_paths(meta: dict, body: str) -> set:
@@ -162,6 +164,81 @@ def make_handler(app: App):
         def _readable(self, user):
             if not kb.config.get("public_read") and not user:
                 raise HTTPError(401, "login required")
+
+        # ---- wiki / knowledge graph / page index -----------------------------------------
+        def _knowledge(self, method, head, parts, q, user, reviewer):
+            from . import graph as G
+            from . import pageindex as PI
+            readers = not (reviewer and q.get("view") == "head")
+            W = app.wiki
+            if head == "wiki":
+                if len(parts) == 1:
+                    return self._json(W.home(readers))
+                cid = slug(parts[1])
+                if len(parts) == 3 and parts[2] == "hub" and method == "POST":
+                    A.require(user, "reviewer")
+                    from .compiler import llm_config
+                    run = W.write_hub(user, cid, llm_config(kb, None, None), app.compiler)
+                    return self._json(run, 200 if run["status"] == "done" else 400)
+                page = W.page(cid, readers)
+                if page is None:
+                    raise HTTPError(404, "no such page")
+                return self._json(page)
+            if head == "entities":
+                if len(parts) == 1:
+                    return self._json(W.entities(readers))
+                e = W.entity("e:" + parts[1] if not parts[1].startswith("e:") else parts[1], readers)
+                if e is None:
+                    raise HTTPError(404, "no such entity")
+                return self._json(e)
+            if head == "kg":
+                g = G.build(kb, app.cards, readers)
+                op = parts[1] if len(parts) > 1 else "stats"
+                layers = tuple(x for x in q.get("layers", "").split(",") if x) or None
+                if op == "stats":
+                    out = g.stats()
+                    if reviewer:
+                        out["findings"] = g.findings[:200]
+                    return self._json(out)
+                if op == "neighbors":
+                    return self._json(g.neighbors(q.get("id", ""), int(q.get("depth", 1)), layers,
+                                                  limit=min(500, int(q.get("limit", 100)))))
+                if op == "path":
+                    steps = g.path(q.get("a", ""), q.get("b", ""), layers=layers)
+                    return self._json({"steps": steps, "text": G.explain_path(steps or [])})
+                if op == "ego":
+                    sub = g.subgraph([q.get("id", "")], int(q.get("depth", 1)), layers, limit=int(q.get("limit", 80)))
+                    return self._json(sub)
+                if op == "central":
+                    pr = g.pagerank()
+                    return self._json([{"id": c, "title": g.nodes[c]["title"], "score": round(v * len(pr), 3)}
+                                       for c, v in sorted(pr.items(), key=lambda kv: -kv[1])[:int(q.get("limit", 30))]])
+                if op == "communities":
+                    comm = g.communities()
+                    groups: dict = {}
+                    for c, lab in comm.items():
+                        groups.setdefault(lab, []).append({"id": c, "title": g.nodes[c]["title"]})
+                    return self._json(sorted(groups.values(), key=len, reverse=True))
+                raise HTTPError(404, "unknown graph query")
+            if head == "pageindex":
+                if parts[1:] == ["status"]:
+                    A.require(user, "reviewer")
+                    return self._json(PI.Indexer(kb, app.compiler).status())
+                if parts[1:] == ["search"]:
+                    hits = PI.section_index(kb).search(q.get("q", ""), int(q.get("limit", 20)))
+                    meta = S.load_meta(kb)
+                    out = []
+                    for sc, key in hits:
+                        pl = PI.section_index(kb).payload(key)
+                        nd = PI.find(PI.doc_tree(kb, pl["path"], meta), pl["node"])
+                        if nd:
+                            out.append({"path": pl["path"], "node": pl["node"], "title": nd["title"], "start": nd["start"],
+                                        "end": nd["end"], "summary": nd.get("summary") or nd.get("gist", ""), "score": sc})
+                    return self._json({"sections": out, "source_titles": S.doc_titles(kb, {o["path"] for o in out})})
+                tree = PI.knowledge_tree(kb, app.cards, readers)
+                return self._json({"nodes": {k: {kk: vv for kk, vv in v.items() if kk not in ("aliases",)}
+                                             for k, v in tree.nodes.items()}})
+            raise HTTPError(404, "not found")
 
         # ---- API ------------------------------------------------------------------
         def _api(self, method: str, route: str, q: dict, user):
@@ -361,6 +438,8 @@ def make_handler(app: App):
                         raise FileNotFoundError(parts[1])
                     return self._json({**it, "source_titles": S.doc_titles(kb, it.get("sources", []))})
 
+            if head in ("wiki", "entities", "kg", "pageindex"):
+                return self._knowledge(method, head, parts, q, user, reviewer)
             if head == "graph":
                 g = C.graph(visible_only=not (reviewer and q.get("all") == "1"))
                 want = F.parse_filter(q.get("cond", ""))
@@ -401,17 +480,17 @@ def make_handler(app: App):
             if head == "search":
                 qq = q.get("q", "")
                 res = {"cards": C.search(qq, visible_only=not reviewer), "sources": []}
-                terms = [t for t in qq.lower().split() if t]
-                if terms:
-                    for p in S.list_md(kb):
-                        text = (kb.sources / p).read_text("utf-8", errors="replace")
-                        low = text.lower()
-                        if all(t in low for t in terms):
-                            i = low.find(terms[0])
-                            line = text.count("\n", 0, i) + 1
-                            res["sources"].append({"path": p, "line": line, "snippet": text[max(0, i - 80): i + 160]})
-                            if len(res["sources"]) >= 50:
-                                break
+                if qq.strip():  # ranked section search over the original documents (author-defined sections)
+                    from . import pageindex as PI
+                    bm, meta = PI.section_index(kb), S.load_meta(kb)
+                    for sc, key in bm.search(qq, 30):
+                        pl = bm.payload(key)
+                        nd = PI.find(PI.doc_tree(kb, pl["path"], meta), pl["node"])
+                        if nd:
+                            res["sources"].append({"path": pl["path"], "line": nd["start"], "node": pl["node"],
+                                                   "title": nd["title"], "end": nd["end"], "score": sc,
+                                                   "snippet": nd.get("summary") or nd.get("gist", "")})
+                    res["source_titles"] = S.doc_titles(kb, {x["path"] for x in res["sources"]})
                 return self._json(res)
             if head == "stats":
                 idx = C.index()

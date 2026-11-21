@@ -19,12 +19,13 @@ import json
 import re
 
 from . import doctree
+from . import pageindex as PI
 from . import sources as S
 from .cards import Cards, _norm, grounding, is_public, slug, verify_evidence
 from .compiler import Compiler, new_run_id, parse_response
 from .store import KB, atomic_write, now
 
-PROMPT_VERSION = "lkb-ask/1"
+PROMPT_VERSION = "lkb-ask/2"
 MAX_CARDS, MAX_SECTIONS = 12, 8
 
 NAV_SYSTEM = """[[LKB:NAVIGATE]]
@@ -78,6 +79,102 @@ def _tree_text(cards: list[dict]) -> str:
     return "\n".join(out)
 
 
+class Navigator:
+    """Reasoning-based tree search over the unified knowledge tree (see pageindex.py)."""
+
+    def __init__(self, kb: KB, cards: Cards, comp: Compiler):
+        self.kb, self.cards, self.comp = kb, cards, comp
+
+    def hints(self, tree, H, question: str, readers: bool) -> list[str]:
+        """Lexical (BM25 over cards and sections) and graph-neighbour hints — suggestions for the navigator."""
+        from . import graph as G
+        out, seen = [], set()
+        lex = [cid for _, cid in self.cards.text_index(readers).search(question, 8) if cid in tree.nodes]
+        for cid in lex:
+            seen.add(cid)
+            out.append(tree.line(cid, H.get(cid), 0) + "   ← 词匹配")
+        try:
+            sec = [k for _, k in PI.section_index(self.kb).search(question, 8) if k in tree.nodes]
+        except Exception:  # noqa: BLE001 — hints are optional
+            sec = []
+        for k in sec:
+            seen.add(k)
+            out.append(tree.line(k, H.get(k), 0) + f"   ← 原文词匹配（{tree.nodes[tree.nodes[k]['parent']]['title'][:30] if tree.nodes[k]['parent'] else ''}）")
+        try:
+            g = G.build(self.kb, self.cards, readers)
+            for cid in lex[:3]:
+                for nb in g.neighbors(cid, 1, layers=("reviewed",), kinds=("card",))[:4]:
+                    if nb["id"] in tree.nodes and nb["id"] not in seen and nb["rel"] in G.STRONG:
+                        seen.add(nb["id"])
+                        out.append(tree.line(nb["id"], H.get(nb["id"]), 0) +
+                                   f"   ← 图谱：{tree.nodes[cid]['title'][:20]} {nb['rel']}")
+        except Exception:  # noqa: BLE001
+            pass
+        return out
+
+    def run(self, run: dict, cfg: dict, question: str, cond_txt: str, readers: bool, conditions: dict | None) -> dict:
+        qc = self.kb.config.get("query", {})
+        budget = int(qc.get("nav_budget_chars", 24000))
+        max_rounds = int(qc.get("nav_max_rounds", 3))
+        tree = PI.knowledge_tree(self.kb, self.cards, readers, conditions)
+        H = PI.Handles(tree)
+        hints = self.hints(tree, H, question, readers)
+        system = PI.NAV_SYSTEM % (MAX_CARDS, MAX_SECTIONS)
+        view, _ = tree.render(["k", "d"], H, budget)
+        cards, secs, dropped, rounds, reasoning = [], [], [], [], []
+        for r in range(1, max_rounds + 1):
+            sel = ""
+            if cards or secs:
+                sel = "\n<selected>\n" + "\n".join(H.get(c) for c in cards) + "\n" + \
+                      "\n".join(H.get(f"s:{s['path']}#{s['node']}") if s["node"] != "root" else H.get(f"d:{s['path']}")
+                                for s in secs) + "\n</selected>\n"
+            user = (f"<question>{question}</question>{cond_txt}\n<round n=\"{r}\" of=\"{max_rounds}\"/>\n"
+                    f"# Knowledge tree ({len(tree.visible_cards)} cards, {sum(1 for n in tree.nodes.values() if n['kind'] == 'doc')} documents)\n"
+                    f"<tree>\n{view}\n</tree>\n\n<hints>\n" + ("\n".join(hints) or "(none)") + "\n</hints>\n" + sel)
+            res = self.comp.llm_step(run, cfg, system, user, prefix="nav-" if r == 1 else f"nav{r}-")
+            d = parse_response_obj(res.text)
+            reasoning.append(str(d.get("reasoning", "")))
+            reads, bad = [], []
+            for h in d.get("read", []) or d.get("cards", []) or []:
+                nid = H.resolve(h)
+                if nid is None:
+                    bad.append(h)
+                    continue
+                nd = tree.nodes[nid]
+                if nd["kind"] == "card" and nid not in cards and len(cards) < MAX_CARDS:
+                    cards.append(nid)
+                elif nd["kind"] == "section" and len(secs) < MAX_SECTIONS and \
+                        not any(s["path"] == nd["path"] and s["node"] == nd["node"] for s in secs):
+                    secs.append({"path": nd["path"], "node": nd["node"], "title": nd["title"],
+                                 "lines": f"{nd['start']}-{nd['end']}", "why": str(d.get("reasoning", ""))[:200]})
+                elif nd["kind"] == "doc" and len(secs) < MAX_SECTIONS:
+                    if nd["size"] <= 16000:
+                        secs.append({"path": nd["path"], "node": "root", "title": nd["title"],
+                                     "lines": f"1-{nd['lines']}", "why": "whole (small) document"})
+                    else:
+                        d.setdefault("expand", []).append(h)  # too large to read whole: open it instead
+                        continue
+                else:
+                    continue
+                reads.append(nid)
+            exp = [x for x in (H.resolve(h) for h in d.get("expand", []) or []) if x and tree.nodes[x]["children"]]
+            dropped += bad
+            rounds.append({"round": r, "prompt_chars": len(system) + len(user), "read": [H.get(x) for x in reads],
+                           "expand": [H.get(x) for x in exp], "invalid": bad[:20], "done": bool(d.get("done", True))})
+            if d.get("done", True) is True or not exp or r == max_rounds:
+                break
+            parts = []
+            for x in exp[:6]:
+                trail = tree.path_to(x)
+                parts += [tree.line(y, H.get(y), i) for i, y in enumerate(trail[:-1])]
+                txt, _ = tree.render([x], H, max(2000, budget // max(1, len(exp[:6]))), len(trail) - 1)
+                parts.append(txt)
+            view = "\n".join(parts)
+        return {"reasoning": " / ".join(x for x in reasoning if x), "cards": cards, "sections": secs,
+                "dropped": dropped[:20], "rounds": rounds, "hints": len(hints), "method": "tree-search/1",
+                "_visible": list(tree.visible_cards)}
+
+
 class Asker:
     def __init__(self, kb: KB, cards: Cards, compiler: Compiler):
         self.kb, self.cards, self.comp = kb, cards, compiler
@@ -120,41 +217,17 @@ class Asker:
             self.comp._save_run(run)
 
         try:
-            visible = self._visible(include_unpublished)
-            if conditions:  # cards stated to apply under other conditions are not offered at all
-                from . import facets as F
-                visible = [m for m in visible if F.applies(F.ok(m.get("conditions", [])), conditions) != "no"]
-            vis_ids = {c["id"] for c in visible}
             meta = S.load_meta(self.kb)
-            docs = []
-            for p in S.list_md_by_policy(self.kb, "compile", "reference"):  # excluded documents are not navigated
-                tree = doctree.build(S.read_text(self.kb, p), meta[p]["sha256"])
-                docs.append((p, tree))
-            depth = 6 if sum(t["chars"] for _, t in docs) < 2_000_000 else 2
             cond_txt = ("\n<conditions>The user asks about: " + ", ".join(f"{k}={v}" for k, v in conditions.items()) +
                         ". Prefer knowledge stated for these conditions; general knowledge (no condition stated) may "
                         "still apply.</conditions>\n") if conditions else ""
-            nav_user = (f"<question>{question}</question>{cond_txt}\n\n# Knowledge tree ({len(visible)} cards)\n<card-index>\n"
-                        f"{_tree_text(visible) or '(no cards)'}\n</card-index>\n\n# Source documents (tables of contents)\n" +
-                        "\n".join(f'<doc path="{p}" title="{t["title"]}" lines="{t["lines"]}">\n{doctree.outline(t, depth)}\n</doc>'
-                                  for p, t in docs))
-            step("navigate_prompt_built", cards=len(visible), docs=len(docs))
-            res = self.comp.llm_step(run, cfg, NAV_SYSTEM, nav_user, prefix="nav-")
-            nav = parse_response_obj(res.text)
-            chosen = [c for c in dict.fromkeys(slug(str(x)) for x in nav.get("cards", [])) if c in vis_ids][:MAX_CARDS]
-            secs, dropped = [], []
-            trees = dict(docs)
-            for s in nav.get("sections", [])[:MAX_SECTIONS * 2]:
-                p, node = str(s.get("path", "")), str(s.get("node", ""))
-                nd = doctree.find(trees[p], node) if p in trees else None
-                if nd and len(secs) < MAX_SECTIONS:
-                    secs.append({"path": p, "node": node, "title": nd["title"], "lines": f"{nd['start']}-{nd['end']}",
-                                 "why": str(s.get("why", ""))[:300]})
-                else:
-                    dropped.append(s)
-            run["navigation"] = {"reasoning": nav.get("reasoning", ""), "cards": chosen, "sections": secs,
-                                 "dropped": dropped[:20]}
-            step("navigated", cards=len(chosen), sections=len(secs), dropped=len(dropped))
+            nav = Navigator(self.kb, self.cards, self.comp).run(run, cfg, question, cond_txt,
+                                                                readers=not include_unpublished, conditions=conditions)
+            chosen, secs = nav["cards"], nav["sections"]
+            vis_ids = set(nav.pop("_visible"))
+            run["navigation"] = nav
+            step("navigated", cards=len(chosen), sections=len(secs), rounds=len(nav["rounds"]),
+                 dropped=len(nav["dropped"]))
 
             blocks = [self._card_text(c, include_unpublished) for c in chosen]
             texts = {}

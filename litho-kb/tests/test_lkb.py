@@ -405,7 +405,7 @@ class TestFusion(unittest.TestCase):
         t = self.comp.trace(r["id"])
         for part in ("nav-prompt.md", "nav-response.md", "ans-prompt.md", "ans-response.md"):
             self.assertIn(part, t)
-        self.assertIn("<card-index>", t["nav-prompt.md"])
+        self.assertIn("<tree>", t["nav-prompt.md"])  # tree-search navigation over the unified knowledge tree
         self.assertEqual(len(t["run"]["calls"]), 2)
         with self.assertRaises(PermissionError):
             from lithokb.auth import require
@@ -923,7 +923,7 @@ class TestViewsFacetsIssuesMCP(unittest.TestCase):
         res = {r["id"]: r for r in map(json.loads, out.getvalue().splitlines())}
         self.assertNotIn(None, res)                              # notification got no response
         self.assertEqual(res[1]["result"]["serverInfo"]["name"], "lithokb")
-        self.assertEqual(len(res[2]["result"]["tools"]), 11)
+        self.assertEqual(len(res[2]["result"]["tools"]), 16)
         self.assertIn('"value": "> 100"', res[3]["result"]["content"][0]["text"])
         self.assertEqual(json.loads(res[4]["result"]["content"][0]["text"]), [])   # EUV card does not apply to 28nm
         self.assertIn("    3|随着工艺节点", res[5]["result"]["content"][0]["text"])

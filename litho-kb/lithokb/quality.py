@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import re
 
-RISK_RULES_VERSION = "risk/1"
+RISK_RULES_VERSION = "risk/2"
 DEFAULT_GRANULARITY = {"min_units": 60, "target_max": 900, "hard_max": 1600, "max_evidence": 24, "max_appends": 3}
 _CJK = re.compile(r"[㐀-䶿一-鿿豈-﫿]")
 _WORD = re.compile(r"[A-Za-z0-9]+(?:[.'\-][A-Za-z0-9]+)*")
@@ -114,6 +114,11 @@ def assess(meta: dict, body: str, cfg: dict) -> dict:
             high.append(f"整合后正文只引用了 {round(cov * 100)}% 的证据，可能丢失内容（考虑拆分）")
         else:
             medium.append("整合重写，需通读")
+    if origin.get("op") == "hub":
+        if origin.get("unknown_numbers") or origin.get("bad_links"):
+            high.append("主题综述含下级卡片中没有的数字或不存在的链接")
+        else:
+            medium.append(f"主题综述（引用 {round((origin.get('children_cited') or 0) * 100)}% 的下级卡片），需核对")
     if meta.get("published_rev") and meta.get("rev") != meta.get("published_rev"):
         medium.append("修改已发布内容")
     if isinstance(conf, (int, float)) and 0.5 <= conf < 0.7:

@@ -35,12 +35,12 @@ const set = html => { $('#main').innerHTML = html; };
 
 // ---------------------------------------------------------------- shell
 function renderShell(route) {
-  const links = [['#/', '首页'], ['#/k', '知识'], ['#/src', '原始文档']];
+  const links = [['#/', '首页'], ['#/wiki', '知识'], ['#/src', '原始文档']];
   if (S.me) links.push(['#/ask', '问答']);
   const rev = [['#/review', '审阅'], ['#/issues', '问题'], ['#/traces', 'LLM观测'], ['#/schema', '规范'], ['#/lint', '健康']];
   const adm = [['#/publish', '发布'], ['#/compile', '编译'], ['#/users', '用户'], ['#/log', '日志']];
-  const viewRoutes = ['k', 'graph', 'mindmap', 'timeline', 'facts'];
-  const a = (l, cls = '') => `<a href="${l[0]}" class="${cls} ${('#/' + route[0]) === l[0] || (route[0] === '' && l[0] === '#/') || (l[0] === '#/k' && viewRoutes.includes(route[0])) ? 'on' : ''}">${l[1]}</a>`;
+  const viewRoutes = ['k', 'wiki', 'tree', 'entity', 'graph', 'mindmap', 'timeline', 'facts'];
+  const a = (l, cls = '') => `<a href="${l[0]}" class="${cls} ${('#/' + route[0]) === l[0] || (route[0] === '' && l[0] === '#/') || (l[0] === '#/wiki' && viewRoutes.includes(route[0])) ? 'on' : ''}">${l[1]}</a>`;
   let nav = links.map(l => a(l)).join('');
   if (can('reviewer')) nav += '<span class="sep"></span>' + rev.map(l => a(l, 'role-reviewer')).join('');
   if (can('admin')) nav += adm.map(l => a(l, 'role-admin')).join('');
@@ -82,7 +82,8 @@ function renderCardBody(card, known) {
     wiki: (id, label) => {
       const k = MD.slug(id).replace(/[^a-z0-9-]/g, '');
       const miss = known && !known.has(k);
-      return `<a href="${cardHref(k)}" class="${miss ? 'muted' : ''}" title="${miss ? '尚未发布/不存在' : ''}">${esc(label)}</a>`;
+      const shown = (label === id && S.cardTitles && S.cardTitles[k]) ? S.cardTitles[k] : label;  // [[id]] → the page title
+      return `<a href="${cardHref(k)}" class="${miss ? 'muted' : ''}" title="${miss ? '尚未发布/不存在' : esc(k)}">${esc(shown)}</a>`;
     },
     ev: id => `<a class="ev" data-ev="${esc(id)}" href="javascript:void 0">${esc(id)}</a>`,
     link: h => h.startsWith('src:') ? srcHref(h.slice(4)) : h, img: s => s,
@@ -187,6 +188,7 @@ routes[''] = async () => {
 
 routes.k = async ([id], q) => {
   const all = await get(id ? 'cards' : withCond('cards'));
+  S.cardTitles = Object.assign(S.cardTitles || {}, Object.fromEntries(all.map(c => [c.id, c.title])));
   if (!S.dims) S.dims = await get('dims').catch(() => ({}));
   const visible = can('reviewer') ? all.filter(c => c.published_rev || q.all) : all;
   if (!id) {
@@ -313,8 +315,8 @@ routes.search = async (_, q) => {
   const d = await get('search?q=' + encodeURIComponent(q.q || ''));
   set(`<div class="panel"><h1>搜索：${esc(q.q || '')}</h1><h3>知识卡片（${d.cards.length}）</h3><div class="cardlist">${d.cards.map(c =>
     `<a class="item" href="${cardHref(c.id)}"><b>${esc(c.title)}</b> ${can('reviewer') ? badge(c.status) : ''}<br><span class="muted small">${esc(c.summary)}</span></a>`).join('') || '<p class="muted">无</p>'}</div>
-    <h3>原始文档（${d.sources.length}）</h3><div class="cardlist">${d.sources.map(s =>
-    `<a class="item" href="${srcHref(s.path, 'L=' + s.line)}"><span class="mono">${esc(s.path)}:${s.line}</span><br><span class="muted small">…${esc(s.snippet)}…</span></a>`).join('') || '<p class="muted">无</p>'}</div></div>`);
+    <h3>原始文档章节（${d.sources.length}）</h3><div class="cardlist">${d.sources.map(s =>
+    `<a class="item" href="${srcHref(s.path, 'L=' + s.line)}"><b>《${esc(docTitle(s.path))}》· ${esc(s.title || '')}</b> <span class="muted small">L${s.line}-${s.end || ''}</span><br><span class="muted small">${esc(s.snippet)}</span></a>`).join('') || '<p class="muted">无</p>'}</div></div>`);
 };
 
 // ---------------------------------------------------------------- graph
@@ -330,7 +332,9 @@ routes.graph = async (_, q) => {
     <div class="legend row">${types.map(t => `<span><i style="background:${TYPE_COLORS[t] || '#888'}"></i>${esc(TYPE_ZH[t] || t)}</span>`).join('')}
       <span class="small muted">边：实线 原文明确 · 虚线 推断 · 橙色点线 存疑 · 红色 矛盾</span>
       <label class="small"><input type="checkbox" id="gsum"> 显示文档摘要节点</label></div>
+    ${await pathFinder(g.nodes)}
     <canvas id="graph"></canvas>`);
+  bindPathFinder(g.nodes);
   const gnav = () => { const p = []; if ($('#gall') && $('#gall').checked) p.push('all=1'); if ($('#gsum').checked) p.push('sum=1'); location.hash = '#/graph' + (p.length ? '?' + p.join('&') : ''); };
   if ($('#gall')) $('#gall').onchange = gnav; $('#gsum').checked = !!q.sum; $('#gsum').onchange = gnav;
   bindCond();
@@ -875,7 +879,7 @@ const condChips = (conds, evLink) => (conds || []).map(c => `<span class="badge 
 const appliesBadge = a => a === 'general' ? '<span class="badge" title="原文未说明适用条件">通用</span>' : a === 'yes' ? '<span class="badge b-exact">符合条件</span>' : '';
 
 // view switcher shared by the knowledge views
-const VIEWS = [['#/k', '卡片'], ['#/graph', '图谱'], ['#/mindmap', '思维导图'], ['#/timeline', '时间线'], ['#/facts', '对比表'], ['#/src', '文档目录']];
+const VIEWS = [['#/wiki', 'Wiki'], ['#/k', '卡片'], ['#/tree', '索引树'], ['#/graph', '图谱'], ['#/mindmap', '思维导图'], ['#/timeline', '时间线'], ['#/facts', '对比表'], ['#/src', '文档目录']];
 const viewTabs = cur => `<div class="tabs" style="margin-top:0">${VIEWS.map(([h, n]) => `<a href="${h}" class="${h === cur ? 'on' : ''}">${n}</a>`).join('')}</div>`;
 
 // ---------------------------------------------------------------- mind map: one topic at the centre
@@ -1049,6 +1053,147 @@ function bindReport() {
   const b = $('#rp_go'); if (!b) return;
   b.onclick = async () => { const title = $('#rp_t').value.trim(); if (title.length < 4) return toast('请填写问题标题');
     try { await api('POST', 'issues', { kind: 'report', card: b.dataset.card, title, detail: $('#rp_d').value.trim() }); toast('已提交，审阅者会处理'); route(); } catch (e) { toast(e.message); } };
+}
+
+// ---------------------------------------------------------------- wiki: every page a navigation hub
+const wikiHref = id => '#/wiki/' + encodeURIComponent(id);
+const entHref = id => '#/entity/' + encodeURIComponent(String(id).replace(/^e:/, ''));
+const REL_ZH = { is_a:'是一种', part_of:'属于', uses:'使用', depends_on:'依赖', implements:'实现', improves:'改进', alternative_to:'可替代',
+  contrasts_with:'对比', causes:'导致', mitigates:'缓解', measured_by:'由…度量', parameter_of:'是…的参数', input_to:'输入到', output_of:'产出自',
+  example_of:'是…的例子', contradicts:'矛盾', covers:'涵盖', related_to:'相关' };
+const ENT_ZH = { tool:'软件/工具', equipment:'设备', organization:'机构', material:'材料', standard:'格式/标准', person:'人物', product:'产品' };
+function wikiSide(cards, cur) {
+  return `<aside class="panel side"><h3 style="margin-top:0"><a href="#/wiki">Wiki 首页</a></h3>${topicTree(cards, cur).replace(/#\/k\//g, '#/wiki/')}</aside>`;
+}
+routes.wiki = async ([id], q) => {
+  const view = q.view === 'head' && can('reviewer') ? '?view=head' : '';
+  const cards = await get('cards');
+  S.cardTitles = Object.fromEntries(cards.map(c => [c.id, c.title]));
+  const side = wikiSide(cards.filter(c => can('reviewer') ? c.published_rev : true), id);
+  if (!id) {
+    const h = await get('wiki' + view);
+    set(`<div class="panel" style="margin-bottom:10px">${viewTabs('#/wiki')}</div><div class="cols">${side}<section class="panel">
+      <h1 style="margin-top:0">知识库 Wiki</h1>
+      <p class="muted small">${h.pages} 个页面 · 图谱 ${Object.values(h.graph.nodes).reduce((a, b) => a + b, 0)} 个节点 / ${Object.values(h.graph.edges).reduce((a, b) => a + b, 0)} 条边
+        （已审阅关系 ${h.graph.edges.reviewed || 0} · 概念提及 ${h.graph.edges.linked || 0} · 实体 ${h.graph.edges.indexed || 0}）</p>
+      <h3>主题</h3><div class="grid2">${h.topics.map(t => `<a class="item tile" href="${wikiHref(t.id)}"><b>${esc(t.title)}</b>
+        <span class="muted small">${t.children} 个下级页面 ${t.has_overview ? '' : '· <i>尚无综述</i>'}</span><br><span class="small">${esc(t.summary || '')}</span></a>`).join('')}</div>
+      <h3>核心概念 <span class="muted small">（按图谱中心度）</span></h3><p>${h.central.map(c => `<a class="chip" href="${wikiHref(c.id)}">${esc(c.title)}</a>`).join(' ')}</p>
+      ${h.entities.length ? `<h3>实体 <span class="muted small">（工具、设备、机构…，由索引自动识别并逐字核验）</span></h3><p>${h.entities.map(e =>
+        `<a class="chip" href="${entHref(e.id)}">${esc(e.title)} <span class="muted">${esc(ENT_ZH[e.type] || '')}</span></a>`).join(' ')}</p>` : ''}
+      <h3>最近更新</h3><div class="cardlist">${h.recent.map(c => `<a class="item" href="${wikiHref(c.id)}"><b>${esc(c.title)}</b> <span class="muted small">${esc(TYPE_ZH[c.type] || c.type)} · ${fmtTime(c.at)}</span></a>`).join('')}</div>
+      ${can('reviewer') && h.hub_gaps.length ? `<h3>Wiki 结构缺口</h3><ul class="small">${h.hub_gaps.map(g => g.kind === 'topic_without_overview'
+        ? `<li>主题 <a href="${wikiHref(g.id)}">${esc(g.title)}</a> 有 ${g.children} 个下级页面，但没有综述</li>`
+        : `<li>图谱中紧密相连的一组卡片分属不同主题（${g.parents.map(esc).join('、')}）：${g.titles.map(esc).join('、')} — 可能需要一个共同主题</li>`).join('')}</ul>` : ''}
+    </section></div>`);
+    bindTree($('#main'));
+    return;
+  }
+  const p = await get('wiki/' + encodeURIComponent(id) + view);
+  const known = new Set(cards.map(c => c.id));
+  const body = renderCardBody({ body: (p.body || '').replace(/^\s*#\s+[^\n]*\n/, '') }, known).replace(/href="#\/k\//g, 'href="#/wiki/')
+    .replace(/<a class="ev" data-ev="([^"]+)"[^>]*>/g, (_, e) => `<a class="ev" href="${cardHref(p.id)}?ev=${e}" title="${esc(((p.evidence || []).find(x => x.id === e) || {}).quote || '')}">`);
+  const relGroup = (arr, dirIn) => {
+    const g = {};
+    arr.forEach(r => (g[r.rel] = g[r.rel] || []).push(r));
+    return Object.entries(g).map(([rel, xs]) => `<li><b>${dirIn ? '被' : ''}${esc(REL_ZH[rel] || rel)}</b>：${xs.map(r =>
+      `<a href="${wikiHref(r.id)}">${esc(r.title)}</a>${r.basis && r.basis !== 'extracted' ? ' <span class="muted small">(' + zh(r.basis) + ')</span>' : ''}`).join('、')}</li>`).join('');
+  };
+  set(`<div class="panel" style="margin-bottom:10px">${viewTabs('#/wiki')}</div><div class="cols">${side}<section class="panel doc">
+    <div class="small muted crumbs"><a href="#/wiki">Wiki</a>${p.breadcrumbs.map(b => ` › <a href="${wikiHref(b.id)}">${esc(b.title)}</a>`).join('')}</div>
+    <h1 style="margin:6px 0">${esc(p.title)}</h1>
+    <p class="small">${badge('comment', TYPE_ZH[p.type] || p.type)} ${p.aliases.length ? '<span class="muted">又称 ' + p.aliases.map(esc).join('、') + '</span>' : ''}
+      ${condChips(p.conditions)} · <a href="${cardHref(p.id)}">证据与审阅记录 →</a></p>
+    <p><i>${esc(p.summary)}</i></p>
+    ${body}
+    ${p.type === 'topic' && can('reviewer') ? `<p><button id="hubgo">${(p.body || '').trim().length > 40 ? '重新生成' : '生成'}主题综述（LLM，进入审阅）</button></p>` : ''}
+    ${p.children.length ? `<h2>下级页面</h2><div class="cardlist">${p.children.map(c => `<a class="item" href="${wikiHref(c.id)}"><b>${esc(c.title)}</b>
+      <span class="muted small">${esc(TYPE_ZH[c.type] || c.type)}</span> ${c.conditions.map(x => `<span class="badge b-comment">${esc(x)}</span>`).join(' ')}<br><span class="small muted">${esc(c.summary)}</span></a>`).join('')}</div>` : ''}
+    ${p.relations_out.length || p.relations_in.length ? `<h2>关系 <span class="muted small">（经审阅）</span></h2><ul>${relGroup(p.relations_out)}${relGroup(p.relations_in, true)}</ul>` : ''}
+    ${p.mentioned_by.length || p.mentions.length ? `<h2>相互提及 <span class="muted small">（按名称自动链接）</span></h2>
+      ${p.mentioned_by.length ? `<p class="small"><b>提到本页的：</b>${p.mentioned_by.map(m => `<a href="${wikiHref(m.id)}">${esc(m.title)}</a>`).join('、')}</p>` : ''}
+      ${p.mentions.length ? `<p class="small"><b>本页提到的：</b>${p.mentions.map(m => `<a href="${wikiHref(m.id)}">${esc(m.title)}</a>`).join('、')}</p>` : ''}` : ''}
+    ${p.sections.length ? `<h2>原文中讨论此概念的章节</h2><ul class="small">${p.sections.map(s => `<li>${docLink(s.path, 'L=' + s.start, '· ' + esc(s.title))}
+      <span class="muted">L${s.start}-${s.end}${s.count > 1 ? ' · 提及 ' + s.count + ' 次' : ''}</span></li>`).join('')}</ul>` : ''}
+    ${p.entities.length ? `<h2>涉及的实体</h2><p>${p.entities.map(e => `<a class="chip" href="${entHref(e.id)}">${esc(e.title)} <span class="muted">${esc(ENT_ZH[e.type] || '')}</span></a>`).join(' ')}</p>` : ''}
+    ${p.backlinks.length ? `<h2>链接到本页</h2><p class="small">${p.backlinks.map(b => `<a href="${wikiHref(b.id)}">${esc(b.title)}</a>`).join('、')}</p>` : ''}
+    ${p.red_links.length ? `<p class="small muted">尚不存在的页面：${p.red_links.map(esc).join('、')}</p>` : ''}
+  </section></div>`);
+  bindTree($('#main'));
+  if ($('#hubgo')) $('#hubgo').onclick = async () => {
+    $('#hubgo').disabled = true; $('#hubgo').textContent = '生成中…';
+    try { const r = await api('POST', 'wiki/' + encodeURIComponent(id) + '/hub');
+      toast('已生成综述（r' + ((r.written[0] || {}).rev || '?') + '），已进入审阅' + (r.findings.length ? '；注意：' + r.findings.join('；') : ''));
+      location.hash = '#/review/' + encodeURIComponent(id);
+    } catch (e) { toast('失败：' + e.message); $('#hubgo').disabled = false; }
+  };
+};
+
+routes.entity = async ([id]) => {
+  const e = await get('entities/' + encodeURIComponent(id));
+  set(`<div class="panel" style="margin-bottom:10px">${viewTabs('#/wiki')}</div><div class="panel doc">
+    <div class="small muted"><a href="#/wiki">Wiki</a> › 实体</div>
+    <h1 style="margin:6px 0">${esc(e.title)}</h1>
+    <p class="small">${badge('comment', e.type_label || ENT_ZH[e.type] || '未分类')} ${(e.aliases || []).length ? '<span class="muted">又称 ' + e.aliases.map(esc).join('、') + '</span>' : ''}</p>
+    <p class="small muted">实体由文档索引（PageIndex）识别，名称已在原文中逐字核验；它不是经审阅的知识卡片，而是帮助你找到相关知识的导航入口。</p>
+    ${e.cards.length ? `<h2>提到它的知识卡片</h2><div class="cardlist">${e.cards.map(c => `<a class="item" href="${wikiHref(c.id)}"><b>${esc(c.title)}</b> <span class="muted small">${esc(TYPE_ZH[c.type] || c.type)}${c.count > 1 ? ' · ' + c.count + ' 次' : ''}</span></a>`).join('')}</div>` : ''}
+    <h2>原文出处</h2><ul class="small">${e.sections.map(s => `<li>${docLink(s.path, 'L=' + s.start, '· ' + esc(s.title))} <span class="muted">L${s.start}-${s.end}</span></li>`).join('') ||
+      (e.docs || []).map(d => `<li>${docLink(d)}</li>`).join('')}</ul></div>`);
+};
+
+// ---------------------------------------------------------------- PageIndex: the unified tree, browsable
+routes.tree = async (_, q) => {
+  const d = await get('pageindex' + (q.view === 'head' && can('reviewer') ? '?view=head' : ''));
+  const st = can('reviewer') ? await get('pageindex/status').catch(() => null) : null;
+  const N = d.nodes;
+  const tag = n => ({ card: TYPE_ZH[n.type] || '卡片', doc: '文档', section: '§', folder: '文件夹', root: '' })[n.kind];
+  const href = n => n.kind === 'card' ? wikiHref(n.id) : n.kind === 'doc' ? srcHref(n.path) : n.kind === 'section' ? srcHref(n.path, 'L=' + n.start) : '';
+  const li = id => { const n = N[id]; const kids = n.children || [];
+    return `<li class="${kids.length ? 'closed' : ''}" data-id="${esc(id)}">${kids.length ? '<span class="tw" data-open>▸</span>' : '<span class="tw"> </span>'}
+      ${href(n) ? `<a href="${href(n)}">${esc(n.title)}</a>` : `<b>${esc(n.title)}</b>`} <span class="muted small">${esc(tag(n))}${n.kind === 'section' ? ' L' + n.start + '-' + n.end : ''}${kids.length ? ' · ' + kids.length : ''}</span>
+      ${n.summary ? `<div class="small muted gist">${esc(n.summary)}</div>` : ''}<ul></ul></li>`; };
+  set(`<div class="panel" style="margin-bottom:10px">${viewTabs('#/tree')}</div><div class="panel">
+    <h1 style="margin-top:0">索引树（PageIndex）</h1>
+    <p class="small muted">问答时，模型像查手册目录一样在这棵树上逐层展开、推理选择要读的卡片与原文章节——不做向量检索，也不切块。
+      ${st ? `节点摘要：${st.compiled}/${st.documents} 篇文档已由 LLM 编写摘要${st.pending.length ? '（其余使用标题 + 首句）' : ''}。` : ''}</p>
+    <div class="row"><input id="tq" placeholder="在原文章节中检索（BM25，无需空格）…" style="width:360px"><button id="tgo">检索</button></div><div id="thits"></div>
+    <ul class="pitree">${li('k')}${li('d')}</ul></div>`);
+  const root = $('#main');
+  root.addEventListener('click', e => {
+    const t = e.target.closest('[data-open]'); if (!t) return;
+    const item = t.parentElement; const ul = item.querySelector(':scope > ul');
+    if (!ul.childElementCount) ul.innerHTML = (N[item.dataset.id].children || []).map(li).join('');
+    item.classList.toggle('closed'); t.textContent = item.classList.contains('closed') ? '▸' : '▾';
+  });
+  root.querySelectorAll('.pitree > li > [data-open]').forEach(x => x.click());
+  const search = async () => {
+    const r = await get('pageindex/search?q=' + encodeURIComponent($('#tq').value));
+    $('#thits').innerHTML = `<div class="cardlist">${r.sections.map(s => `<a class="item" href="${srcHref(s.path, 'L=' + s.start)}"><b>《${esc(docTitle(s.path))}》· ${esc(s.title)}</b>
+      <span class="muted small">L${s.start}-${s.end} · ${s.score}</span><br><span class="small muted">${esc(s.summary)}</span></a>`).join('') || '<p class="muted">无结果</p>'}</div>`;
+  };
+  $('#tgo').onclick = search; $('#tq').onkeydown = e => { if (e.key === 'Enter') search(); };
+};
+
+// graph: explain how two pieces of knowledge are connected
+async function pathFinder(nodes) {
+  const opts = nodes.map(n => `<option value="${esc(n.title)}">`).join('');
+  return `<details class="small" style="margin:6px 0"><summary><b>关系路径</b>：两条知识之间是怎么联系起来的？</summary>
+    <div class="row"><input id="pa" list="pnodes" placeholder="起点（卡片标题）" style="width:240px"> → <input id="pb" list="pnodes" placeholder="终点" style="width:240px">
+    <button id="pgo">查找</button></div><datalist id="pnodes">${opts}</datalist><div id="pout"></div></details>`;
+}
+function bindPathFinder(nodes) {
+  if (!$('#pgo')) return;
+  const byTitle = t => (nodes.find(n => n.title === t) || nodes.find(n => n.id === t) || {}).id;
+  $('#pgo').onclick = async () => {
+    const a = byTitle($('#pa').value), b = byTitle($('#pb').value);
+    if (!a || !b) { $('#pout').innerHTML = '<p class="muted">请从下拉列表中选择卡片</p>'; return; }
+    const r = await get(`kg/path?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`);
+    $('#pout').innerHTML = r.steps ? `<ol>${r.steps.map(s => `<li><a href="${wikiHref(s.from)}">${esc(s.from_title)}</a>
+      <b>${s.dir === 'out' ? '—' + esc(REL_ZH[s.rel] || s.rel) + '→' : '←' + esc(REL_ZH[s.rel] || s.rel) + '—'}</b>
+      <a href="${s.to.startsWith('e:') ? entHref(s.to) : s.to.startsWith('s:') || s.to.startsWith('d:') ? '#' : wikiHref(s.to)}">${esc(s.to_title)}</a>
+      <span class="muted">${{ reviewed: '经审阅', linked: '名称提及', indexed: '实体', provenance: '出处' }[s.layer] || s.layer}${s.basis && s.layer === 'reviewed' ? ' · ' + zh(s.basis) : ''}</span></li>`).join('')}</ol>`
+      : '<p class="muted">两者之间没有路径</p>';
+  };
 }
 
 routes.login = async () => {
