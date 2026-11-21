@@ -210,9 +210,28 @@ class Cards:
             meta["_body"] = body
             meta["_text"] = (meta.get("title", "") + " " + " ".join(meta.get("aliases", [])) + " "
                              + meta.get("summary", "") + " " + body).lower()
+            # what readers may see: the PUBLISHED revision's content (the head may be a revision under review)
+            meta["_pub"] = None
+            if is_public(meta):
+                if meta.get("published_rev") == meta.get("rev"):
+                    meta["_pub"] = meta
+                else:
+                    try:
+                        pm, pb = self.load_rev(meta["id"], meta["published_rev"])
+                        pub = {**meta, **{k: pm.get(k, [] if k in _LIST_KEYS else "") for k in _CONTENT_KEYS}}
+                        pub.update(_body=pb, _links=sorted({slug(x) for x in WIKILINK_RE.findall(pb)}), _pub=None,
+                                   _text=(pm.get("title", "") + " " + " ".join(pm.get("aliases", [])) + " " +
+                                          pm.get("summary", "") + " " + pb).lower(), status="published", rev=pm["rev"])
+                        meta["_pub"] = pub
+                    except CardError:
+                        meta["_pub"] = None
             idx[meta["id"]] = meta
         self._index, self._stamp = idx, stamp
         return idx
+
+    def view(self, m: dict, readers: bool) -> dict | None:
+        """The card as a reader sees it (published revision) or as a reviewer sees it (head)."""
+        return m.get("_pub") if readers else m
 
     def risk(self, cid: str) -> dict:
         from .quality import assess, granularity_cfg
@@ -263,7 +282,8 @@ class Cards:
         for m in self.index().values():
             if visible_only and not is_public(m):
                 continue
-            if status and m.get("status") != status and m.get("lifecycle") != status:
+            m = self.view(m, visible_only)
+            if m is None or (status and m.get("status") != status and m.get("lifecycle") != status):
                 continue
             out.append({k: v for k, v in m.items() if not k.startswith("_")})
         return sorted(out, key=lambda m: (m.get("type") != "topic", m.get("title", "").lower()))
@@ -299,12 +319,19 @@ class Cards:
                 "sources": [{"path": p, "sha": src_meta.get(p, {}).get("sha256", ""),
                              "version": src_meta.get(p, {}).get("version")} for p in srcs],
                 "confidence": card.get("confidence", None),
+                # facets (applicability conditions / dated events / structured facts): only items whose
+                # evidence id exists on this revision are stored
+                **{k: [x for x in (card.get(k) or []) if isinstance(x, dict)
+                       and x.get("evidence") in {e["id"] for e in evidence}]
+                   for k in ("conditions", "events", "facts")},
                 "rev": rev,
                 "parent_rev": head["rev"] if head else None,
                 "origin": origin,  # {"kind":"llm","run":..,"model":..} | {"kind":"human","user":..}
                 "change_note": change_note,
                 "created": now(),
             }
+            from .facets import mark_support
+            meta.update(mark_support(meta, self.kb))  # each facet item: does its cited quote (or its context) state it?
             atomic_write(self._rev_path(cid, rev), fm.dump(meta, body))
             head_meta = dict(meta)
             head_meta.update(
@@ -323,10 +350,12 @@ class Cards:
     def human_edit(self, user: dict, cid: str, changes: dict) -> dict:
         meta, body = self.load(cid)
         card = {k: meta.get(k) for k in ("id", "title", "type", "parent", "aliases", "summary",
-                                         "relations", "evidence", "sources", "confidence")}
+                                         "relations", "evidence", "sources", "confidence",
+                                         "conditions", "events", "facts")}
         card["evidence"] = [{k: v for k, v in e.items() if k in ("id", "path", "lines", "quote")}
                             for e in card["evidence"] or []]
-        for k in ("title", "type", "parent", "aliases", "summary", "relations", "evidence"):
+        for k in ("title", "type", "parent", "aliases", "summary", "relations", "evidence",
+                  "conditions", "events", "facts"):
             if k in changes:
                 card[k] = changes[k]
         new_body = changes.get("body", body)
@@ -344,8 +373,13 @@ class Cards:
                 ev = [verify_evidence(self.kb, {k: e[k] for k in ("id", "path", "lines", "quote") if k in e}, cache)
                       for e in meta.get("evidence", [])]
                 total += len(ev)
-                if [e.get("check") for e in ev] != [e.get("check") for e in meta.get("evidence", [])]:
+                from .facets import mark_support
+                fac = mark_support({**meta, "evidence": ev}, self.kb)
+                fac_changed = any([x.get("supported") for x in fac[k]] != [x.get("supported") for x in meta.get(k, []) or []]
+                                  for k in fac)
+                if fac_changed or [e.get("check") for e in ev] != [e.get("check") for e in meta.get("evidence", [])]:
                     meta["evidence"], meta["grounding"] = ev, grounding(ev)
+                    meta.update(fac)
                     self._write_head(meta, body)
                     changed.append(cid)
         self.kb.event(actor, "cards.reverify", "*", evidence=total, changed=changed[:200])
@@ -501,9 +535,9 @@ class Cards:
     def graph(self, visible_only: bool) -> dict:
         idx = self.index()
         nodes, edges = [], []
-        ids = {i for i, m in idx.items() if not visible_only or is_public(m)}
+        ids = {i for i, m in idx.items() if not visible_only or (is_public(m) and m.get("_pub"))}
         for i in ids:
-            m = idx[i]
+            m = self.view(idx[i], visible_only)
             nodes.append({"id": i, "title": m["title"], "type": m["type"], "status": m["status"],
                           "ambiguous": sum(r.get("basis") == "ambiguous" for r in m.get("relations", [])),
                           "lifecycle": m.get("lifecycle"), "parent": m.get("parent", ""),
@@ -527,6 +561,9 @@ class Cards:
         hits = []
         for m in self.index().values():
             if visible_only and not is_public(m):
+                continue
+            m = self.view(m, visible_only)
+            if m is None:
                 continue
             text = m["_text"]
             if all(t in text for t in terms):
@@ -648,6 +685,11 @@ def _log_line(e: dict) -> str | None:
         what = f"[[{e['target']}]] r{d.get('rev')}" + (f" → [[{d['to']}]]" if d.get("to") else "") + \
                (f" — {d['comment']}" if d.get("comment") else "")
     return f"- `{e['ts'][11:16]}` **{kind}** · {e['actor']} · {what}"
+
+
+_CONTENT_KEYS = ("title", "type", "parent", "aliases", "summary", "relations", "evidence", "grounding", "sources",
+                 "confidence", "conditions", "events", "facts", "origin", "change_note", "created")
+_LIST_KEYS = ("aliases", "relations", "evidence", "sources", "conditions", "events", "facts")
 
 
 def is_public(m: dict) -> bool:

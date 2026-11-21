@@ -215,7 +215,9 @@ def _terms(q: str) -> list[str]:
 
 
 def _mock(system: str, user: str) -> LLMResult:
-    if "[[LKB:CONSOLIDATE]]" in system:
+    if "[[LKB:ANNOTATE]]" in system:
+        text, note = _mock_annotate(user)
+    elif "[[LKB:CONSOLIDATE]]" in system:
         text, note = _mock_consolidate(user)
     elif "[[LKB:NAVIGATE]]" in system:
         text, note = _mock_navigate(user)
@@ -282,6 +284,23 @@ def _mock_compile(user: str):
                       "confidence": 0.6, "change_note": f"mock summary of {path}"})
         notes.append(f"mock: {path}: {len(lines)} lines")
     return _fence({"cards": cards, "notes": "; ".join(notes)}), "headings→cards, first sentence→evidence"
+
+
+def _mock_annotate(user: str):
+    """Deterministic facets from evidence quotes: EUV/193nm/NNnm mentions → conditions, years → events,
+    'NAME > number unit' → facts."""
+    conds, events, facts = [], [], []
+    for m in re.finditer(r"^(E\d+) \| [^|]+ \| (.*)$", user, re.M):
+        eid, q = m.group(1), m.group(2)
+        if "EUV" in q:
+            conds.append({"dim": "wavelength", "value": "EUV", "evidence": eid})
+        for n in re.findall(r"(\d+)\s*nm(?:及以下|以下)", q):
+            conds.append({"dim": "node", "value": f"{n}nm 及以下", "evidence": eid})
+        for y in re.findall(r"((?:19|20)\d\d)年?", q):
+            events.append({"when": y, "what": q[:60], "evidence": eid})
+        for name, op, val, unit in re.findall(r"([A-Za-z]{2,6})\s*([<>≥≤]=?)\s*(\d+(?:\.\d+)?)\s*(nm|%)", q):
+            facts.append({"name": name, "value": f"{op} {val}", "unit": unit, "evidence": eid})
+    return _fence({"conditions": conds, "events": events, "facts": facts}), "regex facets from evidence"
 
 
 def _mock_consolidate(user: str):

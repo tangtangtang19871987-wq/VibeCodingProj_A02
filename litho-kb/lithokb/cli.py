@@ -134,6 +134,29 @@ def main(argv=None) -> None:
     s.add_argument("--limit", type=int)
     s.add_argument("--backend", choices=["mock", "anthropic", "openrouter", "command"])
     s.add_argument("--model")
+    s = sub.add_parser("annotate", help="add facets (conditions / events / facts) to cards from their own evidence (LLM)")
+    s.add_argument("ids", nargs="*")
+    s.add_argument("--auto", action="store_true", help="all cards without facets")
+    s.add_argument("--unsupported", action="store_true", help="re-annotate cards with facets their quotes do not support")
+    s.add_argument("--limit", type=int)
+    s.add_argument("--backend", choices=["mock", "anthropic", "openrouter", "command"])
+    s.add_argument("--model")
+    s = sub.add_parser("policy", help="set how a source document is processed: compile | reference | exclude | auto")
+    s.add_argument("path")
+    s.add_argument("policy", nargs="?", choices=["compile", "reference", "exclude", "auto"])
+    s.add_argument("-m", "--note", default="")
+    s = sub.add_parser("issues", help="issue register: contradictions, open questions, gaps, reports")
+    s.add_argument("--status", choices=["open", "resolved", "wontfix"])
+    s.add_argument("--kind", choices=["contradiction", "open_question", "gap", "report"])
+    s.add_argument("--card")
+    s = sub.add_parser("issue", help="show / act on one issue")
+    s.add_argument("id")
+    s.add_argument("action", nargs="?", choices=["comment", "resolve", "wontfix", "reopen"])
+    s.add_argument("-m", "--comment", default="")
+    s = sub.add_parser("report", help="report a problem on a card (any user)")
+    s.add_argument("card")
+    s.add_argument("title")
+    s.add_argument("-m", "--detail", default="")
     s = sub.add_parser("merge", help="fold a (thin) card into another card; the source is superseded (admin)")
     s.add_argument("id")
     s.add_argument("--into", required=True)
@@ -171,6 +194,7 @@ def main(argv=None) -> None:
     s.add_argument("--target")
     s.add_argument("--limit", type=int, default=50)
     s = sub.add_parser("export", help="regenerate compiled/index.md and graph.json")
+    s = sub.add_parser("mcp", help="run the MCP server on stdio (tools for agents; acts as --user)")
     s = sub.add_parser("serve", help="start the Web UI")
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8765)
@@ -191,6 +215,9 @@ def main(argv=None) -> None:
         return serve(kb, args.host, args.port)
 
     me = _me(kb, args)
+    if cmd == "mcp":
+        from .mcp import Server
+        return Server(kb, me).serve()
     cards = Cards(kb)
     comp = Compiler(kb, cards)
 
@@ -311,6 +338,39 @@ def main(argv=None) -> None:
             print(f"[{r['status']}] {cid}: {r.get('before', {}).get('units')} → {r.get('after', {}).get('units')} units; "
                   f"written {[(w['id'], w['action']) for w in r['written']]}" + (f"  ERROR {r['error']}" if r.get("error") else ""))
         return
+    if cmd in ("issues", "issue", "report"):
+        from .issues import Issues
+        reg = Issues(kb)
+        if cmd == "issues":
+            A.require(me, "reviewer")
+            return _out([{"id": i["id"], "kind": i["kind"], "status": i["status"], "seen": i.get("seen", 1),
+                          "cards": ",".join(i["cards"]), "title": i["title"][:70]}
+                         for i in reg.query(args.status, args.kind, args.card)], args)
+        if cmd == "report":
+            return _out(reg.create(me["name"], "report", args.title, args.detail, cards=[args.card],
+                                   origin={"kind": "user", "role": me["role"]}), args)
+        if not args.action:
+            return _out(reg.get(args.id), args)
+        return _out(reg.act(me, args.id, args.action, args.comment), args)
+    if cmd == "annotate":
+        from .annotate import Annotator
+        from .compiler import llm_config
+        A.require(me, "reviewer")
+        an = Annotator(kb, cards, comp)
+        ids = args.ids or (an.candidates()[: args.limit or None] if args.auto else
+                           an.unsupported()[: args.limit or None] if args.unsupported else [])
+        if not ids:
+            return print(f"{len(an.candidates())} card(s) without facets; pass ids or --auto")
+        for cid in ids:
+            r = an.run(me, cid, llm_config(kb, args.backend, args.model))
+            print(f"[{r['status']}] {cid}: {r.get('facets', {})}" + (" → new revision" if r["written"] else " (no change)")
+                  + (f"  ERROR {r['error']}" if r.get("error") else ""), flush=True)
+        return
+    if cmd == "policy":
+        if not args.policy:
+            return _out(S.policy_of(kb, S.clean_path(args.path)), args)
+        A.require(me, "admin")
+        return _out(S.set_policy(kb, me["name"], args.path, args.policy, args.note), args)
     if cmd == "merge":
         from .consolidate import merge
         h = merge(cards, me, args.id, args.into)

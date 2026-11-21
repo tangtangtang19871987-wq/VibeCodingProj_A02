@@ -64,3 +64,11 @@ pre.box{background:var(--code);padding:10px;border-radius:6px;white-space:pre-wr
 .legend span{display:inline-flex;align-items:center;gap:4px;margin-right:12px;font-size:13px}.legend i{width:10px;height:10px;border-radius:50%;display:inline-block}
 .timeline li{font-size:13px}.kv{display:grid;grid-template-columns:140px 1fr;gap:2px 12px;font-size:14px}.kv>div:nth-child(odd){color:var(--muted)}
 .cardlist a.item{display:block;padding:8px 0;border-bottom:1px solid var(--line);color:var(--ink)}.cardlist a.item:hover{text-decoration:none;background:var(--bg)}
+
+.condbar label{display:inline-flex;align-items:center;gap:4px}.condbar{gap:10px}
+.timeline-v{border-left:2px solid var(--line);margin-left:70px;padding-left:18px}
+.tl-year{position:relative;margin:18px 0 6px}.tl-year span{position:absolute;left:-96px;width:70px;text-align:right;font-weight:700;color:var(--accent)}
+.tl-year::before{content:"";position:absolute;left:-25px;top:6px;width:12px;height:12px;border-radius:50%;background:var(--accent)}
+.tl-item{display:grid;grid-template-columns:110px 1fr;gap:10px;padding:6px 0;border-bottom:1px dashed var(--line)}.tl-when{color:var(--muted);font-size:13px}
+
+.condbar input::placeholder{color:var(--muted);opacity:.55;font-style:italic}

@@ -168,6 +168,45 @@ Hopkins 模型把照明光源和投影光瞳合并为传输交叉系数 TCC [E1]
 
 **只有低风险卡片可以批量通过（服务器端强制）**；批量必须填写评语（≥10 字）；每张卡片各自留下审阅记录（带批次号），审计日志记录 `review.batch_approve` 事件（通过 / 跳过清单与判定标准快照）。管理员可批量发布已通过的卡片（同样必须写评语、留审计）。CLI：`lkb risk [ID]`、`lkb batch-approve --low-risk -m …`、`lkb batch-publish --all-approved -m …`。
 
+## 4.7 多种形式展现知识：刻面与视图（`facets.py`、`annotate.py`）
+
+同一份经审阅的知识，以七种视图呈现（「知识」页顶部切换，共用一个适用条件筛选栏）：
+
+| 视图 | 回答的问题 | 数据来源 |
+|---|---|---|
+| 卡片（Wiki） | 这个概念是什么 | 卡片正文 + 证据 |
+| 主题树 | 知识如何组织 | parent 层级 |
+| 图谱 | 概念之间如何关联 | 类型化关系（认识论线型） |
+| 思维导图 | 以某主题为中心的全貌 | 下级概念 + 相关概念，可逐级展开 |
+| 时间线 | 技术如何演进 | 事件刻面（按年份；无年份的按工艺节点由大到小） |
+| 对比表 | 参数 / 指标在不同方法、条件下的取值 | 事实刻面（取值、单位、条件，逐条链接原文） |
+| 文档目录 | 原文结构 | 文档目录树（PageIndex） |
+
+**刻面**（卡片的结构化附加信息），每一条都必须引用卡片中已核验的证据：
+- **适用条件** `conditions [{dim, value, evidence}]`：维度由 `SCHEMA.md`「适用条件维度」声明（默认：工艺节点、波长、NA、图层、掩模、应用）。工艺节点按区间匹配（“≤7nm”覆盖“5nm”），波长有同义词（EUV = 13.5nm）。筛选时：明确符合的显示，原文未说明条件的视为**通用**照常显示，标明适用于其他条件的排除。问答按条件导航，并要求答案说明结论成立的条件。
+- **事件** `events [{when, what, evidence}]` → 时间线；**事实** `facts [{name, value, unit, conditions, evidence}]` → 对比表。
+- **支持检查（机械）**：数值必须出现在所引原文中，词语多数出现；事件和条件也可出现在所引行前后 3 行（表格同行、小节标题）。未通过的刻面不删除（治理留痕），但视图与筛选不使用、读者看不到，审阅者看到“原文不支持”标记且风险升为中。`lkb reverify` 会刷新支持标记。
+- 新编译直接产出刻面；已有卡片用 `lkb annotate --auto`（回填）与 `--unsupported`（重做）补齐，结果作为新修订进入审阅。
+
+## 4.8 问题登记簿（`issues.py`）
+
+矛盾、开放问题、知识缺口、读者报告是独立条目（`issues/*.json`），有状态（未解决 / 已解决 / 不处理）与处理记录，同一问题自动去重（记“出现 N 次”）：
+- 编译器报告的矛盾与开放问题、每条 `contradicts` 关系 → 自动登记；
+- 问答中的“资料缺口” → 知识缺口（告诉管理员该补哪些文档）；
+- 读者在卡片上“报告问题” → 读者报告。
+未解决的矛盾与开放问题显示在相关卡片上，**所有读者可见**（知识库不粉饰矛盾）。CLI：`lkb issues`、`lkb issue ID resolve -m …`、`lkb report CARD 标题`。
+
+## 4.9 原文处理策略
+
+每篇原文有处理策略：**编译**、**仅参考**（可浏览、可在问答中导航，不编译成卡片）、**排除**。目录页 / 导航页 / 链接列表自动识别为“仅参考”（ASML 资料中的课程目录页即如此），管理员可覆盖：`lkb policy PATH compile|reference|exclude|auto`。
+
+## 4.10 面向智能体：MCP 服务（`mcp.py`）
+
+`lkb --user reader1 mcp` 以标准输入输出提供 MCP 工具（仅标准库）：`search_knowledge`、`get_card`、`knowledge_tree`、`list_documents`、`document_outline`、`read_source`、`verify_quote`、`facts`、`timeline`、`list_issues`、`ask`。权限随配置用户：读者身份只能看到**已发布修订**的内容；所有工具都支持适用条件；每次调用写入审计日志。接入 Claude Code：
+```
+claude mcp add lithokb -- python3 /path/to/litho-kb/lkb --root /path/to/kbdata --user reader1 mcp
+```
+
 ## 5. 问答：导航 → 精读 → 作答 → 回写（`ask.py`）
 
 1. **导航**（PageIndex）：模型看到问题、知识树（按主题层级排列的卡片与一句话摘要）、每篇文档的目录树，**说明理由**地选出要读的卡片（≤12）与原文章节（≤8）。没有向量、没有相似度阈值。
@@ -245,6 +284,10 @@ kbdata/
 | `lithokb/ask.py` | 问答：导航 → 精读 → 作答 → 回写 |
 | `lithokb/quality.py` | 卡片粒度度量与审阅风险分级 |
 | `lithokb/consolidate.py` | 整合重写 / 拆分（LLM）与合并（确定性） |
+| `lithokb/facets.py` | 刻面：适用条件匹配、支持检查、筛选 |
+| `lithokb/annotate.py` | 已有卡片的刻面回填（LLM） |
+| `lithokb/issues.py` | 问题登记簿 |
+| `lithokb/mcp.py` | MCP 服务（智能体工具） |
 | `lithokb/llm.py` | anthropic / command / mock 后端 |
 | `lithokb/auth.py` | 用户、角色、pbkdf2 密码、HMAC 令牌 |
 | `lithokb/server.py` | JSON API + 静态前端 |

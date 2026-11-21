@@ -48,6 +48,8 @@ sections. Be precise and concise; keep formulas in LaTeX; state conditions (node
   quotes that section verbatim (path = the section's document path, never a card id): {"id":"S1","path":"…","lines":"a-b","quote":"…"} (≤ 300 chars, copied exactly,
   without the "NNNN|" prefix). Quotes are machine-checked.
 - If the material is insufficient or contradictory, say so explicitly and list what is missing under "gaps".
+- State under which conditions (node, wavelength, layer…) your statements hold when the material says so; never
+  carry a statement over to conditions the material does not cover.
 Return exactly one JSON object in a ```json block:
 {"answer_md":"…","evidence":[…],"used_cards":["…"],"confidence":0.0,"gaps":"…"}"""
 
@@ -81,19 +83,28 @@ class Asker:
         self.kb, self.cards, self.comp = kb, cards, compiler
 
     def _visible(self, include_unpublished: bool) -> list[dict]:
-        return [m for m in self.cards.index().values()
-                if m.get("lifecycle", "active") == "active" and m.get("status") != "rejected"
-                and (include_unpublished or is_public(m))]
+        out = []
+        for m in self.cards.index().values():
+            if m.get("lifecycle", "active") != "active" or m.get("status") == "rejected":
+                continue
+            if not include_unpublished:
+                m = m.get("_pub") if is_public(m) else None  # readers: published revision content only
+            if m:
+                out.append(m)
+        return out
 
     def _card_text(self, cid: str, include_unpublished: bool) -> str:
         head, body = self.cards.load(cid)
         if not include_unpublished:
             head, body = self.cards.load_rev(cid, head["published_rev"])
         rels = ", ".join(f"{r['rel']}→{r['target']}" for r in head.get("relations", []))
+        from .facets import ok
+        conds = "; ".join(f"{c['dim']}={c['value']}" for c in ok(head.get("conditions", []))) or "general (none stated)"
         return (f'<card id="{cid}" type="{head["type"]}" rev="{head["rev"]}">\n# {head["title"]}\n{head.get("summary", "")}\n\n'
-                f"{body}\n\nrelations: {rels}\n</card>")
+                f"{body}\n\nrelations: {rels}\napplies under: {conds}\n</card>")
 
-    def ask(self, user: dict, question: str, cfg: dict, include_unpublished: bool = False) -> dict:
+    def ask(self, user: dict, question: str, cfg: dict, include_unpublished: bool = False,
+            conditions: dict | None = None) -> dict:
         question = question.strip()
         if not question:
             raise ValueError("empty question")
@@ -101,6 +112,7 @@ class Asker:
         run = {"id": rid, "kind": "query", "by": user["name"], "started": now(), "status": "running",
                "backend": cfg["backend"], "model": cfg.get("model"), "effort": cfg.get("effort"),
                "prompt_version": PROMPT_VERSION, "question": question, "scope": "all" if include_unpublished else "published",
+               "conditions": conditions or {},
                "sources": [], "source_shas": {}, "timeline": [], "written": []}
 
         def step(name, **kw):
@@ -109,14 +121,20 @@ class Asker:
 
         try:
             visible = self._visible(include_unpublished)
+            if conditions:  # cards stated to apply under other conditions are not offered at all
+                from . import facets as F
+                visible = [m for m in visible if F.applies(F.ok(m.get("conditions", [])), conditions) != "no"]
             vis_ids = {c["id"] for c in visible}
             meta = S.load_meta(self.kb)
             docs = []
-            for p in S.list_md(self.kb):
+            for p in S.list_md_by_policy(self.kb, "compile", "reference"):  # excluded documents are not navigated
                 tree = doctree.build(S.read_text(self.kb, p), meta[p]["sha256"])
                 docs.append((p, tree))
             depth = 6 if sum(t["chars"] for _, t in docs) < 2_000_000 else 2
-            nav_user = (f"<question>{question}</question>\n\n# Knowledge tree ({len(visible)} cards)\n<card-index>\n"
+            cond_txt = ("\n<conditions>The user asks about: " + ", ".join(f"{k}={v}" for k, v in conditions.items()) +
+                        ". Prefer knowledge stated for these conditions; general knowledge (no condition stated) may "
+                        "still apply.</conditions>\n") if conditions else ""
+            nav_user = (f"<question>{question}</question>{cond_txt}\n\n# Knowledge tree ({len(visible)} cards)\n<card-index>\n"
                         f"{_tree_text(visible) or '(no cards)'}\n</card-index>\n\n# Source documents (tables of contents)\n" +
                         "\n".join(f'<doc path="{p}" title="{t["title"]}" lines="{t["lines"]}">\n{doctree.outline(t, depth)}\n</doc>'
                                   for p, t in docs))
@@ -149,7 +167,7 @@ class Asker:
                 blocks.append(f'<section path="{s["path"]}" node="{s["node"]}" lines="{a}-{b}" title="{s["title"]}">\n{num}\n</section>')
             run["sources"] = sorted({s["path"] for s in secs})
             run["source_shas"] = {p: meta[p]["sha256"] for p in run["sources"]}
-            ans_user = f"<question>{question}</question>\n\n# Reading material\n" + ("\n\n".join(blocks) or "(nothing selected)")
+            ans_user = f"<question>{question}</question>{cond_txt}\n\n# Reading material\n" + ("\n\n".join(blocks) or "(nothing selected)")
             res = self.comp.llm_step(run, cfg, ANS_SYSTEM, ans_user, prefix="ans-")
             ans = parse_response_obj(res.text)
             cache: dict = {}
@@ -180,6 +198,11 @@ class Asker:
             run["answer"] = {"answer_md": str(ans.get("answer_md", "")), "evidence": ev, "used_cards": used,
                              "confidence": ans.get("confidence"), "gaps": str(ans.get("gaps", "") or "")}
             run["grounding"] = grounding(ev)
+            if run["answer"]["gaps"].strip() and run["answer"]["gaps"].strip() not in ("无", "none", "None", "-"):
+                from .issues import Issues  # what users need but the knowledge base cannot answer → gap register
+                gap = Issues(self.kb).create(user["name"], "gap", question[:120], run["answer"]["gaps"],
+                                             cards=used, sources=run["sources"], origin={"kind": "query", "run": rid})
+                run["gap_issue"] = gap["id"]
             run["status"] = "done"
             step("answered", evidence=len(ev), grounding=run["grounding"]["score"])
         except Exception as e:

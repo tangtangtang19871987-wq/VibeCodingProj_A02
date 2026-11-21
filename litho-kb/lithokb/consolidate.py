@@ -201,6 +201,9 @@ class Consolidator:
                     "summary": ch["summary"],
                     "relations": [{"rel": "part_of", "target": cid, "basis": "inferred", "confidence": 0.9}],
                     "evidence": [{**{k: ev[o][k] for k in ("path", "lines", "quote")}, "id": mapping[o]} for o in ch["evidence_ids"]],
+                    # facets follow their evidence into the child card
+                    **{k: [{**x, "evidence": mapping[x["evidence"]]} for x in head.get(k, []) or []
+                           if x.get("evidence") in mapping] for k in ("conditions", "events", "facts")},
                     "sources": sorted({ev[o]["path"] for o in ch["evidence_ids"]}), "confidence": head.get("confidence")}
             h = self.cards.new_revision(user["name"], card, cbody, origin, change_note=f"split from {cid} (consolidation {rid})")
             run["written"].append({"id": ch["id"], "rev": h["rev"], "action": "create", "grounding": h["grounding"]})
@@ -222,6 +225,8 @@ class Consolidator:
         card = {"id": cid, "title": plan["title"], "type": head["type"], "parent": head.get("parent", ""),
                 "aliases": plan["aliases"], "summary": plan["summary"], "relations": head.get("relations", []),
                 "evidence": [{k: e[k] for k in ("id", "path", "lines", "quote")} for e in keep],
+                **{k: [x for x in head.get(k, []) or [] if x.get("evidence") in {e["id"] for e in keep}]
+                   for k in ("conditions", "events", "facts")},
                 "sources": sorted({e["path"] for e in keep}), "confidence": head.get("confidence")}
         note = f"consolidation {rid}: {plan['decision']}" + (f" into {len(plan['children'])} child card(s)" if plan["children"] else "")
         h = self.cards.new_revision(user["name"], card, body, origin, change_note=note)
@@ -266,6 +271,8 @@ def merge(cards: Cards, user: dict, src: str, into: str) -> dict:
             "aliases": list(dict.fromkeys(list(a.get("aliases", [])) + [b["title"]] + list(b.get("aliases", [])))),
             "summary": a.get("summary", ""), "relations": rels,
             "evidence": [{k: e[k] for k in ("id", "path", "lines", "quote")} for e in a.get("evidence", [])] + new_ev,
+            **{k: list(a.get(k, []) or []) + [{**x, "evidence": mapping[x["evidence"]]} for x in b.get(k, []) or []
+                                              if x.get("evidence") in mapping] for k in ("conditions", "events", "facts")},
             "sources": sorted({s["path"] for s in a.get("sources", [])} | {s["path"] for s in b.get("sources", [])}),
             "confidence": a.get("confidence")}
     h = cards.new_revision(user["name"], card, body, {"kind": "human", "op": "merge", "user": user["name"], "merged": src},

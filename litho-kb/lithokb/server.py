@@ -17,10 +17,11 @@ from urllib.parse import parse_qs, unquote, urlparse
 from . import __version__
 from . import auth as A
 from . import doctree
+from . import facets as F
 from . import schema as SC
 from . import sources as S
 from .ask import Asker
-from .cards import CardError, Cards, is_public
+from .cards import CardError, Cards, is_public, slug
 from .compiler import Compiler, card_history
 from .store import KB
 
@@ -217,6 +218,11 @@ def make_handler(app: App):
             if head == "cards":
                 if method == "GET" and len(parts) == 1:
                     rows = C.listing(status=q.get("status") or None, visible_only=not reviewer)
+                    want = F.parse_filter(q.get("cond", ""))
+                    if want:  # applicability filter: keep matching + general (no condition stated) cards
+                        for row in rows:
+                            row["applies"] = F.applies(F.ok(row.get("conditions", [])), want)
+                        rows = [r for r in rows if r["applies"] != "no"]
                     if reviewer:  # risk + granularity are governance signals for reviewers/admins
                         for row in rows:
                             row["risk"] = C.risk(row["id"])
@@ -256,6 +262,9 @@ def make_handler(app: App):
                                             or m.get("parent") == cid) and (reviewer or is_public(m))]
                     if out.get("published"):
                         paths |= card_source_paths(out["published"], out["published"].get("body", ""))
+                    from .issues import PUBLIC_KINDS, Issues
+                    iss = Issues(kb).query(status="open", card=cid)
+                    out["issues"] = iss if reviewer else [i for i in iss if i["kind"] in PUBLIC_KINDS]
                     out["source_titles"] = S.doc_titles(kb, paths)
                     out["view"] = view
                     return self._json(out)
@@ -301,7 +310,9 @@ def make_handler(app: App):
                 from .compiler import llm_config
                 adm = user and user["role"] == "admin"
                 cfg = llm_config(kb, b.get("backend") if adm else None, b.get("model") if adm else None)
-                return self._json(app.asker.ask(user, b.get("question", ""), cfg, include_unpublished=incl))
+                return self._json(app.asker.ask(user, b.get("question", ""), cfg, include_unpublished=incl,
+                                                conditions=F.parse_filter(b.get("cond", "")) if isinstance(b.get("cond", ""), str)
+                                                else dict(b.get("cond") or {})))
             if head == "queries":
                 A.require(user, "reader")
                 if len(parts) == 1:
@@ -321,8 +332,72 @@ def make_handler(app: App):
                     {e.get("path", "") for e in (run.get("answer") or {}).get("evidence", [])}
                 return self._json({**run, "source_titles": S.doc_titles(kb, paths)})
 
+            if head == "issues":
+                from .issues import Issues, PUBLIC_KINDS
+                reg = Issues(kb)
+                if method == "POST" and len(parts) == 1:
+                    A.require(user, "reader")
+                    b = self._body()
+                    kind = b.get("kind", "report")
+                    if kind != "report":
+                        A.require(user, "reviewer")
+                    cid_ = slug(b.get("card", ""))
+                    return self._json(reg.create(user["name"], kind, b.get("title", ""), b.get("detail", ""),
+                                                 cards=[cid_] if cid_ else b.get("cards", []),
+                                                 origin={"kind": "user", "role": user["role"]}))
+                if method == "POST" and parts[2:3] == ["action"]:
+                    A.require(user, "reader")
+                    b = self._body()
+                    return self._json(reg.act(user, parts[1], b.get("action", ""), b.get("comment", ""), b.get("resolution", "")))
+                if method == "GET" and len(parts) == 1:
+                    if reviewer:
+                        return self._json({"items": reg.query(q.get("status") or None, q.get("kind") or None,
+                                                              q.get("card") or None), "stats": reg.stats()})
+                    A.require(user, "reader")  # readers: their own reports
+                    return self._json({"items": reg.query(q.get("status") or None, by=user["name"]), "stats": {}})
+                if method == "GET" and len(parts) == 2:
+                    it = reg.get(parts[1])
+                    if not reviewer and it.get("by") != (user or {}).get("name") and it["kind"] not in PUBLIC_KINDS:
+                        raise FileNotFoundError(parts[1])
+                    return self._json({**it, "source_titles": S.doc_titles(kb, it.get("sources", []))})
+
             if head == "graph":
-                return self._json(C.graph(visible_only=not (reviewer and q.get("all") == "1")))
+                g = C.graph(visible_only=not (reviewer and q.get("all") == "1"))
+                want = F.parse_filter(q.get("cond", ""))
+                if want:
+                    idx = C.index()
+                    keep = {n["id"] for n in g["nodes"] if F.applies(F.ok(idx[n["id"]].get("conditions", [])), want) != "no"}
+                    for n in g["nodes"]:
+                        n["applies"] = F.applies(F.ok(idx[n["id"]].get("conditions", [])), want)
+                    g = {"nodes": [n for n in g["nodes"] if n["id"] in keep],
+                         "edges": [e for e in g["edges"] if e["s"] in keep and e["t"] in keep]}
+                return self._json(g)
+            if head == "dims":
+                return self._json(F.dims(kb))
+            if head in ("timeline", "facts"):
+                want = F.parse_filter(q.get("cond", ""))
+                rows = []
+                for m in C.index().values():
+                    if not (reviewer and q.get("all") == "1") and not is_public(m):
+                        continue
+                    if m.get("lifecycle", "active") != "active" or F.applies(F.ok(m.get("conditions", [])), want) == "no":
+                        continue
+                    evs = {e["id"]: e for e in m.get("evidence", [])}
+                    for it in F.ok(m.get("events" if head == "timeline" else "facts", [])):
+                        e = evs.get(it.get("evidence"), {})
+                        row = {**it, "card": m["id"], "card_title": m["title"], "card_type": m["type"],
+                               "path": e.get("path", ""), "lines": e.get("found_lines") or e.get("lines", ""),
+                               "quote": e.get("quote", ""), "check": e.get("check", "")}
+                        if head == "timeline":
+                            row["year"] = F.year_of(it.get("when", ""))
+                        else:
+                            row["card_conditions"] = F.ok(m.get("conditions", []))
+                        rows.append(row)
+                if head == "timeline":
+                    rows.sort(key=lambda r: (r["year"] is None, r["year"] or 0, r["when"]))
+                else:
+                    rows.sort(key=lambda r: (r["name"].lower(), r["card_title"]))
+                return self._json({"rows": rows, "source_titles": S.doc_titles(kb, {r["path"] for r in rows})})
             if head == "search":
                 qq = q.get("q", "")
                 res = {"cards": C.search(qq, visible_only=not reviewer), "sources": []}

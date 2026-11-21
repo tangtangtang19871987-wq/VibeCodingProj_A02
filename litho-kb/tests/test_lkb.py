@@ -812,3 +812,134 @@ class TestRiskBatchGranularity(unittest.TestCase):
         self.assertIn("SMO 作用", h["aliases"])
         t, _ = self.cards.load("thin")
         self.assertEqual((t["lifecycle"], t["replaced_by"]), ("superseded", "big"))
+
+
+class TestViewsFacetsIssuesMCP(unittest.TestCase):
+    def setUp(self):
+        self.kb = fresh_kb()
+        S.put(self.kb, "rev", [
+            {"path": "a.md", "text": "# EUV\n\n随着工艺节点进入5nm以下，EUV光刻成为主流。\n\n2019年 EUV 进入量产。\n\nDOF > 100 nm 是典型签核目标。\n"},
+            {"path": "toc.md", "text": "# 目录\n" + "".join(f"\n- [第{i}章]({i:02d}.md)" for i in range(1, 12))}])
+        self.cards = Cards(self.kb)
+        self.admin, self.rev, self.rev2, self.bob = (user(self.kb, n) for n in ("admin", "rev", "rev2", "bob"))
+        ev = [{"id": "E1", "path": "a.md", "lines": "3", "quote": "随着工艺节点进入5nm以下，EUV光刻成为主流。"},
+              {"id": "E2", "path": "a.md", "lines": "5", "quote": "2019年 EUV 进入量产。"},
+              {"id": "E3", "path": "a.md", "lines": "7", "quote": "DOF > 100 nm 是典型签核目标。"}]
+        self.cards.new_revision("x", {"id": "euv", "title": "EUV 光刻", "type": "concept", "evidence": ev,
+                                      "conditions": [{"dim": "wavelength", "value": "EUV", "evidence": "E1"},
+                                                     {"dim": "node", "value": "5nm 及以下", "evidence": "E1"},
+                                                     {"dim": "node", "value": "<7nm", "evidence": "E3"}],
+                                      "events": [{"when": "2019", "what": "EUV 进入量产", "evidence": "E2"},
+                                                 {"when": "下一讲", "what": "x", "evidence": "E2"}],
+                                      "facts": [{"name": "DOF", "value": "> 100", "unit": "nm", "evidence": "E3"},
+                                                {"name": "缺陷类型", "value": "Micro-bridging", "evidence": "E1"}]},
+                                "EUV 成为主流 [E1]，2019 年量产 [E2]，DOF [E3]。", {"kind": "llm"})
+        self.cards.new_revision("x", {"id": "arf", "title": "ArF 浸没", "type": "concept", "evidence": ev[:1],
+                                      "conditions": [{"dim": "wavelength", "value": "193nm", "evidence": "E1"}]},
+                                "ArF [E1]", {"kind": "llm"})
+
+    def tearDown(self):
+        shutil.rmtree(self.kb.root)
+
+    def test_policy_detection_and_plan(self):
+        self.assertEqual(S.policy_of(self.kb, "toc.md")["policy"], "reference")
+        self.assertEqual(S.policy_of(self.kb, "a.md")["policy"], "compile")
+        comp = Compiler(self.kb, self.cards)
+        self.assertEqual(comp.plan(None), ["a.md"])
+        S.set_policy(self.kb, "admin", "toc.md", "compile", "test")
+        self.assertIn("toc.md", comp.plan(None))
+        S.set_policy(self.kb, "admin", "a.md", "exclude")
+        self.assertNotIn("a.md", S.list_md_by_policy(self.kb, "compile", "reference"))
+
+    def test_facets_support_and_conditions(self):
+        from lithokb import facets as F
+        m, _ = self.cards.load("euv")
+        sup = {(k, x.get("value", x.get("when"))): x["supported"] for k in ("conditions", "events", "facts") for x in m[k]}
+        self.assertTrue(sup[("conditions", "EUV")] and sup[("conditions", "5nm 及以下")])
+        self.assertFalse(sup[("conditions", "<7nm")])          # quote does not mention 7 nm
+        self.assertTrue(sup[("events", "2019")])
+        self.assertFalse(sup[("events", "下一讲")])              # not a date
+        self.assertTrue(sup[("facts", "> 100")])
+        self.assertFalse(sup[("facts", "Micro-bridging")])     # cited quote does not state it
+        self.assertEqual(F.applies(F.ok(m["conditions"]), {"node": "3nm"}), "yes")
+        self.assertEqual(F.applies(F.ok(m["conditions"]), {"node": "28nm"}), "no")
+        self.assertEqual(F.applies(F.ok(m["conditions"]), {"wavelength": "13.5nm"}), "yes")
+        self.assertEqual(F.applies([], {"wavelength": "EUV"}), "general")
+        self.assertEqual(F.applies(self.cards.load("arf")[0]["conditions"], {"wavelength": "EUV"}), "no")
+        self.assertEqual(F._nm_interval("65nm–5nm"), (5.0, 65.0))
+        self.assertEqual(F._nm_interval("≥28nm"), (28.0, float("inf")))
+        self.assertIn("node", F.dims(self.kb))
+        self.assertIn("1 条刻面", " ".join(self.cards.risk("euv")["reasons"]).replace("3 条刻面", "1 条刻面"))
+
+    def test_issue_register(self):
+        from lithokb.issues import Issues
+        reg = Issues(self.kb)
+        a = reg.create("rev", "contradiction", "DOF 目标两处说法不同", "a.md 说 >100nm，b.md 说 >80nm", cards=["euv"])
+        b = reg.create("rev", "contradiction", "DOF 目标两处说法不同！", "again", cards=["euv"])
+        self.assertEqual((a["id"], b["seen"]), (b["id"], 2))     # deduplicated
+        r = reg.create("bob", "report", "E3 数值与原文不一致", cards=["euv"])
+        with self.assertRaises(PermissionError):
+            reg.act(self.bob, a["id"], "resolve", "x")
+        reg.act(self.bob, r["id"], "comment", "补充：原文第7行")   # reporter may comment
+        with self.assertRaises(Exception):
+            reg.act(self.rev, a["id"], "resolve", "")             # needs an explanation
+        x = reg.act(self.rev, a["id"], "resolve", "不同节点的目标，已在卡片中注明条件")
+        self.assertEqual(x["status"], "resolved")
+        self.assertEqual(reg.stats()["open"], 1)
+
+    def test_reader_never_sees_unpublished_revision(self):
+        self.cards.act(self.rev, "euv", "approve")
+        self.cards.act(self.admin, "euv", "publish")
+        self.cards.human_edit(self.rev2, "euv", {"title": "EUV 光刻（草稿新标题）", "summary": "SECRET-DRAFT",
+                                                 "body": "SECRET-DRAFT 正文 [E1]"})
+        idx_view = [c for c in self.cards.listing(visible_only=True) if c["id"] == "euv"][0]
+        self.assertEqual((idx_view["title"], idx_view["rev"]), ("EUV 光刻", 1))
+        self.assertEqual(self.cards.search("SECRET-DRAFT", visible_only=True), [])
+        self.assertTrue(self.cards.search("SECRET-DRAFT", visible_only=False))
+        g = self.cards.graph(visible_only=True)
+        self.assertEqual([n["title"] for n in g["nodes"] if n["id"] == "euv"], ["EUV 光刻"])
+        from lithokb.mcp import Server
+        srv = Server(self.kb, self.bob)
+        out = json.dumps(srv.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                     "params": {"name": "get_card", "arguments": {"id": "euv"}}}), ensure_ascii=False)
+        self.assertNotIn("SECRET-DRAFT", out)
+        self.assertIn("EUV 成为主流", out)
+
+    def test_mcp_protocol(self):
+        import io
+        from lithokb.mcp import Server
+        self.cards.act(self.rev, "euv", "approve")
+        self.cards.act(self.admin, "euv", "publish")
+        msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},
+                {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+                {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "facts", "arguments": {"name": "DOF"}}},
+                {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "search_knowledge", "arguments": {"query": "EUV", "conditions": {"node": "28nm"}}}},
+                {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "read_source", "arguments": {"path": "a.md", "start": 3, "end": 3}}},
+                {"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "get_card", "arguments": {"id": "arf"}}},
+                {"jsonrpc": "2.0", "id": 7, "method": "nope"}]
+        out = io.StringIO()
+        Server(self.kb, self.bob).serve(io.StringIO("\n".join(json.dumps(m) for m in msgs) + "\n"), out)
+        res = {r["id"]: r for r in map(json.loads, out.getvalue().splitlines())}
+        self.assertNotIn(None, res)                              # notification got no response
+        self.assertEqual(res[1]["result"]["serverInfo"]["name"], "lithokb")
+        self.assertEqual(len(res[2]["result"]["tools"]), 11)
+        self.assertIn('"value": "> 100"', res[3]["result"]["content"][0]["text"])
+        self.assertEqual(json.loads(res[4]["result"]["content"][0]["text"]), [])   # EUV card does not apply to 28nm
+        self.assertIn("    3|随着工艺节点", res[5]["result"]["content"][0]["text"])
+        self.assertTrue(res[6]["result"]["isError"])             # unpublished → refused, as a tool error
+        self.assertEqual(res[7]["error"]["code"], -32601)
+
+    def test_annotate_backfill_mock(self):
+        from lithokb.annotate import Annotator
+        self.cards.new_revision("x", {"id": "bare", "title": "Bare", "type": "concept",
+                                      "evidence": [{"id": "E1", "path": "a.md", "lines": "5", "quote": "2019年 EUV 进入量产。"}]},
+                                "bare [E1]", {"kind": "llm"})
+        an = Annotator(self.kb, self.cards, Compiler(self.kb, self.cards))
+        self.assertIn("bare", an.candidates())
+        r = an.run(self.admin, "bare", {**self.kb.config["llm"], "backend": "mock"})
+        self.assertEqual(r["status"], "done")
+        m, _ = self.cards.load("bare")
+        self.assertEqual(m["origin"]["op"], "annotate")
+        self.assertEqual([(c["dim"], c["value"]) for c in m["conditions"]], [("wavelength", "EUV")])
+        self.assertEqual(m["events"][0]["when"], "2019")

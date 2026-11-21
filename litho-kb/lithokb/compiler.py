@@ -37,7 +37,7 @@ from . import sources as S
 from .cards import BASES, CARD_TYPES, RELATIONS, Cards, slug, summary_id
 from .store import KB, atomic_write, now, read_jsonl
 
-PROMPT_VERSION = "lkb-compile/5"
+PROMPT_VERSION = "lkb-compile/6"
 
 PROTOCOL = """You are the knowledge compiler of LithoKB, a curated knowledge base for computational lithography.
 You read source documents and maintain a persistent wiki of atomic, interlinked knowledge cards that domain
@@ -65,6 +65,15 @@ id, title, type, parent, aliases, summary, body_md, relations, evidence, confide
   Never shorten a quote with "…" and never stitch non-adjacent fragments (e.g. cells from different table rows):
   quote one shorter contiguous span instead, and use several evidence items if needed.
 - Never assert facts from outside knowledge; domain knowledge may only be used to name, organise and link.
+
+## Facets (optional, but only when the source states them; each item cites an evidence id of the card)
+- "conditions": [{{"dim":"<dimension from the schema>","value":"…","evidence":"E2"}}] — under which conditions the
+  card's statements hold (process node, wavelength, NA, layer, mask, application…). Omit when not stated (= general).
+- "events": [{{"when":"2019 | 2019-06 | 2010s","what":"…","evidence":"E3"}}] — dated milestones / evolution.
+- "facts": [{{"name":"DOF","value":"> 100","unit":"nm","conditions":{{"node":"7nm"}},"evidence":"E4"}}] — numeric or
+  categorical values worth comparing across cards (parameters, metrics, typical ranges).
+- Facet values are machine-checked against the cited quote: copy numbers, units and terms verbatim in the source
+  language (no translation, paraphrase, counting or derivation).
 
 ## Epistemic labels (required on every relation)
 relation = {{"rel":"…","target":"…","basis":"extracted|inferred|ambiguous","confidence":0.0-1.0,"evidence":"E2"}}
@@ -94,8 +103,13 @@ JSON, card bodies or quotes in your reasoning — write them once, directly in t
 ## Output
 Exactly one JSON object in a ```json fenced block, nothing else:
 {{"cards":[{{"action":"create|update|append","id":"…","title":"…","type":"…","parent":"…","aliases":["…"],
-"summary":"…","body_md":"…","relations":[…],"evidence":[…],"confidence":0.0,"change_note":"…"}}],
+"summary":"…","body_md":"…","relations":[…],"evidence":[…],"conditions":[…],"events":[…],"facts":[…],
+"confidence":0.0,"change_note":"…"}}],
+"issues":[{{"kind":"contradiction|open_question","title":"…","detail":"…","cards":["…"],
+"evidence":[{{"path":"…","lines":"a-b","quote":"…"}}]}}],
 "notes":"for the human reviewers: uncertainties, conflicts, ambiguous relations, what you chose not to compile"}}
+"issues" (optional): register real contradictions between sources / with existing cards, and important questions
+the sources leave open. They are tracked by people until resolved — do not invent issues.
 """.format(types=", ".join(CARD_TYPES), relations=", ".join(RELATIONS))
 
 
@@ -264,7 +278,9 @@ def apply_append(cards: Cards, c: dict, add_md: str, run_paths: list[str]) -> tu
         if (r["rel"], r["target"]) not in have:
             rels.append(r)
             have.add((r["rel"], r["target"]))
-    card = {"id": c["id"], "title": head["title"], "type": head["type"], "parent": head.get("parent", ""),
+    remap = lambda items: [{**x, "evidence": mapping.get(x.get("evidence"), x.get("evidence"))} for x in items or []]
+    fac = {k: list(head.get(k, []) or []) + remap(c.get(k)) for k in ("conditions", "events", "facts")}
+    card = {"id": c["id"], "title": head["title"], "type": head["type"], "parent": head.get("parent", ""), **fac,
             "aliases": list(dict.fromkeys(list(head.get("aliases", [])) + list(c.get("aliases", [])))),
             "summary": head.get("summary", ""), "relations": rels,
             "evidence": [{k: e[k] for k in ("id", "path", "lines", "quote")} for e in head.get("evidence", [])] + new_ev,
@@ -354,6 +370,8 @@ def validate(cards: Cards, data: dict, paths: list[str], expect_summaries: list[
             findings.append({"level": "error", "card": f"#{i}", "msg": f"card is not an object ({type(c).__name__}) — dropped"})
     batch_ids = {slug(str(c.get("id", "") or c.get("title", ""))) for c in items}
     resolver = IdResolver(cards, batch_ids)
+    from . import facets as facets_mod
+    known_dims = facets_mod.dims(cards.kb)
     from .quality import granularity_cfg, units
     gcfg = granularity_cfg(cards.kb)
 
@@ -433,15 +451,16 @@ def validate(cards: Cards, data: dict, paths: list[str], expect_summaries: list[
                 findings.append({"level": "info", "card": cid, "msg": f"thin card ({u} units < {gcfg['min_units']}): a single fact may belong in a related card"})
             elif u > gcfg["hard_max"]:
                 findings.append({"level": "warn", "card": cid, "msg": f"card body {u} units > hard max {gcfg['hard_max']}: consolidate or split"})
+        fac = facets_mod.normalize(c, ev_ids, known_dims, findings, cid)
         if append:
-            out.append({"id": cid, "append": True, "add_md": body, "aliases": c.get("aliases", []) or [],
+            out.append({"id": cid, "append": True, "add_md": body, "aliases": c.get("aliases", []) or [], **fac,
                         "relations": rels, "evidence": ev, "sources": paths, "body": body,
                         "change_note": c.get("change_note", ""), "exists": True})
             continue
         out.append({"id": cid, "title": c.get("title", cid), "type": c.get("type", "concept"), "parent": parent,
                     "aliases": c.get("aliases", []) or [], "summary": c.get("summary", ""),
                     "relations": rels, "evidence": ev, "sources": paths, "confidence": c.get("confidence"),
-                    "body": body, "change_note": c.get("change_note", ""), "exists": exists})
+                    "body": body, "change_note": c.get("change_note", ""), "exists": exists, **fac})
     for sid in expect_summaries or []:
         if sid not in {o["id"] for o in out} and sid not in idx:
             findings.append({"level": "warn", "card": sid, "msg": "summary card for this document was not produced"})
@@ -521,7 +540,8 @@ class Compiler:
     def plan(self, paths: list[str] | None, only_changed: bool = True) -> list[str]:
         """Which documents need compiling: all, or only those whose sha changed since last full compile."""
         all_md = S.list_md(self.kb)
-        paths = [S.clean_path(p) for p in paths] if paths else all_md
+        # only documents whose policy is "compile" are compiled by default; naming one explicitly still works
+        paths = [S.clean_path(p) for p in paths] if paths else S.list_md_by_policy(self.kb, "compile")
         missing = [p for p in paths if p not in all_md]
         if missing:
             raise ValueError(f"not a source document: {missing}")
@@ -641,6 +661,7 @@ class Compiler:
             atomic_write(self._trace_dir(rid) / "parsed.json", json.dumps(data, ensure_ascii=False, indent=1))
             norm, findings = validate(self.cards, data, paths, [summary_id(p) for p in paths])
             run["notes"] = data.get("notes", "")
+            run["issues"] = register_issues(self.kb, actor, data, norm, rid)
             run["findings"] = findings
             step("validated", cards=len(norm), findings=len(findings))
             for sid in schema_topic_stubs(self.kb, self.cards, norm):
@@ -752,6 +773,35 @@ class Compiler:
         return s
 
 
+def register_issues(kb: KB, actor: str, data: dict, norm: list[dict], rid: str) -> list[str]:
+    """Contradictions / open questions reported by the compiler, plus every 'contradicts' relation,
+    become items in the issue register (deduplicated)."""
+    from .cards import verify_evidence
+    from .issues import Issues
+    reg, out, cache = Issues(kb), [], {}
+    for it in data.get("issues") or []:
+        if not isinstance(it, dict) or it.get("kind") not in ("contradiction", "open_question"):
+            continue
+        ev = [verify_evidence(kb, {"id": f"Q{i + 1}", "path": str(e.get("path", "")), "lines": str(e.get("lines", "")),
+                                   "quote": str(e.get("quote", ""))[:600]}, cache)
+              for i, e in enumerate(it.get("evidence") or []) if isinstance(e, dict)]
+        try:
+            x = reg.create(actor, it["kind"], str(it.get("title", "")), str(it.get("detail", "")),
+                           cards=[slug(str(c)) for c in it.get("cards") or []], sources=[e["path"] for e in ev],
+                           evidence=ev, origin={"kind": "compile", "run": rid})
+            out.append(x["id"])
+        except Exception:
+            continue
+    for c in norm:
+        for r in c.get("relations", []):
+            if r.get("rel") == "contradicts":
+                x = reg.create(actor, "contradiction", f"{c['id']} 与 {r['target']} 的说法存在矛盾",
+                               r.get("note", "") or "编译器标注了 contradicts 关系", cards=[c["id"], r["target"]],
+                               sources=c.get("sources", []), origin={"kind": "compile", "run": rid})
+                out.append(x["id"])
+    return sorted(set(out))
+
+
 def schema_topic_stubs(kb: KB, cards: Cards, norm: list[dict]) -> list[dict]:
     """Topics referenced by compiled cards that exist in the human-authored SCHEMA.md skeleton
     but not yet as cards are created deterministically (title/description from the schema)."""
@@ -792,6 +842,16 @@ def carry_forward_evidence(cards: Cards, c: dict, run_paths: list[str]) -> int:
         kept += 1
     c["sources"] = sorted(set(c["sources"]) | {s["path"] for s in prev.get("sources", []) if s["path"] not in run_paths
                                                and any(e["path"] == s["path"] for e in c["evidence"])})
+    # facets of the previous revision survive if their evidence survived (matched by source + quote)
+    new_id = {(e["path"], e["quote"]): e["id"] for e in c["evidence"]}
+    old_key = {e["id"]: (e["path"], e["quote"]) for e in prev.get("evidence", [])}
+    for k in ("conditions", "events", "facts"):
+        have_items = {repr({kk: vv for kk, vv in x.items() if kk != "evidence"}) for x in c.get(k, [])}
+        for x in prev.get(k, []) or []:
+            nid = new_id.get(old_key.get(x.get("evidence")))
+            sig = repr({kk: vv for kk, vv in x.items() if kk != "evidence"})
+            if nid and sig not in have_items:
+                c.setdefault(k, []).append({**x, "evidence": nid})
     return kept
 
 

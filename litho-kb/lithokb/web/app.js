@@ -35,11 +35,12 @@ const set = html => { $('#main').innerHTML = html; };
 
 // ---------------------------------------------------------------- shell
 function renderShell(route) {
-  const links = [['#/', '首页'], ['#/k', '知识'], ['#/graph', '图谱'], ['#/src', '原始文档']];
+  const links = [['#/', '首页'], ['#/k', '知识'], ['#/src', '原始文档']];
   if (S.me) links.push(['#/ask', '问答']);
-  const rev = [['#/review', '审阅'], ['#/traces', 'LLM观测'], ['#/schema', '规范'], ['#/lint', '健康']];
+  const rev = [['#/review', '审阅'], ['#/issues', '问题'], ['#/traces', 'LLM观测'], ['#/schema', '规范'], ['#/lint', '健康']];
   const adm = [['#/publish', '发布'], ['#/compile', '编译'], ['#/users', '用户'], ['#/log', '日志']];
-  const a = (l, cls = '') => `<a href="${l[0]}" class="${cls} ${('#/' + route[0]) === l[0] || (route[0] === '' && l[0] === '#/') ? 'on' : ''}">${l[1]}</a>`;
+  const viewRoutes = ['k', 'graph', 'mindmap', 'timeline', 'facts'];
+  const a = (l, cls = '') => `<a href="${l[0]}" class="${cls} ${('#/' + route[0]) === l[0] || (route[0] === '' && l[0] === '#/') || (l[0] === '#/k' && viewRoutes.includes(route[0])) ? 'on' : ''}">${l[1]}</a>`;
   let nav = links.map(l => a(l)).join('');
   if (can('reviewer')) nav += '<span class="sep"></span>' + rev.map(l => a(l, 'role-reviewer')).join('');
   if (can('admin')) nav += adm.map(l => a(l, 'role-admin')).join('');
@@ -185,18 +186,22 @@ routes[''] = async () => {
 };
 
 routes.k = async ([id], q) => {
-  const all = await get('cards');
+  const all = await get(id ? 'cards' : withCond('cards'));
+  if (!S.dims) S.dims = await get('dims').catch(() => ({}));
   const visible = can('reviewer') ? all.filter(c => c.published_rev || q.all) : all;
   if (!id) {
     const byType = {};
     visible.filter(c => c.type !== 'summary').forEach(c => (byType[c.type] = byType[c.type] || []).push(c));
     const sums = visible.filter(c => c.type === 'summary');
-    set(`<div class="cols"><aside class="panel side">${topicTree(visible)}</aside><section class="panel"><h1>知识卡片</h1>
-      <p class="muted small">${visible.length} 张${can('reviewer') ? '已发布卡片（审阅中的卡片见 <a href="#/review">审阅</a>）' : ''}</p>
+    const bar = await condBar();
+    set(`<div class="panel" style="margin-bottom:16px">${viewTabs('#/k')}${bar}</div><div class="cols"><aside class="panel side">${topicTree(visible)}</aside><section class="panel"><h1>知识卡片</h1>
+      <p class="muted small">${visible.length} 张${can('reviewer') ? '已发布卡片（审阅中的卡片见 <a href="#/review">审阅</a>）' : ''}${condQS() ?
+        ` · 按适用条件筛选：明确符合 <b>${visible.filter(c => c.applies === 'yes').length}</b> 张，通用（原文未说明条件）${visible.filter(c => c.applies === 'general').length} 张；已排除不适用的卡片` : ''}</p>
       ${Object.entries(byType).map(([t, cs]) => `<h3>${esc(TYPE_ZH[t] || t)} <span class="muted small">${cs.length}</span></h3><div class="cardlist">` +
-        cs.map(c => `<a class="item" href="${cardHref(c.id)}"><b>${esc(c.title)}</b><br><span class="muted small">${esc(c.summary || '')}</span></a>`).join('') + '</div>').join('')}
+        cs.map(c => `<a class="item" href="${cardHref(c.id)}"><b>${esc(c.title)}</b> ${appliesBadge(c.applies)} ${condChips(c.conditions)}<br><span class="muted small">${esc(c.summary || '')}</span></a>`).join('') + '</div>').join('')}
       <h2>文档摘要层 <span class="muted small">${sums.length} 篇 · 每篇原始文档一张摘要卡片，指向它贡献的知识</span></h2><div class="cardlist">${sums.map(c =>
         `<a class="item" href="${cardHref(c.id)}"><b>${esc(c.title)}</b> <span class="mono small muted">${(c.sources || []).map(x => esc(x.path)).join(', ')}</span><br><span class="muted small">${esc(c.summary || '')}</span></a>`).join('') || '<p class="muted">无</p>'}</div></section></div>`);
+    bindCond();
     return bindTree($('#main'));
   }
   const d = await get('cards/' + encodeURIComponent(id));
@@ -215,6 +220,7 @@ routes.k = async ([id], q) => {
         <a href="${cardHref(id)}?view=${showHead ? 'published' : 'head'}">切换</a> · <a href="#/review/${encodeURIComponent(id)}">去审阅</a></div>`;
     if (!d.published) banners += `<div class="banner warn">尚未发布（${zh(head.status)}），读者不可见。 <a href="#/review/${encodeURIComponent(id)}">去审阅</a></div>`;
   }
+  if ((d.issues || []).some(i => i.kind === 'contradiction')) banners += `<div class="banner bad">此卡片涉及尚未解决的矛盾，详见文末“已知分歧与待解问题”。</div>`;
   if ((head.stale_sources || []).length) banners += `<div class="banner warn">原始文档已更新，此卡片可能过时：${head.stale_sources.map(esc).join('，')}</div>`;
   set(`<div class="cols"><aside class="panel side">${topicTree(visible, id)}</aside>
     <article class="panel doc"><div class="row">${badge('t', TYPE_ZH[card.type] || card.type)}${can('reviewer') ? badge(head.status) : ''}
@@ -222,10 +228,12 @@ routes.k = async ([id], q) => {
     ${banners}<h1>${esc(card.title)}</h1>${(card.aliases || []).length ? `<p class="muted small">别名：${card.aliases.map(esc).join('，')}</p>` : ''}
     <p><i>${esc(card.summary || '')}</i></p>${renderCardBody(card, known)}
     ${relationsBlock(card, d.backlinks)}${(card.relations || []).length ? '<p>' + basisSummary(card.relations) + '</p>' : ''}
+    ${facetsBlock(card)}
     <h3>证据（原文引用，系统自动核验）</h3>${evidenceList(card, false)}
     <p class="small muted">来源：${(card.sources || []).map(s => `${docLink(s.path)} <span title="版本">v${s.version}</span>`).join('，')}
-    ${can('reviewer') && card.origin && card.origin.run ? ` · <a href="#/traces/${esc(card.origin.run)}">查看编译过程</a>` : ''}</p></article></div>`);
-  bindTree($('#main')); bindEvidence($('#main'));
+    ${can('reviewer') && card.origin && card.origin.run ? ` · <a href="#/traces/${esc(card.origin.run)}">查看编译过程</a>` : ''}</p>
+    ${issuesBlock(d.issues, id)}</article></div>`);
+  bindTree($('#main')); bindEvidence($('#main')); bindReport();
 };
 
 routes.src = async (parts, q) => {
@@ -311,11 +319,12 @@ routes.search = async (_, q) => {
 
 // ---------------------------------------------------------------- graph
 routes.graph = async (_, q) => {
-  const g0 = await get('graph' + (q.all ? '?all=1' : ''));
+  const g0 = await get(withCond('graph' + (q.all ? '?all=1' : '')));
+  const bar = await condBar();
   const keep = new Set(g0.nodes.filter(n => q.sum || n.type !== 'summary').map(n => n.id));
   const g = { nodes: g0.nodes.filter(n => keep.has(n.id)), edges: g0.edges.filter(e => keep.has(e.s) && keep.has(e.t)) };
   const types = [...new Set(g.nodes.map(n => n.type))];
-  set(`<div class="row"><b>知识图谱</b><span class="muted small">${g.nodes.length} 节点 · ${g.edges.length} 关系 · 滚轮缩放，拖动平移，点击打开</span>
+  set(`<div class="panel" style="margin-bottom:10px">${viewTabs('#/graph')}${bar}</div><div class="row"><b>知识图谱</b><span class="muted small">${g.nodes.length} 节点 · ${g.edges.length} 关系 · 滚轮缩放，拖动平移，点击打开</span>
       ${can('reviewer') ? `<label class="small"><input type="checkbox" id="gall" ${q.all ? 'checked' : ''}> 包含未发布</label>` : ''}
       <input id="gfilter" placeholder="高亮…" style="width:160px"></div>
     <div class="legend row">${types.map(t => `<span><i style="background:${TYPE_COLORS[t] || '#888'}"></i>${esc(TYPE_ZH[t] || t)}</span>`).join('')}
@@ -324,6 +333,7 @@ routes.graph = async (_, q) => {
     <canvas id="graph"></canvas>`);
   const gnav = () => { const p = []; if ($('#gall') && $('#gall').checked) p.push('all=1'); if ($('#gsum').checked) p.push('sum=1'); location.hash = '#/graph' + (p.length ? '?' + p.join('&') : ''); };
   if ($('#gall')) $('#gall').onchange = gnav; $('#gsum').checked = !!q.sum; $('#gsum').onchange = gnav;
+  bindCond();
   drawGraph($('#graph'), g);
 };
 
@@ -796,13 +806,16 @@ routes.ask = async ([rid]) => {
   set(`<div class="cols3"><section class="panel"><h1>问答</h1>
       <p class="muted small">基于知识库作答：先按知识树与文档目录推理出阅读计划，再精读选中的卡片与原文章节，回答中的每条原文引用都会被自动核验。</p>
       <textarea id="qq" placeholder="例如：Hopkins 模型在 EUV 条件下有什么局限？ILT 与 OPC 的主要区别是什么？" style="min-height:70px"></textarea>
+      ${await condBar()}
       <div class="row"><button class="primary" id="qgo">提问</button>${can('reviewer') ? '<label class="small"><input type="checkbox" id="qall"> 包含未发布（审阅中）卡片</label>' : ''}<span id="qwait" class="small muted"></span></div>
       ${res}</section><aside class="panel">${histHtml}</aside></div>`);
-  bindEvidence($('#main')); fillSourceLines($('#main'));
+  bindEvidence($('#main')); fillSourceLines($('#main')); bindCond();
   $('#qgo').onclick = async () => {
     const question = $('#qq').value.trim(); if (!question) return;
+    document.querySelectorAll('[data-cond]').forEach(i => { S.cond[i.dataset.cond] = i.value.trim(); });
+    try { localStorage.setItem('lkb_cond', JSON.stringify(S.cond)); } catch (e) {}
     $('#qgo').disabled = true; $('#qwait').textContent = '模型正在阅读与作答…';
-    try { const r = await api('POST', 'ask', { question, include_unpublished: !!($('#qall') && $('#qall').checked) }); location.hash = '#/ask/' + r.id; }
+    try { const r = await api('POST', 'ask', { question, include_unpublished: !!($('#qall') && $('#qall').checked), cond: condQS() }); location.hash = '#/ask/' + r.id; }
     catch (e) { toast(e.message); $('#qgo').disabled = false; $('#qwait').textContent = ''; }
   };
   const fb = $('#fb_go'); if (fb) fb.onclick = async () => {
@@ -836,6 +849,207 @@ routes.schema = async (_, q) => {
     catch (e) { toast(e.message); }
   };
 };
+
+// ---------------------------------------------------------------- applicability filter (shared by all views)
+const DIM_ZH = { node: '工艺节点', wavelength: '波长', na: 'NA', layer: '图层', mask: '掩模', application: '应用' };
+S.cond = (() => { try { return JSON.parse(localStorage.getItem('lkb_cond') || '{}'); } catch (e) { return {}; } })();
+const condQS = () => Object.entries(S.cond).filter(([, v]) => v).map(([k, v]) => `${k}:${v}`).join(',');
+const withCond = path => { const c = condQS(); return c ? path + (path.includes('?') ? '&' : '?') + 'cond=' + encodeURIComponent(c) : path; };
+async function condBar() {
+  if (!S.dims) S.dims = await get('dims').catch(() => ({}));
+  const dims = Object.keys(S.dims);
+  if (!dims.length) return '';
+  return `<div class="row small condbar"><b>适用条件</b>${dims.map(d => `<label>${esc((S.dims[d] || [DIM_ZH[d] || d])[0])}
+      <input data-cond="${esc(d)}" value="${esc(S.cond[d] || '')}" placeholder="如：${esc(((S.dims[d] || [])[1] || '').split('、')[0].replace(/^如\s*/, ''))}" style="width:120px"></label>`).join('')}
+    <button id="condgo">筛选</button>${condQS() ? '<button id="condclr">清除</button>' : ''}
+    <span class="muted">未标注条件的知识视为通用，始终显示（标“通用”）。</span></div>`;
+}
+function bindCond() {
+  const go = () => { document.querySelectorAll('[data-cond]').forEach(i => { S.cond[i.dataset.cond] = i.value.trim(); });
+    try { localStorage.setItem('lkb_cond', JSON.stringify(S.cond)); } catch (e) {} route(); };
+  if ($('#condgo')) $('#condgo').onclick = go;
+  document.querySelectorAll('[data-cond]').forEach(i => i.onkeydown = e => { if (e.key === 'Enter') go(); });
+  if ($('#condclr')) $('#condclr').onclick = () => { S.cond = {}; try { localStorage.removeItem('lkb_cond'); } catch (e) {} route(); };
+}
+const condChips = (conds, evLink) => (conds || []).map(c => `<span class="badge b-comment" title="依据 ${esc(c.evidence || '')}">${esc((S.dims && S.dims[c.dim] ? S.dims[c.dim][0] : DIM_ZH[c.dim]) || c.dim)}：${esc(c.value)}${evLink && c.evidence ? ' · ' + esc(c.evidence) : ''}</span>`).join(' ');
+const appliesBadge = a => a === 'general' ? '<span class="badge" title="原文未说明适用条件">通用</span>' : a === 'yes' ? '<span class="badge b-exact">符合条件</span>' : '';
+
+// view switcher shared by the knowledge views
+const VIEWS = [['#/k', '卡片'], ['#/graph', '图谱'], ['#/mindmap', '思维导图'], ['#/timeline', '时间线'], ['#/facts', '对比表'], ['#/src', '文档目录']];
+const viewTabs = cur => `<div class="tabs" style="margin-top:0">${VIEWS.map(([h, n]) => `<a href="${h}" class="${h === cur ? 'on' : ''}">${n}</a>`).join('')}</div>`;
+
+// ---------------------------------------------------------------- mind map: one topic at the centre
+routes.mindmap = async ([id], q) => {
+  const all = await get(withCond('cards'));
+  const cards = all.filter(c => c.type !== 'summary' && (can('reviewer') ? (c.published_rev || q.all) : true));
+  const byId = Object.fromEntries(cards.map(c => [c.id, c]));
+  const kids = p => cards.filter(c => c.parent === p);
+  const roots = cards.filter(c => c.type === 'topic' && !byId[c.parent]);
+  const center = byId[id] || roots.find(r => kids(r.id).length) || roots[0] || cards[0];
+  const bar = await condBar();
+  if (!center) { set(`<div class="panel">${viewTabs('#/mindmap')}${bar}<p class="muted">暂无可显示的知识。</p></div>`); return bindCond(); }
+  const ring1 = kids(center.id);
+  const relIds = [...new Set([...(center.relations || []).map(r => r.target), ...cards.filter(c => (c.relations || []).some(r => r.target === center.id)).map(c => c.id)])]
+    .filter(x => byId[x] && x !== center.id && !ring1.some(k => k.id === x) && x !== center.parent).slice(0, 10);
+  const parent = byId[center.parent];
+  const W = 1200, H = 860, cx = W / 2, cy = H / 2;
+  const nodes = [], links = [];
+  const place = (list, r, a0, a1, kind) => list.forEach((c, i) => {
+    const a = list.length === 1 ? (a0 + a1) / 2 : a0 + (a1 - a0) * (i + 0.5) / list.length;
+    nodes.push({ c, x: cx + r * Math.cos(a), y: cy + r * Math.sin(a), kind, a });
+  });
+  // each box needs ~170px of arc; related concepts sit on an outer arc at the bottom, staggered on two radii
+  const relN = relIds.length, rRel = 340, relArc = Math.min(Math.PI * 1.1, relN * 170 / (rRel + 30) / 1.6);
+  const span = relN ? [Math.PI / 2 + relArc / 2 + 0.3, Math.PI / 2 - relArc / 2 - 0.3 + 2 * Math.PI] : [-Math.PI, Math.PI];
+  place(ring1, Math.max(250, Math.min(330, ring1.length * 170 / Math.max(0.5, span[1] - span[0]))), span[0], span[1], 'child');
+  place(relIds.map(x => byId[x]), rRel, Math.PI / 2 - relArc / 2, Math.PI / 2 + relArc / 2, 'related');
+  nodes.filter(n => n.kind === 'related').forEach((n, i) => { if (i % 2) { n.x = cx + (rRel - 95) * Math.cos(n.a); n.y = cy + (rRel - 95) * Math.sin(n.a); } });
+  // collision relaxation: overlapping boxes push each other apart (centre ellipse stays fixed)
+  const BW = 156, BH = 62, boxes = nodes.filter(n => n.kind !== 'grand');
+  for (let it = 0; it < 200; it++) {
+    let moved = false;
+    for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+      const A = boxes[i], B = boxes[j], dx = B.x - A.x, dy = B.y - A.y;
+      const ox = BW - Math.abs(dx), oy = BH - Math.abs(dy);
+      if (ox > 0 && oy > 0) {
+        moved = true;
+        if (ox < oy) { const m = (ox / 2 + 1) * Math.sign(dx || 1); A.x -= m; B.x += m; }
+        else { const m = (oy / 2 + 1) * Math.sign(dy || 1); A.y -= m; B.y += m; }
+      }
+    }
+    for (const n of boxes) {  // keep clear of the centre ellipse
+      const ex = (n.x - cx) / (105 + BW / 2), ey = (n.y - cy) / (48 + BH / 2), d = Math.hypot(ex, ey);
+      if (d < 1) { n.x = cx + (n.x - cx) / Math.max(d, 0.01); n.y = cy + (n.y - cy) / Math.max(d, 0.01); moved = true; }
+      n.a = Math.atan2(n.y - cy, n.x - cx);
+    }
+    if (!moved) break;
+  }
+  nodes.filter(n => n.kind === 'child').forEach(n => {
+    const g = kids(n.c.id).slice(0, 6);
+    g.forEach((c, i) => nodes.push({ c, x: n.x + 120 * Math.cos(n.a + (i - (g.length - 1) / 2) * 0.32), y: n.y + 120 * Math.sin(n.a + (i - (g.length - 1) / 2) * 0.32), kind: 'grand', from: n }));
+  });
+  const wrap = (t, n) => { const s = String(t).replace(/\s*[（(][^)）]*[)）]\s*$/, ''); const out = []; for (let i = 0; i < s.length && out.length < 3; i += n) out.push(s.slice(i, i + n)); return out; };
+  const label = (n, size, fill, w) => wrap(n.c.title, w).map((ln, i, arr) => `<text x="${n.x}" y="${n.y + (i - (arr.length - 1) / 2) * (size + 3) + size / 3}" text-anchor="middle" font-size="${size}" fill="${fill}">${esc(ln)}</text>`).join('');
+  let svg = '';
+  nodes.forEach(n => { const p = n.from || { x: cx, y: cy }; svg += `<path d="M${p.x},${p.y} Q${(p.x + n.x) / 2 + (n.kind === 'related' ? 0 : 0)},${(p.y + n.y) / 2} ${n.x},${n.y}" fill="none" stroke="${n.kind === 'related' ? 'var(--warn)' : 'var(--line)'}" stroke-width="${n.kind === 'grand' ? 1 : 2}" ${n.kind === 'related' ? 'stroke-dasharray="5 4"' : ''}/>`; });
+  nodes.forEach(n => {
+    const col = TYPE_COLORS[n.c.type] || '#888', has = kids(n.c.id).length;
+    const href = has ? `#/mindmap/${encodeURIComponent(n.c.id)}` : cardHref(n.c.id);
+    if (n.kind === 'grand') svg += `<a href="${href}"><circle cx="${n.x}" cy="${n.y}" r="5" fill="${col}"/><text x="${n.x}" y="${n.y + 16}" text-anchor="middle" font-size="11" fill="var(--muted)">${esc(wrap(n.c.title, 9)[0])}</text></a>`;
+    else svg += `<a href="${href}"><rect x="${n.x - 72}" y="${n.y - 26}" width="144" height="52" rx="12" fill="var(--panel)" stroke="${col}" stroke-width="2"/>${label(n, 12, 'var(--ink)', 11)}${has ? `<text x="${n.x + 66}" y="${n.y - 14}" font-size="10" text-anchor="end" fill="${col}">+${has}</text>` : ''}</a>`;
+  });
+  svg += `<a href="${cardHref(center.id)}"><ellipse cx="${cx}" cy="${cy}" rx="105" ry="48" fill="${TYPE_COLORS[center.type] || '#2f5d8a'}"/>${label({ x: cx, y: cy, c: center }, 15, '#fff', 12)}</a>`;
+  set(`<div class="panel">${viewTabs('#/mindmap')}${bar}
+    <div class="row small"><b>中心：</b><a href="${cardHref(center.id)}">${esc(center.title)}</a>${parent ? ` · 上一级 <a href="#/mindmap/${encodeURIComponent(parent.id)}">${esc(parent.title)}</a>` : ''}
+      <span class="muted">· 实线：下级概念（带 +N 的可继续展开）· 橙色虚线：相关概念</span>
+      <select id="mmtopic" style="margin-left:auto"><option value="">切换主题…</option>${cards.filter(c => kids(c.id).length).map(c => `<option value="${esc(c.id)}" ${c.id === center.id ? 'selected' : ''}>${esc(c.title)}（${kids(c.id).length}）</option>`).join('')}</select></div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;max-height:76vh">${svg}</svg>
+    ${ring1.length || relIds.length ? '' : '<p class="muted">该节点没有下级或相关概念。</p>'}</div>`);
+  bindCond();
+  $('#mmtopic').onchange = e => { if (e.target.value) location.hash = '#/mindmap/' + encodeURIComponent(e.target.value); };
+};
+
+// ---------------------------------------------------------------- timeline: dated events from the cards' evidence
+routes.timeline = async (_, q) => {
+  const d = await get(withCond('timeline' + (q.all ? '?all=1' : '')));
+  const bar = await condBar();
+  const nodeOf = w => { const m = String(w).match(/(\d+(?:\.\d+)?)\s*nm/i); return m ? +m[1] : null; };
+  const dated = d.rows.filter(r => r.year);
+  const eras = d.rows.filter(r => !r.year && nodeOf(r.when) !== null).sort((a, b) => nodeOf(b.when) - nodeOf(a.when));
+  const undated = d.rows.filter(r => !r.year && nodeOf(r.when) === null);
+  const groups = {};
+  dated.forEach(r => { const k = Math.floor(r.year); (groups[k] = groups[k] || []).push(r); });
+  const item = r => `<div class="tl-item"><div class="tl-when">${esc(r.when)}</div><div class="tl-what">${esc(r.what)}
+      <div class="small muted">${badge('t', TYPE_ZH[r.card_type] || r.card_type)}<a href="${cardHref(r.card)}">${esc(r.card_title)}</a> · ${r.path ? docLink(r.path, 'L=' + encodeURIComponent(r.lines), '· 第 ' + esc(r.lines) + ' 行') : ''} ${r.check ? badge(r.check) : ''}</div></div></div>`;
+  set(`<div class="panel">${viewTabs('#/timeline')}${bar}
+    <p class="small muted">时间线由卡片中带日期的事件生成（每个事件都引用了已核验的原文证据）。${can('reviewer') ? ` <a href="#/timeline${q.all ? '' : '?all=1'}">${q.all ? '只看已发布' : '包含未发布'}</a>` : ''}</p>
+    ${dated.length ? `<h3>按年份</h3><div class="timeline-v">${Object.keys(groups).sort((a, b) => a - b).map(y => `<div class="tl-year"><span>${y}</span></div>${groups[y].map(item).join('')}`).join('')}</div>` : (eras.length ? '' : '<p class="muted">暂无带日期的事件。</p>')}
+    ${eras.length ? `<h3>按工艺节点演进 <span class="small muted">（节点由大到小 ≈ 由早到晚）</span></h3><div class="timeline-v">${eras.map(r => `<div class="tl-year"><span>${nodeOf(r.when)}nm</span></div>${item(r)}`).join('')}</div>` : ''}
+    ${undated.length ? `<h3>其他时期</h3>${undated.map(item).join('')}` : ''}</div>`);
+  bindCond();
+};
+
+// ---------------------------------------------------------------- comparison table: structured facts across cards
+routes.facts = async (_, q) => {
+  const d = await get(withCond('facts' + (q.all ? '?all=1' : '')));
+  const bar = await condBar();
+  const f = (q.f || '').toLowerCase();
+  const rows = d.rows.filter(r => !f || (r.name + ' ' + r.card_title + ' ' + r.value).toLowerCase().includes(f));
+  const groups = {};
+  rows.forEach(r => (groups[r.name] = groups[r.name] || []).push(r));
+  const condTxt = r => Object.entries(r.conditions || {}).map(([k, v]) => `${(S.dims[k] || [DIM_ZH[k] || k])[0]}：${v}`).concat((r.card_conditions || []).map(c => `${(S.dims[c.dim] || [DIM_ZH[c.dim] || c.dim])[0]}：${c.value}`));
+  set(`<div class="panel">${viewTabs('#/facts')}${bar}
+    <div class="row small"><input id="ff" placeholder="筛选参数 / 指标 / 卡片…" value="${esc(q.f || '')}" style="width:260px">
+      <span class="muted">${rows.length} 条事实 · ${Object.keys(groups).length} 个参数/指标 · 同名参数并排比较；每个取值都链接到原文。</span>
+      ${can('reviewer') ? `<a href="#/facts${q.all ? '' : '?all=1'}">${q.all ? '只看已发布' : '包含未发布'}</a>` : ''}</div>
+    <table class="grid"><tr><th>参数 / 指标</th><th>取值</th><th>适用条件</th><th>所属卡片</th><th>出处</th></tr>
+    ${Object.entries(groups).map(([name, rs]) => rs.map((r, i) => `<tr>${i === 0 ? `<td rowspan="${rs.length}"><b>${esc(name)}</b>${rs.length > 1 ? `<br><span class="small muted">${rs.length} 处</span>` : ''}</td>` : ''}
+      <td><b>${esc(r.value)}</b> ${esc(r.unit || '')}</td><td class="small">${condTxt(r).map(esc).join('<br>') || '<span class="muted">通用</span>'}</td>
+      <td class="small"><a href="${cardHref(r.card)}">${esc(r.card_title)}</a></td>
+      <td class="small">${r.path ? docLink(r.path, 'L=' + encodeURIComponent(r.lines), '· 第 ' + esc(r.lines) + ' 行') : ''} ${r.check ? badge(r.check) : ''}<div class="muted" title="${esc(r.quote)}">${esc((r.quote || '').slice(0, 60))}…</div></td></tr>`).join('')).join('') || '<tr><td colspan="5" class="muted">暂无结构化事实。</td></tr>'}</table></div>`);
+  bindCond();
+  $('#ff').onkeydown = e => { if (e.key === 'Enter') location.hash = '#/facts?f=' + encodeURIComponent(e.target.value) + (q.all ? '&all=1' : ''); };
+};
+
+// ---------------------------------------------------------------- issue register
+const ISSUE_ZH = { contradiction: '矛盾', open_question: '开放问题', gap: '知识缺口', report: '读者报告' };
+const ISSUE_CLS = { contradiction: 'reject', open_question: 'request_changes', gap: 'comment', report: 'warn' };
+routes.issues = async ([iid], q) => {
+  if (iid) return issueView(iid);
+  const d = await get('issues' + (q.status !== 'all' ? '?status=' + (q.status || 'open') : '') + (q.kind ? (q.status === 'all' ? '?' : '&') + 'kind=' + q.kind : ''));
+  const st = d.stats || {};
+  set(`<div class="panel"><h1>${can('reviewer') ? '问题登记簿' : '我的报告'}</h1>
+    <p class="small muted">矛盾、开放问题、知识缺口与读者报告。知识库不粉饰矛盾：未解决的矛盾与开放问题会显示在相关卡片上，所有读者可见；缺口告诉管理员下一步该补哪些资料。</p>
+    ${can('reviewer') ? `<div class="row small">${['', 'contradiction', 'open_question', 'gap', 'report'].map(k => `<a class="badge ${(q.kind || '') === k ? 'b-in_review' : ''}" href="#/issues?kind=${k}&status=${q.status || 'open'}">${k ? ISSUE_ZH[k] + ' ' + ((st.by_kind || {})[k] || 0) : '全部未解决 ' + (st.open || 0)}</a>`).join(' ')}
+      · 状态：${['open', 'resolved', 'wontfix', 'all'].map(s => `<a href="#/issues?status=${s}${q.kind ? '&kind=' + q.kind : ''}" class="badge ${(q.status || 'open') === s ? 'b-in_review' : ''}">${{ open: '未解决', resolved: '已解决', wontfix: '不处理', all: '全部' }[s]}</a>`).join(' ')}</div>` : ''}
+    <table class="grid"><tr><th>类型</th><th>问题</th><th>相关卡片</th><th>来源</th><th>状态</th><th>更新</th></tr>
+    ${d.items.map(i => `<tr><td>${badge(ISSUE_CLS[i.kind], ISSUE_ZH[i.kind])}${i.seen > 1 ? `<br><span class="small muted">出现 ${i.seen} 次</span>` : ''}</td>
+      <td><a href="#/issues/${esc(i.id)}"><b>${esc(i.title)}</b></a><div class="small muted">${esc((i.detail || '').slice(0, 120))}</div></td>
+      <td class="small">${i.cards.map(c => `<a href="#/review/${encodeURIComponent(c)}">${esc(c)}</a>`).join('<br>')}</td>
+      <td class="small">${esc((i.origin || {}).kind || '')}${(i.origin || {}).run ? `<br><a href="#/${i.origin.kind === 'query' ? 'ask' : 'traces'}/${esc(i.origin.run)}">记录</a>` : ''}</td>
+      <td>${badge(i.status === 'open' ? 'in_review' : i.status === 'resolved' ? 'published' : 'rejected', { open: '未解决', resolved: '已解决', wontfix: '不处理' }[i.status])}</td><td class="small">${fmtTime(i.updated)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">无</td></tr>'}</table></div>`);
+};
+async function issueView(iid) {
+  const i = await get('issues/' + encodeURIComponent(iid));
+  set(`<div class="row"><a href="#/issues">← 问题登记簿</a></div><div class="panel"><div class="row">${badge(ISSUE_CLS[i.kind], ISSUE_ZH[i.kind])}
+      ${badge(i.status === 'open' ? 'in_review' : 'published', { open: '未解决', resolved: '已解决', wontfix: '不处理' }[i.status])}<span class="small muted">由 ${esc(i.by)} 于 ${fmtTime(i.created)} 提出 · 出现 ${i.seen || 1} 次</span></div>
+    <h1>${esc(i.title)}</h1><p>${esc(i.detail || '')}</p>
+    ${i.cards.length ? `<p class="small">相关卡片：${i.cards.map(c => `<a href="${cardHref(c)}">${esc(c)}</a>`).join('，')}</p>` : ''}
+    ${(i.evidence || []).length ? `<h3>原文依据</h3>${evidenceList({ evidence: i.evidence }, false)}` : ''}
+    ${i.resolution ? `<div class="banner info">处理结论：${esc(i.resolution)}</div>` : ''}
+    <h3>处理记录</h3><table class="grid">${i.history.map(h => `<tr><td class="small">${fmtTime(h.ts)}</td><td>${esc(h.user)}</td><td>${esc({ open: '提出', seen_again: '再次出现', comment: '评论', resolve: '解决', wontfix: '不处理', reopen: '重新打开' }[h.action] || h.action)}</td><td class="small">${esc(h.comment || '')}</td></tr>`).join('')}</table>
+    ${S.me ? `<textarea id="ic" placeholder="评论 / 处理说明（解决或不处理时必填）"></textarea><div class="row"><button data-ia="comment">评论</button>
+      ${can('reviewer') ? (i.status === 'open' ? '<button class="ok" data-ia="resolve">标记已解决</button><button data-ia="wontfix">不处理</button>' : '<button data-ia="reopen">重新打开</button>') : ''}</div>` : ''}</div>`);
+  document.querySelectorAll('[data-ia]').forEach(b => b.onclick = async () => {
+    try { await api('POST', `issues/${encodeURIComponent(iid)}/action`, { action: b.dataset.ia, comment: $('#ic').value.trim() }); toast('已记录'); route(); }
+    catch (e) { toast(e.message); }
+  });
+}
+function facetsBlock(card) {
+  const ev = Object.fromEntries((card.evidence || []).map(e => [e.id, e]));
+  const reviewer = can('reviewer');
+  const keep = items => (items || []).filter(x => x.supported !== false || reviewer);  // readers only see supported facets
+  card = { ...card, conditions: keep(card.conditions), facts: keep(card.facts), events: keep(card.events) };
+  const ref = (id, x) => (ev[id] ? `<a class="ev" data-ev="${esc(id)}" href="javascript:void 0">${esc(id)}</a>` : '') +
+    (x && x.supported === false ? ' <span class="badge b-missing" title="所引原文没有明确说明该值">原文不支持</span>' : '');
+  let h = '';
+  if ((card.conditions || []).length) h += `<h3>适用条件</h3><p>${(card.conditions).map(c => `${condChips([c])} ${ref(c.evidence, c)}`).join(' &nbsp; ')}</p>`;
+  else h += `<p class="small muted">适用条件：原文未说明（视为通用）。</p>`;
+  if ((card.facts || []).length) h += `<h3>关键参数与指标</h3><table class="grid"><tr><th>名称</th><th>取值</th><th>条件</th><th>依据</th></tr>${card.facts.map(f => `<tr><td>${esc(f.name)}</td><td><b>${esc(f.value)}</b> ${esc(f.unit || '')}</td><td class="small">${Object.entries(f.conditions || {}).map(([k, v]) => esc(((S.dims || {})[k] || [DIM_ZH[k] || k])[0] + '：' + v)).join('，') || '—'}</td><td>${ref(f.evidence, f)}</td></tr>`).join('')}</table>`;
+  if ((card.events || []).length) h += `<h3>时间节点</h3><ul>${card.events.map(e => `<li><b>${esc(e.when)}</b> ${esc(e.what)} ${ref(e.evidence, e)}</li>`).join('')}</ul>`;
+  return h;
+}
+function issuesBlock(issues, cid) {
+  const list = (issues || []);
+  return `${list.length ? `<div class="banner warn"><b>已知分歧与待解问题（${list.length}）</b><ul class="small" style="margin:4px 0">${list.map(i => `<li>${badge(ISSUE_CLS[i.kind], ISSUE_ZH[i.kind])} ${can('reviewer') || i.kind === 'contradiction' || i.kind === 'open_question' ? `<a href="#/issues/${esc(i.id)}">${esc(i.title)}</a>` : esc(i.title)}</li>`).join('')}</ul></div>` : ''}
+    ${S.me ? `<details style="margin-top:12px"><summary class="small">发现错误或表述不清？报告问题</summary><input id="rp_t" placeholder="问题标题（如：E3 引用的数值与原文不一致）" style="width:100%;margin:6px 0">
+      <textarea id="rp_d" placeholder="详细说明（可选）"></textarea><div class="row"><button id="rp_go" data-card="${esc(cid)}">提交报告</button></div></details>` : ''}`;
+}
+function bindReport() {
+  const b = $('#rp_go'); if (!b) return;
+  b.onclick = async () => { const title = $('#rp_t').value.trim(); if (title.length < 4) return toast('请填写问题标题');
+    try { await api('POST', 'issues', { kind: 'report', card: b.dataset.card, title, detail: $('#rp_d').value.trim() }); toast('已提交，审阅者会处理'); route(); } catch (e) { toast(e.message); } };
+}
 
 routes.login = async () => {
   set(`<div class="panel" style="max-width:380px;margin:40px auto"><h1>登录</h1><form id="lf"><div class="row"><input id="ln" placeholder="用户名" style="width:100%" autocomplete="username"></div>

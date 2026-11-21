@@ -79,6 +79,9 @@ def assess(meta: dict, body: str, cfg: dict) -> dict:
     elided = [e for e in ev if e.get("check") == "elided"]
     if elided:
         medium.append(f"{len(elided)} 条省略式引用，需确认省略未改变原意")
+    bad_facets = sum(1 for k in ("conditions", "events", "facts") for x in meta.get(k, []) or [] if x.get("supported") is False)
+    if bad_facets:
+        medium.append(f"{bad_facets} 条刻面与所引原文不符（视图中不显示）")
     rels = meta.get("relations", [])
     if any(r.get("basis") == "ambiguous" for r in rels):
         high.append("含“存疑”关系")

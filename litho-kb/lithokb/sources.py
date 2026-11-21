@@ -309,3 +309,62 @@ def doc_titles(kb: KB, paths) -> dict[str, str]:
                 _TITLE_CACHE[key] = posixpath.basename(p)
         out[p] = _TITLE_CACHE[key]
     return out
+
+
+# ---- per-document processing policy -------------------------------------------------
+POLICIES = ("compile", "reference", "exclude")
+POLICY_ZH = {"compile": "编译为知识", "reference": "仅参考（可浏览、可导航，不编译）", "exclude": "排除（不编译、不参与问答）"}
+
+
+def looks_like_navigation(text: str) -> bool:
+    """Index / table-of-contents / link-list pages carry structure, not knowledge."""
+    _, body, _ = fm.split(text)
+    lines = [ln.strip() for ln in body.splitlines() if ln.strip() and not ln.strip().startswith("#")]
+    if not lines:
+        return True
+    linky = sum(1 for ln in lines if _LINK_RE.search(ln) and len(_LINK_RE.sub("", ln).strip(" -*0-9.、:：|")) < 60)
+    prose = sum(len(ln) for ln in lines if not _LINK_RE.search(ln))
+    if linky >= 5 and linky / len(lines) >= 0.5 and prose < 1500:
+        return True
+    # card-style tables of contents: many links to sibling documents, little prose per link
+    internal = {h.split("#")[0] for _, h in _LINK_RE.findall(body)
+                if "://" not in h and h.split("#")[0].lower().endswith(MD_EXT)}
+    return len(internal) >= 8 and prose / len(internal) < 120
+
+
+def policy_of(kb: KB, rel: str, meta: dict | None = None) -> dict:
+    """{"policy": compile|reference|exclude, "auto": bool, "reason": str}. An explicit choice by a
+    person always wins; otherwise navigation-like pages default to 'reference'."""
+    rec = (meta or load_meta(kb)).get(rel, {})
+    if rec.get("policy") in POLICIES:
+        return {"policy": rec["policy"], "auto": False, "reason": rec.get("policy_note", ""), "by": rec.get("policy_by", "")}
+    if rel.lower().endswith(MD_EXT):
+        try:
+            if looks_like_navigation(read_text(kb, rel)):
+                return {"policy": "reference", "auto": True, "reason": "自动识别为目录/导航页"}
+        except SourceError:
+            pass
+    return {"policy": "compile", "auto": True, "reason": ""}
+
+
+def set_policy(kb: KB, actor: str, rel: str, policy: str, note: str = "") -> dict:
+    rel = clean_path(rel)
+    if policy not in POLICIES + ("auto",):
+        raise SourceError(f"policy must be one of {POLICIES + ('auto',)}")
+    with LOCK:
+        meta = load_meta(kb)
+        if rel not in meta:
+            raise SourceError(f"no source {rel}")
+        if policy == "auto":
+            for k in ("policy", "policy_note", "policy_by"):
+                meta[rel].pop(k, None)
+        else:
+            meta[rel].update(policy=policy, policy_note=note, policy_by=actor)
+        _save_meta(kb, meta)
+    kb.event(actor, "source.policy", rel, policy=policy, note=note)
+    return policy_of(kb, rel)
+
+
+def list_md_by_policy(kb: KB, *policies: str) -> list[str]:
+    meta = load_meta(kb)
+    return [p for p in list_md(kb) if policy_of(kb, p, meta)["policy"] in policies]
