@@ -9,7 +9,7 @@ const can = r => RANK[S.me ? S.me.role : 'anonymous'] >= RANK[r];
 const TYPE_ZH = { topic:'主题', summary:'文档摘要', synthesis:'问答综合', concept:'概念', method:'方法', model:'模型', algorithm:'算法', parameter:'参数', metric:'指标',
   process:'工艺', tool:'工具', material:'材料', equipment:'设备', issue:'问题', result:'结论', person_or_org:'人物/机构' };
 const ST_ZH = { draft:'草稿', in_review:'待审阅', changes_requested:'需修改', approved:'已通过', rejected:'已拒绝', published:'已发布',
-  withdrawn:'已下架', superseded:'已被替换', active:'在架', exact:'原文精确匹配', moved:'原文位置偏移', elided:'省略式匹配', fuzzy:'近似匹配', missing:'原文未找到',
+  withdrawn:'已下架', superseded:'已被替换', active:'在架', exact:'原文精确匹配', moved:'原文位置偏移', elided:'省略式匹配', card:'引自卡片', fuzzy:'近似匹配', missing:'原文未找到',
   no_source:'来源缺失', approve:'通过', request_changes:'要求修改', reject:'拒绝', comment:'评论', submit:'提交审阅', publish:'发布',
   return:'打回', reopen:'重新审阅', extracted:'原文明确', inferred:'推断', ambiguous:'存疑', withdraw:'下架', restore:'恢复上架', supersede:'替换为', done:'完成', failed:'失败', running:'进行中', queued:'排队' };
 const zh = k => ST_ZH[k] || k;
@@ -87,7 +87,9 @@ function evidenceList(card, withLines) {
   if (!card.evidence || !card.evidence.length) return '<p class="muted">无证据引用。</p>';
   return '<ol class="evlist">' + card.evidence.map(e => {
     const ln = e.found_lines || e.lines;
-    return `<li id="ev-${esc(e.id)}"><b>${esc(e.id)}</b> ${badge(e.check || 'missing')}
+    if (e.card) return `<li id="ev-${esc(e.id)}"><b>${esc(e.id)}</b> ${badge(e.check === 'card' ? 'exact' : 'missing', zh(e.check))}
+      <a href="${cardHref(e.card)}">卡片 ${esc(e.card)}</a><div class="quote">${esc(e.quote)}</div></li>`;
+    return `<li id="ev-${esc(e.id)}"><b>${esc(e.id)}</b> ${badge(e.check || 'missing')}${e.not_read ? ' <span class="badge b-warn">未在阅读计划中</span>' : ''}
       <a href="${srcHref(e.path, 'L=' + encodeURIComponent(ln))}">${esc(e.path)} · L${esc(ln)}</a>
       ${e.found_lines && e.found_lines !== e.lines ? `<span class="small muted">（模型声称 L${esc(e.lines)}）</span>` : ''}
       <div class="quote">${esc(e.quote)}</div>${withLines ? `<div class="srclines" data-path="${esc(e.path)}" data-lines="${esc(ln)}"></div>` : ''}</li>`;
@@ -400,7 +402,7 @@ routes.review = async ([id], q) => {
 };
 function gbadge(g) {
   g = g || {}; const s = Math.round((g.score || 0) * 100);
-  return `${badge(s >= 90 ? 'exact' : s >= 60 ? 'fuzzy' : 'missing', s + '%')}<span class="small muted">${(g.exact || 0) + (g.moved || 0) + (g.elided || 0)}/${g.total || 0} 可核验${g.missing ? '，' + g.missing + ' 未找到' : ''}</span>`;
+  return `${badge(s >= 90 ? 'exact' : s >= 60 ? 'fuzzy' : 'missing', s + '%')}<span class="small muted">${(g.exact || 0) + (g.moved || 0) + (g.elided || 0) + (g.card || 0)}/${g.total || 0} 可核验${g.missing ? '，' + g.missing + ' 未找到' : ''}</span>`;
 }
 
 async function reviewWorkspace(id, q) {
@@ -565,7 +567,7 @@ routes.lint = async () => {
   const issues = await get('lint');
   const KIND = { dangling_relation: '关系指向不存在的卡片', dangling_wikilink: '正文链接指向不存在的卡片', dangling_parent: '上级主题不存在', stale_source: '原文已更新（需重新编译）',
     ungrounded_evidence: '引用未在原文中找到', no_evidence: '没有证据', dangling_replacement: '替换目标不存在',
-    ambiguous_relation: '存在“存疑”关系待人工判断', missing_summary: '文档缺少摘要卡片（需重新编译）' };
+    ambiguous_relation: '存在“存疑”关系待人工判断', missing_summary: '文档缺少摘要卡片（需重新编译）', duplicate_source: '原始文档内容高度重复' };
   set(`<div class="panel"><h1>知识库健康检查</h1><p class="muted">${issues.length} 项</p><table class="grid"><tr><th>卡片</th><th>问题</th><th>详情</th></tr>${issues.map(i =>
     `<tr><td><a href="#/review/${encodeURIComponent(i.card)}">${esc(i.card)}</a></td><td>${esc(KIND[i.kind] || i.kind)}</td><td class="small">${esc(i.detail)}</td></tr>`).join('')}</table></div>`);
 };

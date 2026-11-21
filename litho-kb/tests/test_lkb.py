@@ -599,3 +599,91 @@ class TestMergeMechanisms(unittest.TestCase):
         stubs = schema_topic_stubs(self.kb, self.cards, norm)
         self.assertEqual([s_["card"]["id"] for s_ in stubs], ["mask-3d", "smo"])
         self.assertEqual(stubs[0]["card"]["title"], "掩模三维效应（M3D）与 EUV 特有效应")
+
+
+class TestFixRound(unittest.TestCase):
+    """ID resolution, card citations in answers, duplicate sources, reasoning watchdog."""
+
+    def test_id_resolver(self):
+        from lithokb.compiler import IdResolver
+        kb = fresh_kb()
+        try:
+            cards = Cards(kb)
+            for cid, title in (("opc", "光学邻近效应修正"), ("process-window", "工艺窗口 (Process Window)"),
+                               ("edge-placement-error", "边缘放置误差 (EPE)")):
+                cards.new_revision("x", {"id": cid, "title": title, "type": "concept", "evidence": []}, "", {"kind": "llm"})
+            r = IdResolver(cards, set())
+            self.assertEqual(r.resolve("optical-proximity-correction"), ("opc", "acronym"))
+            self.assertEqual(r.resolve("epe"), ("edge-placement-error", "name"))
+            self.assertEqual(r.resolve("process-window"), ("process-window", ""))
+            self.assertEqual(r.resolve("totally-unknown"), ("totally-unknown", ""))
+            data = {"cards": [{"id": "x1", "title": "X", "type": "concept", "parent": "optical-proximity-correction",
+                               "body_md": "见 [[epe]] 与 [[nothing-here]]", "relations": [{"rel": "uses", "target": "epe", "basis": "inferred"}],
+                               "evidence": []}]}
+            norm, findings = validate(cards, data, [])
+            self.assertEqual(norm[0]["parent"], "opc")
+            self.assertEqual(norm[0]["relations"][0]["target"], "edge-placement-error")
+            self.assertIn("[[edge-placement-error]]", norm[0]["body"])
+            self.assertIn("[[nothing-here]]", norm[0]["body"])  # unresolvable links left as written
+            self.assertTrue(any("resolved" in f["msg"] for f in findings))
+        finally:
+            shutil.rmtree(kb.root)
+
+    def test_near_duplicates(self):
+        kb = fresh_kb()
+        try:
+            toc = "".join(f"\n- [{i}、第{i}章：光刻原理与OPC方法第{i}部分]({i:02d}.md)" for i in range(1, 25))
+            S.put(kb, "rev", [{"path": "index.md", "text": "# 目录" + toc},
+                              {"path": "index1.md", "text": "# 课程目录\n" + toc.replace("\n- ", "\n").replace("](", "](./")},
+                              {"path": "ch1.md", "text": "# 第一章\n\n" + "光刻胶模型描述显影过程。" * 30}])
+            pairs = {(d["a"], d["b"]) for d in S.near_duplicates(kb)}
+            self.assertEqual(pairs, {("index.md", "index1.md")})
+            self.assertTrue(any(i["kind"] == "duplicate_source" for i in Cards(kb).lint()))
+        finally:
+            shutil.rmtree(kb.root)
+
+    def test_reasoning_watchdog_steps_down(self):
+        import http.server
+        from lithokb import llm
+
+        class Fake(http.server.BaseHTTPRequestHandler):
+            efforts = []
+
+            def log_message(self, *a):
+                pass
+
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                eff = body.get("reasoning", {}).get("effort", "none")
+                Fake.efforts.append(eff)
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                chunks = ([{"reasoning": "想" * 500}] * 20) if eff == "high" else [{"reasoning": "ok"}, {"content": '{"cards": []}'}]
+                try:
+                    for d in chunks:
+                        self.wfile.write(b"data: " + json.dumps({"id": "g", "model": "m", "choices": [{"delta": d}]}).encode() + b"\n\n")
+                    self.wfile.write(b"data: " + json.dumps({"choices": [{"delta": {}, "finish_reason": "stop"}],
+                                                              "usage": {"prompt_tokens": 1, "completion_tokens": 2}}).encode() + b"\n\n")
+                    self.wfile.write(b"data: [DONE]\n\n")
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        old_url, old_key = llm.OPENROUTER_URL, os.environ.get("OPEN_ROUTER_API_KEY")
+        llm.OPENROUTER_URL = f"http://127.0.0.1:{srv.server_port}/v1/chat/completions"
+        os.environ["OPEN_ROUTER_API_KEY"] = "test"
+        try:
+            r = llm.call({"backend": "openrouter", "openrouter_reasoning": "high", "reasoning_watchdog_chars": 3000}, "s", "u")
+            self.assertEqual(Fake.efforts, ["high", "medium"])
+            self.assertEqual(r.text, '{"cards": []}')
+            self.assertEqual(r.raw_meta["reasoning_effort"], "medium")
+            self.assertEqual(r.raw_meta["watchdog_aborts"][0]["effort"], "high")
+        finally:
+            llm.OPENROUTER_URL = old_url
+            if old_key is None:
+                os.environ.pop("OPEN_ROUTER_API_KEY", None)
+            else:
+                os.environ["OPEN_ROUTER_API_KEY"] = old_key
+            srv.shutdown()

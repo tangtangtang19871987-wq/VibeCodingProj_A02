@@ -112,19 +112,25 @@ def _openrouter(cfg: dict, system: str, user: str) -> LLMResult:
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "max_tokens": int(cfg.get("openrouter_max_tokens", 32000)),
             "usage": {"include": True}}
-    effort = cfg.get("openrouter_reasoning", "low")
-    if effort in ("none", "off", False):
-        body["reasoning"] = {"enabled": False}
-    elif effort:
-        body["reasoning"] = {"effort": effort}
     if cfg.get("json_mode", True):
         body["response_format"] = {"type": "json_object"}
-    data = json.dumps(body).encode()
     stall = int(cfg.get("stall_s", 120))
-    for attempt in range(3):
+    # reasoning watchdog: if the model keeps thinking past `reasoning_watchdog_chars` without having
+    # written a single character of the answer, abort and retry one effort level lower.
+    ladder = ["high", "medium", "low", "none"]
+    effort = cfg.get("openrouter_reasoning", "low") or "none"
+    effort = "none" if effort in ("off", False) else effort
+    watchdog = int(cfg.get("reasoning_watchdog_chars", 20000))
+    aborts: list[dict] = []
+    attempt = 0
+    while True:
+        body.pop("reasoning", None)
+        body["reasoning"] = {"enabled": False} if effort == "none" else {"effort": effort}
+        data = json.dumps(body).encode()
         req = urllib.request.Request(OPENROUTER_URL, data=data, method="POST",
                                      headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
         content, reasoning, usage_raw, finish, served, gen_id = [], [], {}, "", model, ""
+        rchars, cchars, aborted = 0, 0, False
         try:
             with urllib.request.urlopen(req, timeout=stall) as resp:  # timeout applies per read → stall detection
                 for raw in resp:
@@ -141,20 +147,33 @@ def _openrouter(cfg: dict, system: str, user: str) -> LLMResult:
                         d = ch.get("delta") or {}
                         if d.get("content"):
                             content.append(d["content"])
+                            cchars += len(d["content"])
                         if d.get("reasoning"):
                             reasoning.append(d["reasoning"])
+                            rchars += len(d["reasoning"])
                         if ch.get("finish_reason"):
                             finish = ch["finish_reason"]
+                    if watchdog and cchars == 0 and rchars > watchdog and effort != "none":
+                        aborted = True
+                        break
+            if aborted:
+                lower = ladder[min(len(ladder) - 1, ladder.index(effort) + 1)] if effort in ladder else "none"
+                aborts.append({"effort": effort, "reasoning_chars": rchars, "retry_with": lower,
+                               "reasoning_tail": "".join(reasoning)[-400:]})
+                effort = lower
+                continue
             break
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")[:800]
-            if e.code in (429, 500, 502, 503, 504) and attempt < 2:
-                time.sleep(4 * (attempt + 1))
+            attempt += 1
+            if e.code in (429, 500, 502, 503, 504) and attempt < 3:
+                time.sleep(4 * attempt)
                 continue
             raise LLMError(f"openrouter HTTP {e.code}: {detail}") from e
         except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
-            if attempt < 2:
-                time.sleep(4 * (attempt + 1))
+            attempt += 1
+            if attempt < 3:
+                time.sleep(4 * attempt)
                 continue
             raise LLMError(f"openrouter connection error / stalled > {stall}s: {e}") from e
     u = usage_raw or {}
@@ -165,7 +184,8 @@ def _openrouter(cfg: dict, system: str, user: str) -> LLMResult:
         usage["cost_usd_reported"] = u["cost"]
     return LLMResult(text="".join(content), model=served, backend="openrouter", usage=usage,
                      stop_reason={"length": "max_tokens", "stop": "end_turn"}.get(finish, finish or "unknown"),
-                     thinking="".join(reasoning), raw_meta={"id": gen_id, "reasoning_effort": effort})
+                     thinking="".join(reasoning), raw_meta={"id": gen_id, "reasoning_effort": effort,
+                                                            **({"watchdog_aborts": aborts} if aborts else {})})
 
 
 def _command(cfg: dict, system: str, user: str) -> LLMResult:

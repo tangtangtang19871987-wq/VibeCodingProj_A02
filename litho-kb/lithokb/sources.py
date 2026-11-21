@@ -259,3 +259,31 @@ def tree(kb: KB) -> dict:
         return node
 
     return finish(root)
+
+
+def _shingles(text: str, k: int = 4) -> set:
+    _, body, _ = fm.split(text)
+    body = re.sub(r"\]\([^)]*\)", "]", body)  # link targets are layout, not content
+    t = "".join(ch for ch in body.lower() if ch.isalnum())  # compare words only: no punctuation / markup / spaces
+    return {t[i:i + k] for i in range(0, max(0, len(t) - k + 1))}
+
+
+def near_duplicates(kb: KB, threshold: float = 0.6, containment: float = 0.8, max_docs: int = 3000) -> list[dict]:
+    """Pairs of live Markdown documents whose content largely overlaps (character 4-gram Jaccard).
+    Typical cause: the same page exported twice (e.g. index.html / index1.html / index2.html)."""
+    paths = list_md(kb)
+    if len(paths) > max_docs:
+        return []
+    sh = {p: _shingles((kb.sources / p).read_text("utf-8", errors="replace")) for p in paths}
+    out = []
+    for i, a in enumerate(paths):
+        for b in paths[i + 1:]:
+            sa, sb = sh[a], sh[b]
+            if not sa or not sb:
+                continue
+            inter = len(sa & sb)
+            j = inter / len(sa | sb)
+            contain = inter / min(len(sa), len(sb))  # one document largely contained in the other
+            if j >= threshold or (contain >= containment and min(len(sa), len(sb)) >= 200):
+                out.append({"a": a, "b": b, "similarity": round(j, 2), "containment": round(contain, 2)})
+    return sorted(out, key=lambda x: -x["similarity"])

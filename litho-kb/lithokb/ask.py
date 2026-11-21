@@ -20,7 +20,7 @@ import re
 
 from . import doctree
 from . import sources as S
-from .cards import Cards, is_public, slug, verify_evidence, grounding
+from .cards import Cards, _norm, grounding, is_public, slug, verify_evidence
 from .compiler import Compiler, new_run_id, parse_response
 from .store import KB, atomic_write, now
 
@@ -36,14 +36,16 @@ add source sections when the cards may be incomplete, when exact numbers/conditi
 Return exactly one JSON object in a ```json block:
 {"reasoning":"short explanation of your reading plan","cards":["card-id", ...],
  "sections":[{"path":"doc path","node":"n3","why":"…"}]}
-At most %d cards and %d sections. Only ids/nodes that appear in the material.""" % (MAX_CARDS, MAX_SECTIONS)
+At most %d cards and %d sections. Only ids/nodes that appear in the material. Think briefly; do not draft
+the answer — only choose what to read.""" % (MAX_CARDS, MAX_SECTIONS)
 
 ANS_SYSTEM = """[[LKB:ANSWER]]
 You answer questions for computational-lithography engineers using ONLY the provided knowledge cards and source
 sections. Be precise and concise; keep formulas in LaTeX; state conditions (node, NA, wavelength…) when relevant.
-- Link cards you rely on as [[card-id]].
-- Support every factual statement taken from a source section with an evidence marker [S1], [S2]…; each evidence
-  item quotes the section verbatim: {"id":"S1","path":"…","lines":"a-b","quote":"…"} (≤ 300 chars, copied exactly,
+- Facts taken from a knowledge card: link the card as [[card-id]] (the card's own evidence already grounds it);
+  do NOT create an [S] item for card content.
+- Facts taken from a <section> of a source document: add an evidence marker [S1], [S2]…; each evidence item
+  quotes that section verbatim (path = the section's document path, never a card id): {"id":"S1","path":"…","lines":"a-b","quote":"…"} (≤ 300 chars, copied exactly,
   without the "NNNN|" prefix). Quotes are machine-checked.
 - If the material is insufficient or contradictory, say so explicitly and list what is missing under "gaps".
 Return exactly one JSON object in a ```json block:
@@ -151,9 +153,29 @@ class Asker:
             res = self.comp.llm_step(run, cfg, ANS_SYSTEM, ans_user, prefix="ans-")
             ans = parse_response_obj(res.text)
             cache: dict = {}
-            ev = [verify_evidence(self.kb, {"id": str(e.get("id", f"S{i + 1}")), "path": str(e.get("path", "")),
-                                            "lines": str(e.get("lines", "")), "quote": str(e.get("quote", ""))[:600]}, cache)
-                  for i, e in enumerate(ans.get("evidence", []) or [])]
+            read_paths = {s["path"] for s in secs}
+            ev = []
+            for i, e in enumerate(ans.get("evidence", []) or []):
+                if not isinstance(e, dict):
+                    continue
+                item = {"id": str(e.get("id", f"S{i + 1}")), "path": str(e.get("path", "")),
+                        "lines": str(e.get("lines", "")), "quote": str(e.get("quote", ""))[:600]}
+                cid = slug(item["path"])
+                if cid in chosen and item["path"] not in read_paths:
+                    # quoted from a card it read: check against that card's text (second-hand, card is grounded)
+                    head, body = self.cards.load(cid)
+                    if not include_unpublished:
+                        head, body = self.cards.load_rev(cid, head["published_rev"])
+                    hay = _norm(" ".join([head.get("title", ""), head.get("summary", ""), body] +
+                                         [x.get("quote", "") for x in head.get("evidence", [])]))
+                    item["check"] = "card" if _norm(item["quote"]) and _norm(item["quote"]) in hay else "missing"
+                    item["card"] = cid
+                    ev.append(item)
+                    continue
+                r = verify_evidence(self.kb, item, cache)
+                if r["path"] not in read_paths:
+                    r["not_read"] = True  # cites a document section the navigator did not select
+                ev.append(r)
             used = [c for c in (slug(str(x)) for x in ans.get("used_cards", []) or []) if c in vis_ids]
             run["answer"] = {"answer_md": str(ans.get("answer_md", "")), "evidence": ev, "used_cards": used,
                              "confidence": ans.get("confidence"), "gaps": str(ans.get("gaps", "") or "")}

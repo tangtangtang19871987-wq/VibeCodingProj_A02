@@ -147,12 +147,12 @@ def _parse_lines(spec, n: int) -> tuple[int, int]:
 
 
 def grounding(evidence: list[dict]) -> dict:
-    c = {"exact": 0, "moved": 0, "elided": 0, "fuzzy": 0, "missing": 0, "no_source": 0}
+    c = {"exact": 0, "moved": 0, "elided": 0, "card": 0, "fuzzy": 0, "missing": 0, "no_source": 0}
     for e in evidence:
         c[e.get("check", "missing")] = c.get(e.get("check", "missing"), 0) + 1
     total = len(evidence)
     c["total"] = total
-    c["score"] = round((c["exact"] + c["moved"] + c["elided"] + 0.5 * c["fuzzy"]) / total, 2) if total else 0.0
+    c["score"] = round((c["exact"] + c["moved"] + c["elided"] + c["card"] + 0.5 * c["fuzzy"]) / total, 2) if total else 0.0
     return c
 
 
@@ -454,6 +454,9 @@ class Cards:
                 issues.append({"card": cid, "kind": "ambiguous_relation", "detail": "; ".join(amb)})
             if m.get("lifecycle") == "superseded" and m.get("replaced_by") not in idx:
                 issues.append({"card": cid, "kind": "dangling_replacement", "detail": m.get("replaced_by")})
+        for d in S.near_duplicates(self.kb):
+            issues.append({"card": summary_id(d["b"]), "kind": "duplicate_source",
+                           "detail": f"{d['b']} ≈ {d['a']} (similarity {d['similarity']}, containment {d['containment']}) — consider retiring one"})
         for p in S.list_md(self.kb):
             if summary_id(p) not in idx and any(s["path"] == p for m in idx.values() for s in m.get("sources", [])):
                 issues.append({"card": summary_id(p), "kind": "missing_summary", "detail": p})

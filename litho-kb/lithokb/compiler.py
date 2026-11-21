@@ -37,7 +37,7 @@ from . import sources as S
 from .cards import BASES, CARD_TYPES, RELATIONS, Cards, slug, summary_id
 from .store import KB, atomic_write, now, read_jsonl
 
-PROMPT_VERSION = "lkb-compile/4"
+PROMPT_VERSION = "lkb-compile/5"
 
 PROTOCOL = """You are the knowledge compiler of LithoKB, a curated knowledge base for computational lithography.
 You read source documents and maintain a persistent wiki of atomic, interlinked knowledge cards that domain
@@ -86,6 +86,10 @@ Card-level "confidence" (0–1) reflects how well the whole card is supported.
   (same ids, same quotes); add the new document's evidence with new ids (continue the numbering). Merge, do not
   replace. Do not emit unchanged cards.
 - If a source contradicts an existing card, say so in the body, add a "contradicts" relation, lower confidence.
+
+## Working style
+Think briefly: decide which cards to create / append / update, merge-vs-new, and relations. Do NOT draft the
+JSON, card bodies or quotes in your reasoning — write them once, directly in the answer.
 
 ## Output
 Exactly one JSON object in a ```json fenced block, nothing else:
@@ -248,6 +252,33 @@ def apply_append(cards: Cards, c: dict, add_md: str, run_paths: list[str]) -> tu
     return card, new_body
 
 
+class IdResolver:
+    """Map an id the model used to an existing card id, deterministically:
+    exact id → slug of a card's English name / acronym / alias → hyphen-initials acronym
+    (optical-proximity-correction → opc). Unique matches only; every remap is reported."""
+
+    def __init__(self, cards: Cards, batch_ids: set):
+        self.known = set(cards.index()) | set(batch_ids)
+        names: dict[str, set] = {}
+        for cid, m in cards.index().items():
+            for n in _names(m):
+                if re.fullmatch(r"[A-Za-z0-9 .\-/]+", n):
+                    names.setdefault(slug(n), set()).add(cid)
+        self.names = {k: next(iter(v)) for k, v in names.items() if len(v) == 1 and k}
+
+    def resolve(self, t: str) -> tuple[str, str]:
+        if not t or t in self.known:
+            return t, ""
+        if t in self.names:
+            return self.names[t], "name"
+        parts = [p for p in t.split("-") if p]
+        if len(parts) >= 2:
+            acro = "".join(p[0] for p in parts)
+            if acro in self.known and len(acro) >= 2:
+                return acro, "acronym"
+        return t, ""
+
+
 def parse_response(text: str) -> dict:
     m = re.search(r"```(?:json)?\s*\n(.*?)\n```", text, re.S)
     raw = m.group(1) if m else text[text.find("{"): text.rfind("}") + 1]
@@ -301,6 +332,13 @@ def validate(cards: Cards, data: dict, paths: list[str], expect_summaries: list[
         else:
             findings.append({"level": "error", "card": f"#{i}", "msg": f"card is not an object ({type(c).__name__}) — dropped"})
     batch_ids = {slug(str(c.get("id", "") or c.get("title", ""))) for c in items}
+    resolver = IdResolver(cards, batch_ids)
+
+    def fix(cid: str, t: str, what: str) -> str:
+        r, how = resolver.resolve(t)
+        if how:
+            findings.append({"level": "info", "card": cid, "msg": f"{what} {t!r} resolved to existing {r!r} (by {how})"})
+        return r
     for i, c in enumerate(items):
         raw_id = str(c.get("id", "") or c.get("title", ""))
         cid = slug(raw_id)
@@ -343,10 +381,11 @@ def validate(cards: Cards, data: dict, paths: list[str], expect_summaries: list[
             nr = normalize_relation(r, cid, ev_ids, findings)
             if not nr:
                 continue
+            nr["target"] = fix(cid, nr["target"], "relation target")
             if nr["target"] not in idx and nr["target"] not in batch_ids:
                 findings.append({"level": "warn", "card": cid, "msg": f"relation target {nr['target']!r} does not exist"})
             rels.append(nr)
-        parent = slug(c.get("parent", "") or "")
+        parent = fix(cid, slug(c.get("parent", "") or ""), "parent")
         if parent == cid:
             parent = ""
         if parent and parent not in idx and parent not in batch_ids:
@@ -354,6 +393,12 @@ def validate(cards: Cards, data: dict, paths: list[str], expect_summaries: list[
         if not ev:
             findings.append({"level": "warn", "card": cid, "msg": "no evidence"})
         body = str((c.get("add_md") if append else c.get("body_md")) or "")
+        def _link(mm):
+            t = slug(mm.group(1))
+            if t in resolver.known or not resolver.resolve(t)[1]:
+                return mm.group(0)  # known, or unresolvable: leave as written (lint reports it)
+            return f"[[{fix(cid, t, 'link')}{mm.group(2)}]]"
+        body = re.sub(r"\[\[([^\]|#]+)((?:#[^\]|]*)?(?:\|[^\]]*)?)\]\]", _link, body)
         cited = set(re.findall(r"\[(E\d+)\]", body))
         if cited - ev_ids:
             findings.append({"level": "warn", "card": cid, "msg": f"body cites undefined evidence {sorted(cited - ev_ids)}"})
@@ -406,17 +451,24 @@ class Compiler:
     def llm_step(self, run: dict, cfg: dict, system: str, user: str, prefix: str = "") -> llm.LLMResult:
         """One traced LLM call: prompts, response, thinking, usage, cost go to the run's trace dir."""
         tdir = self._trace_dir(run["id"])
+        stage = {"nav-": "navigate", "ans-": "answer"}.get(prefix, "compile")
+        by_stage = cfg.get("reasoning_by_stage") or {}
+        if stage in by_stage:
+            cfg = {**cfg, "openrouter_reasoning": by_stage[stage]}
         atomic_write(tdir / f"{prefix}system.md", system)
         atomic_write(tdir / f"{prefix}prompt.md", user)
         res = llm.call(cfg, system, user)
         calls = run.setdefault("calls", [])
-        call = {"step": prefix.rstrip("-") or "compile", "model": res.model, "usage": res.usage,
+        call = {"step": prefix.rstrip("-") or "compile", "stage": stage, "model": res.model, "usage": res.usage,
+                "reasoning_effort": res.raw_meta.get("reasoning_effort"),
                 "latency_s": res.latency_s, "stop_reason": res.stop_reason, "prompt_chars": len(system) + len(user)}
         price = self.kb.config["llm"].get("price_per_mtok", {}).get(res.model)
         if "cost_usd_reported" in res.usage:
             call["cost_usd"] = round(float(res.usage["cost_usd_reported"]), 6)
         elif price and "input_tokens" in res.usage:
             call["cost_usd"] = round(res.usage["input_tokens"] / 1e6 * price[0] + res.usage["output_tokens"] / 1e6 * price[1], 4)
+        if res.raw_meta.get("watchdog_aborts"):
+            call["watchdog_aborts"] = res.raw_meta["watchdog_aborts"]
         calls.append(call)
         # run-level aggregates
         run["model"] = res.model
