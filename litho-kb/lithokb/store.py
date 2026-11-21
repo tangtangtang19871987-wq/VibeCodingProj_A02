@@ -36,12 +36,13 @@ DEFAULT_CONFIG = {
         "allow_self_approval": False,
     },
     "llm": {
-        "backend": "mock",  # mock | anthropic | command
+        "backend": "mock",  # mock | anthropic | openrouter | command
         "model": "claude-opus-5-5",
         "effort": "high",
         "max_tokens": 64000,
+        "openrouter_model": "z-ai/glm-5.3-flash",  # for backend=openrouter
         "command": "",  # for backend=command: prompt on stdin, response on stdout
-        "price_per_mtok": {"claude-opus-5-5": [4.0, 20.0]},
+        "price_per_mtok": {"claude-opus-5-5": [4.0, 20.0], "z-ai/glm-5.3-flash": [0.0399, 0.0784]},
     },
     "compile": {
         "files_per_call": 1,

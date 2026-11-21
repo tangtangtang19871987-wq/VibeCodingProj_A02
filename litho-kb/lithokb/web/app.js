@@ -593,7 +593,7 @@ routes.compile = async () => {
     <div class="row"><button id="selchg">选择有变化的（${plan.paths.length}）</button><button id="selall">全选</button><button id="selnone">清空</button></div>
     <div style="max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:6px;padding:6px 10px">${tree.paths.map(p =>
       `<label class="row" style="margin:2px 0"><input type="checkbox" class="cp" value="${esc(p)}" ${changed.has(p) ? 'checked' : ''}><span class="mono">${esc(p)}</span>${changed.has(p) ? badge('warn', '新/有变化') : ''}</label>`).join('')}</div>
-    <div class="row"><label>后端</label><select id="cbackend">${['mock', 'anthropic', 'command'].map(b => `<option ${b === plan.backend ? 'selected' : ''}>${b}</option>`).join('')}</select>
+    <div class="row"><label>后端</label><select id="cbackend">${['mock', 'openrouter', 'anthropic', 'command'].map(b => `<option ${b === plan.backend ? 'selected' : ''}>${b}</option>`).join('')}</select>
       <span class="small muted">默认模型 ${esc(plan.model)}（config.json）</span><label>每次调用文档数</label><input id="cfpc" type="number" min="1" value="1" style="width:60px"></div>
     <textarea id="cinst" placeholder="给编译器的附加指令（可选），例如：重点抽取模型参数与典型取值"></textarea>
     <div class="row"><button class="primary" id="cgo">开始编译</button></div></section>

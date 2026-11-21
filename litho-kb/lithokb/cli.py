@@ -88,8 +88,9 @@ def main(argv=None) -> None:
     s = sub.add_parser("compile", help="compile sources into knowledge cards via the LLM")
     s.add_argument("paths", nargs="*", help="source paths (default: all changed)")
     s.add_argument("--all", action="store_true", help="recompile even unchanged sources")
-    s.add_argument("--backend", choices=["mock", "anthropic", "command"])
+    s.add_argument("--backend", choices=["mock", "anthropic", "openrouter", "command"])
     s.add_argument("--files-per-call", type=int)
+    s.add_argument("--model", help="model id for the chosen backend (e.g. z-ai/glm-5.3-flash)")
     s.add_argument("--instructions", default="")
     s.add_argument("--dry-run", action="store_true", help="show plan and prompt size only")
 
@@ -124,7 +125,8 @@ def main(argv=None) -> None:
     s = sub.add_parser("ask", help="ask the knowledge base (navigate → read → answer with verified quotes)")
     s.add_argument("question", nargs="+")
     s.add_argument("--all", action="store_true", help="include unpublished cards (reviewer+)")
-    s.add_argument("--backend", choices=["mock", "anthropic", "command"])
+    s.add_argument("--backend", choices=["mock", "anthropic", "openrouter", "command"])
+    s.add_argument("--model", help="model id for the chosen backend")
     s.add_argument("--file-back", metavar="TITLE", nargs="?", const="", help="file the answer as a synthesis card (reviewer+)")
     s = sub.add_parser("file-back", help="file an earlier query answer as a synthesis card (reviewer+)")
     s.add_argument("run")
@@ -213,7 +215,7 @@ def main(argv=None) -> None:
             from .compiler import build_prompt
             sysp, user, rel = build_prompt(kb, cards, paths[:1])
             return _out({"plan": paths, "first_call_prompt_chars": len(sysp) + len(user), "related_cards": rel}, args)
-        job = comp.start(me["name"], paths, backend=args.backend, instructions=args.instructions,
+        job = comp.start(me["name"], paths, backend=args.backend, model=args.model, instructions=args.instructions,
                          background=False, files_per_call=args.files_per_call)
         for rid in job["runs"]:
             r = comp.trace(rid)["run"]
@@ -268,9 +270,8 @@ def main(argv=None) -> None:
     if cmd == "ask":
         from .ask import Asker
         A.require(me, kb.config["query"]["min_role"])
-        cfg = dict(kb.config["llm"])
-        if args.backend:
-            cfg["backend"] = args.backend
+        from .compiler import llm_config
+        cfg = llm_config(kb, args.backend, args.model)
         run = Asker(kb, cards, comp).ask(me, " ".join(args.question), cfg,
                                          include_unpublished=args.all and A.RANK[me["role"]] >= 2)
         if args.json:

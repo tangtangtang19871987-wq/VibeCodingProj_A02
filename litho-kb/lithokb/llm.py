@@ -40,6 +40,8 @@ def call(cfg: dict, system: str, user: str) -> LLMResult:
     t0 = time.time()
     if backend == "anthropic":
         r = _anthropic(cfg, system, user)
+    elif backend == "openrouter":
+        r = _openrouter(cfg, system, user)
     elif backend == "command":
         r = _command(cfg, system, user)
     elif backend == "mock":
@@ -85,6 +87,64 @@ def _anthropic(cfg: dict, system: str, user: str) -> LLMResult:
         meta["refusal"] = {"category": msg.stop_details.category, "explanation": msg.stop_details.explanation}
     return LLMResult(text=text, model=msg.model, backend="anthropic", usage=usage,
                      stop_reason=msg.stop_reason or "", thinking=thinking, raw_meta=meta)
+
+
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+
+def _openrouter(cfg: dict, system: str, user: str) -> LLMResult:
+    """Any model on OpenRouter (OpenAI-compatible chat API), stdlib HTTP only.
+    Key from $OPEN_ROUTER_API_KEY or $OPENROUTER_API_KEY. Reasoning text, when the model
+    returns it, goes to the trace like Claude's thinking summary; OpenRouter's own
+    usage accounting (tokens + cost) is recorded."""
+    import urllib.error
+    import urllib.request
+    key = os.environ.get("OPEN_ROUTER_API_KEY") or os.environ.get("OPENROUTER_API_KEY")
+    if not key:
+        raise LLMError("backend 'openrouter' needs OPEN_ROUTER_API_KEY in the environment")
+    model = cfg.get("openrouter_model") or "z-ai/glm-5.3-flash"
+    body = {"model": model,
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            "max_tokens": int(cfg.get("max_tokens", 64000)),
+            "usage": {"include": True}}
+    if cfg.get("json_mode", True):
+        body["response_format"] = {"type": "json_object"}
+    data = json.dumps(body).encode()
+    last = None
+    for attempt in range(4):
+        req = urllib.request.Request(OPENROUTER_URL, data=data, method="POST",
+                                     headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=int(cfg.get("timeout_s", 600))) as resp:
+                out = json.loads(resp.read())
+            break
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", "replace")[:800]
+            last = f"HTTP {e.code}: {detail}"
+            if e.code in (429, 500, 502, 503, 504) and attempt < 3:
+                time.sleep(2 ** attempt * 2)
+                continue
+            raise LLMError(f"openrouter {last}") from e
+        except (urllib.error.URLError, TimeoutError) as e:
+            last = str(e)
+            if attempt < 3:
+                time.sleep(2 ** attempt * 2)
+                continue
+            raise LLMError(f"openrouter connection error: {e}") from e
+    if "error" in out:
+        raise LLMError(f"openrouter error: {json.dumps(out['error'], ensure_ascii=False)[:800]}")
+    choice = out["choices"][0]
+    msg = choice.get("message", {})
+    u = out.get("usage", {}) or {}
+    usage = {"input_tokens": u.get("prompt_tokens", 0), "output_tokens": u.get("completion_tokens", 0)}
+    if (u.get("completion_tokens_details") or {}).get("reasoning_tokens"):
+        usage["reasoning_tokens"] = u["completion_tokens_details"]["reasoning_tokens"]
+    if u.get("cost") is not None:
+        usage["cost_usd_reported"] = u["cost"]
+    finish = choice.get("finish_reason") or ""
+    return LLMResult(text=msg.get("content") or "", model=out.get("model", model), backend="openrouter", usage=usage,
+                     stop_reason={"length": "max_tokens", "stop": "end_turn"}.get(finish, finish),
+                     thinking=msg.get("reasoning") or "", raw_meta={"id": out.get("id"), "provider": out.get("provider")})
 
 
 def _command(cfg: dict, system: str, user: str) -> LLMResult:

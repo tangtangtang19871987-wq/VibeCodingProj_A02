@@ -290,7 +290,9 @@ class Compiler:
         call = {"step": prefix.rstrip("-") or "compile", "model": res.model, "usage": res.usage,
                 "latency_s": res.latency_s, "stop_reason": res.stop_reason, "prompt_chars": len(system) + len(user)}
         price = self.kb.config["llm"].get("price_per_mtok", {}).get(res.model)
-        if price and "input_tokens" in res.usage:
+        if "cost_usd_reported" in res.usage:
+            call["cost_usd"] = round(float(res.usage["cost_usd_reported"]), 6)
+        elif price and "input_tokens" in res.usage:
             call["cost_usd"] = round(res.usage["input_tokens"] / 1e6 * price[0] + res.usage["output_tokens"] / 1e6 * price[1], 4)
         calls.append(call)
         # run-level aggregates
@@ -303,7 +305,7 @@ class Compiler:
                     agg[k] = agg.get(k, 0) + v
         run["usage"] = agg
         if any("cost_usd" in c for c in calls):
-            run["cost_usd"] = round(sum(c.get("cost_usd", 0) for c in calls), 4)
+            run["cost_usd"] = round(sum(c.get("cost_usd", 0) for c in calls), 6)
         run["stop_reason"] = res.stop_reason
         run["llm_meta"] = res.raw_meta
         atomic_write(tdir / f"{prefix}response.md", res.text)
@@ -350,10 +352,8 @@ class Compiler:
         return smalls + calls
 
     def start(self, actor: str, paths: list[str], backend: str | None = None, instructions: str = "",
-              background: bool = True, files_per_call: int | None = None) -> dict:
-        cfg = dict(self.kb.config["llm"])
-        if backend:
-            cfg["backend"] = backend
+              background: bool = True, files_per_call: int | None = None, model: str | None = None) -> dict:
+        cfg = llm_config(self.kb, backend, model)
         groups = self.work_units(paths, files_per_call)
         job = {"id": "job-" + uuid.uuid4().hex[:8], "by": actor, "at": now(), "backend": cfg["backend"],
                "groups": [[u["path"] + (f" §{u['part']}" if u.get("part") else "") for u in g] for g in groups],
@@ -516,6 +516,18 @@ def _sum_grounding(gs: list[dict]) -> dict:
     g["total"] = sum(x.get("total", 0) for x in gs)
     g["score"] = round((g["exact"] + g["moved"] + 0.5 * g["fuzzy"]) / g["total"], 2) if g["total"] else 0.0
     return g
+
+
+def llm_config(kb: KB, backend: str | None = None, model: str | None = None) -> dict:
+    """Effective LLM settings: config.json, optionally overridden per job/query."""
+    cfg = dict(kb.config["llm"])
+    if backend:
+        cfg["backend"] = backend
+    if model:
+        cfg["openrouter_model" if cfg["backend"] == "openrouter" else "model"] = model
+    if cfg["backend"] == "openrouter":
+        cfg["model"] = cfg.get("openrouter_model")
+    return cfg
 
 
 def card_history(kb: KB, cid: str) -> list[dict]:

@@ -260,9 +260,9 @@ def make_handler(app: App):
                 A.require(user, kb.config["query"]["min_role"])
                 b = self._body()
                 incl = bool(b.get("include_unpublished")) and reviewer and kb.config["query"]["unpublished_for_reviewers"]
-                cfg = dict(kb.config["llm"])
-                if b.get("backend") and user and user["role"] == "admin":
-                    cfg["backend"] = b["backend"]
+                from .compiler import llm_config
+                adm = user and user["role"] == "admin"
+                cfg = llm_config(kb, b.get("backend") if adm else None, b.get("model") if adm else None)
                 return self._json(app.asker.ask(user, b.get("question", ""), cfg, include_unpublished=incl))
             if head == "queries":
                 A.require(user, "reader")
@@ -349,7 +349,7 @@ def make_handler(app: App):
                     paths = app.compiler.plan(b.get("paths") or None, only_changed=bool(b.get("only_changed", False)))
                     if not paths:
                         return self._json({"error": "nothing to compile"}, 400)
-                    job = app.compiler.start(user["name"], paths, backend=b.get("backend") or None,
+                    job = app.compiler.start(user["name"], paths, backend=b.get("backend") or None, model=b.get("model") or None,
                                              instructions=b.get("instructions", ""),
                                              files_per_call=int(b["files_per_call"]) if b.get("files_per_call") else None)
                     return self._json(job)
