@@ -41,6 +41,8 @@ DEFAULT_CONFIG = {
         "effort": "high",
         "max_tokens": 64000,
         "openrouter_model": "z-ai/glm-5.3-flash",  # for backend=openrouter
+        "openrouter_reasoning": "low",  # none | low | medium | high — bounds hidden reasoning time/cost
+        "openrouter_max_tokens": 32000,
         "command": "",  # for backend=command: prompt on stdin, response on stdout
         "price_per_mtok": {"claude-opus-5-5": [4.0, 20.0], "z-ai/glm-5.3-flash": [0.0399, 0.0784]},
     },

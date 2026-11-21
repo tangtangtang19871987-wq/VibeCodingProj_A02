@@ -93,58 +93,79 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
 def _openrouter(cfg: dict, system: str, user: str) -> LLMResult:
-    """Any model on OpenRouter (OpenAI-compatible chat API), stdlib HTTP only.
-    Key from $OPEN_ROUTER_API_KEY or $OPENROUTER_API_KEY. Reasoning text, when the model
-    returns it, goes to the trace like Claude's thinking summary; OpenRouter's own
-    usage accounting (tokens + cost) is recorded."""
+    """Any model on OpenRouter (OpenAI-compatible chat API), stdlib HTTP only, streamed.
+
+    * Key from $OPEN_ROUTER_API_KEY or $OPENROUTER_API_KEY.
+    * `openrouter_reasoning` (default "low") bounds hidden reasoning: cheap reasoning models
+      otherwise think for many minutes before writing the JSON (measured: >100 s of reasoning
+      with no output vs 42 s end-to-end at "low" for one chapter).
+    * Streaming gives stall detection (`stall_s` without any byte → error) instead of one
+      long blocking read; reasoning text goes to the trace as "thinking"; OpenRouter's own
+      usage accounting (tokens, reasoning tokens, cost) is recorded."""
     import urllib.error
     import urllib.request
     key = os.environ.get("OPEN_ROUTER_API_KEY") or os.environ.get("OPENROUTER_API_KEY")
     if not key:
         raise LLMError("backend 'openrouter' needs OPEN_ROUTER_API_KEY in the environment")
     model = cfg.get("openrouter_model") or "z-ai/glm-5.3-flash"
-    body = {"model": model,
+    body = {"model": model, "stream": True,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            "max_tokens": int(cfg.get("max_tokens", 64000)),
+            "max_tokens": int(cfg.get("openrouter_max_tokens", 32000)),
             "usage": {"include": True}}
+    effort = cfg.get("openrouter_reasoning", "low")
+    if effort in ("none", "off", False):
+        body["reasoning"] = {"enabled": False}
+    elif effort:
+        body["reasoning"] = {"effort": effort}
     if cfg.get("json_mode", True):
         body["response_format"] = {"type": "json_object"}
     data = json.dumps(body).encode()
-    last = None
-    for attempt in range(4):
+    stall = int(cfg.get("stall_s", 120))
+    for attempt in range(3):
         req = urllib.request.Request(OPENROUTER_URL, data=data, method="POST",
                                      headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+        content, reasoning, usage_raw, finish, served, gen_id = [], [], {}, "", model, ""
         try:
-            with urllib.request.urlopen(req, timeout=int(cfg.get("timeout_s", 600))) as resp:
-                out = json.loads(resp.read())
+            with urllib.request.urlopen(req, timeout=stall) as resp:  # timeout applies per read → stall detection
+                for raw in resp:
+                    line = raw.decode("utf-8", "replace").strip()
+                    if not line.startswith("data: ") or line == "data: [DONE]":
+                        continue
+                    ev = json.loads(line[6:])
+                    if "error" in ev:
+                        raise LLMError(f"openrouter error: {json.dumps(ev['error'], ensure_ascii=False)[:800]}")
+                    served, gen_id = ev.get("model", served), ev.get("id", gen_id)
+                    if ev.get("usage"):
+                        usage_raw = ev["usage"]
+                    for ch in ev.get("choices") or []:
+                        d = ch.get("delta") or {}
+                        if d.get("content"):
+                            content.append(d["content"])
+                        if d.get("reasoning"):
+                            reasoning.append(d["reasoning"])
+                        if ch.get("finish_reason"):
+                            finish = ch["finish_reason"]
             break
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")[:800]
-            last = f"HTTP {e.code}: {detail}"
-            if e.code in (429, 500, 502, 503, 504) and attempt < 3:
-                time.sleep(2 ** attempt * 2)
+            if e.code in (429, 500, 502, 503, 504) and attempt < 2:
+                time.sleep(4 * (attempt + 1))
                 continue
-            raise LLMError(f"openrouter {last}") from e
-        except (urllib.error.URLError, TimeoutError) as e:
-            last = str(e)
-            if attempt < 3:
-                time.sleep(2 ** attempt * 2)
+            raise LLMError(f"openrouter HTTP {e.code}: {detail}") from e
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+            if attempt < 2:
+                time.sleep(4 * (attempt + 1))
                 continue
-            raise LLMError(f"openrouter connection error: {e}") from e
-    if "error" in out:
-        raise LLMError(f"openrouter error: {json.dumps(out['error'], ensure_ascii=False)[:800]}")
-    choice = out["choices"][0]
-    msg = choice.get("message", {})
-    u = out.get("usage", {}) or {}
+            raise LLMError(f"openrouter connection error / stalled > {stall}s: {e}") from e
+    u = usage_raw or {}
     usage = {"input_tokens": u.get("prompt_tokens", 0), "output_tokens": u.get("completion_tokens", 0)}
     if (u.get("completion_tokens_details") or {}).get("reasoning_tokens"):
         usage["reasoning_tokens"] = u["completion_tokens_details"]["reasoning_tokens"]
     if u.get("cost") is not None:
         usage["cost_usd_reported"] = u["cost"]
-    finish = choice.get("finish_reason") or ""
-    return LLMResult(text=msg.get("content") or "", model=out.get("model", model), backend="openrouter", usage=usage,
-                     stop_reason={"length": "max_tokens", "stop": "end_turn"}.get(finish, finish),
-                     thinking=msg.get("reasoning") or "", raw_meta={"id": out.get("id"), "provider": out.get("provider")})
+    return LLMResult(text="".join(content), model=served, backend="openrouter", usage=usage,
+                     stop_reason={"length": "max_tokens", "stop": "end_turn"}.get(finish, finish or "unknown"),
+                     thinking="".join(reasoning), raw_meta={"id": gen_id, "reasoning_effort": effort})
 
 
 def _command(cfg: dict, system: str, user: str) -> LLMResult:

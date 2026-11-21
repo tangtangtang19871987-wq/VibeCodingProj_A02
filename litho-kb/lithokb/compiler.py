@@ -310,6 +310,8 @@ class Compiler:
         run["llm_meta"] = res.raw_meta
         atomic_write(tdir / f"{prefix}response.md", res.text)
         atomic_write(tdir / f"{prefix}thinking.md", res.thinking or "(no thinking returned)")
+        if res.stop_reason == "max_tokens":
+            raise llm.LLMError("output truncated at max_tokens — raise the limit or compile smaller units")
         if res.stop_reason == "refusal":
             raise llm.LLMError(f"model refused: {res.raw_meta.get('refusal')}")
         return res
