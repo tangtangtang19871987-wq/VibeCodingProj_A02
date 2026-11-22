@@ -27,7 +27,7 @@ language — do not translate, paraphrase, count, sum or derive. Names may be sh
 
 - conditions: under which conditions the card's statements hold. Allowed dimensions:
 {dims}
-  Item: {{"dim":"node","value":"7nm 及以下","evidence":"E3"}}. Only explicit statements (not guesses).
+  Item: {{"dim":"node","value":"7nm and below","evidence":"E3"}}. Only explicit statements (not guesses).
 - events: dated milestones or evolution steps. Item: {{"when":"2019","what":"…","evidence":"E2"}}.
 - facts: values worth comparing across cards — parameters, metrics, typical ranges, counts.
   Item: {{"name":"DOF","value":"> 100","unit":"nm","conditions":{{"node":"7nm"}},"evidence":"E4"}}.
@@ -85,7 +85,7 @@ class Annotator:
                 card.update(fac)
                 h = self.cards.new_revision(user["name"], card, body, {"kind": "llm", "op": "annotate", "run": rid,
                                                                        "model": res.model, "by": user["name"]},
-                                            change_note="补充刻面：" + "，".join(f"{k} {len(v)}" for k, v in fac.items() if v))
+                                            change_note="added facets: " + ", ".join(f"{k} {len(v)}" for k, v in fac.items() if v))
                 run["written"].append({"id": cid, "rev": h["rev"], "action": "annotate", "grounding": h["grounding"]})
             run["status"] = "done"
         except Exception as e:

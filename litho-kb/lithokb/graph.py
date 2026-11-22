@@ -13,7 +13,7 @@ Layers (each edge carries `layer` and an epistemic `basis`):
   provenance  card —derived_from→ doc     the card's evidence sources
 
 Entities that are named like a card (title / alias) *are* that card (entity resolution).
-Ontology constraints come from SCHEMA.md ("图谱本体"): entity types and the allowed subject →
+Ontology constraints come from SCHEMA.md ("Graph ontology"; legacy "图谱本体"): entity types and the allowed subject →
 object card types of each relation; violations are reported by lint, never silently dropped.
 
 Queries: neighbours (k hops, relation / layer filters), shortest explained path, ego subgraph,
@@ -30,8 +30,8 @@ from collections import Counter, defaultdict, deque
 from . import schema as SC
 from . import sources as S
 
-DEFAULT_ENTITY_TYPES = {"tool": "软件/工具", "equipment": "设备", "organization": "机构/公司",
-                        "material": "材料", "standard": "格式/标准", "person": "人物", "product": "产品/芯片"}
+DEFAULT_ENTITY_TYPES = {"tool": "Software/tool", "equipment": "Equipment", "organization": "Organization/company",
+                        "material": "Material", "standard": "Format/standard", "person": "Person", "product": "Product/chip"}
 STRONG = {"is_a", "part_of", "subtopic_of", "uses", "depends_on", "implements", "improves", "alternative_to",
           "contrasts_with", "causes", "mitigates", "measured_by", "parameter_of", "input_to", "output_of",
           "example_of", "contradicts", "covers"}
@@ -44,11 +44,14 @@ _SCAN_CACHE: dict = {}
 def ontology(kb) -> dict:
     """{"entity_types": {type: label}, "constraints": {rel: (set(subject types)|{'*'}, set(object types)|{'*'})}}"""
     text = SC.current(kb)["text"]
-    m = re.search(r"^#+[^\n]*本体[^\n]*\n(.*?)(?=^#{1,2} |\Z)", text, re.M | re.S)
+    # section heading: "Graph ontology" (or the legacy Chinese "图谱本体"); constraints follow
+    # "Relation constraints" (legacy "关系约束"); both '：' and ':' are accepted
+    m = re.search(r"^#+[^\n]*(?:本体|ontology)[^\n]*\n(.*?)(?=^#{1,2} |\Z)", text, re.M | re.S | re.I)
     et, cons = {}, {}
     if m:
         part = m.group(1)
-        cpos = part.find("关系约束")
+        cm = re.search(r"关系约束|relation constraints", part, re.I)
+        cpos = cm.start() if cm else -1
         ent_part = part[:cpos] if cpos >= 0 else part
         for mm in re.finditer(r"^[ \t]*[-*][ \t]+`([a-z][a-z0-9_]*)`[ \t]+([^：:\n]+)", ent_part, re.M):
             et[mm.group(1)] = mm.group(2).strip()
@@ -323,7 +326,7 @@ def build(kb, cards, readers: bool) -> Graph:
                     st, ot = g.nodes[cid]["type"], g.nodes[t]["type"]
                     if ("*" not in con[0] and st not in con[0]) or ("*" not in con[1] and ot not in con[1]):
                         g.findings.append({"kind": "ontology_violation", "card": cid,
-                                           "detail": f"{e['rel']}: {st} → {ot} 不符合约束 {'|'.join(sorted(con[0]))} → {'|'.join(sorted(con[1]))}（目标 {t}）"})
+                                           "detail": f"{e['rel']}: {st} → {ot} violates constraint {'|'.join(sorted(con[0]))} → {'|'.join(sorted(con[1]))} (target {t})"})
         for t in v.get("_links", []):
             if t in vis:
                 g.edge(cid, t, "links_to", "reviewed", basis="extracted")
@@ -336,7 +339,7 @@ def build(kb, cards, readers: bool) -> Graph:
             continue
         for name in [v["title"], re.sub(r"[（(].*?[)）]", "", v["title"]).strip()] + list(v.get("aliases", [])):
             gz.add(name, cid)
-        for inner in re.findall(r"[（(]([^)）]{2,40})[)）]", v["title"]):  # "光学邻近效应修正 (OPC)" → OPC
+        for inner in re.findall(r"[（(]([^)）]{2,40})[)）]", v["title"]):  # "Optical Proximity Correction (OPC)" → OPC
             gz.add(inner, cid)
             for part in re.split(r"[,，/;；]\s*", inner):  # "(Edge Placement Error, EPE)" → both names
                 gz.add(part.strip(), cid)
@@ -411,7 +414,7 @@ def build(kb, cards, readers: bool) -> Graph:
         for nm in [ent["name"], *ent["aliases"]]:
             egz.add(nm, eid)
         if ent["type"] and ent["type"] not in onto["entity_types"]:
-            g.findings.append({"kind": "untyped_entity", "card": eid, "detail": f"实体类型 {ent['type']!r} 不在本体中"})
+            g.findings.append({"kind": "untyped_entity", "card": eid, "detail": f"entity type {ent['type']!r} is not in the ontology"})
     egz.finalize()
     for cid, v in vis.items():
         for eid, n in egz.scan(v.get("_body", "")).most_common(max_m):

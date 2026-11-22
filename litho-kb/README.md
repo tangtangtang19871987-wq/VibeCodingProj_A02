@@ -11,7 +11,7 @@
 python3 -m unittest discover -s tests -v
 ```
 
-**依赖：Python ≥ 3.10 标准库，无其他依赖。** 只有使用真实 Claude 模型时才需要 `pip install anthropic`。
+**依赖：Python ≥ 3.10 + `langgraph`（`pip install -r requirements.txt`）。** 所有 LLM 调用都以 LangGraph 状态图执行（`lithokb/flows.py`）；其余部分仍只用标准库。使用 Claude 模型时另需 `pip install anthropic`。界面与后端为英文；知识内容保持原文语言。
 没有数据库、没有向量库、不切分文档、没有前端构建链。前端是 4 个静态文件（约 60 KB）。
 
 ---

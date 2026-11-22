@@ -5,8 +5,8 @@ table of contents with good node summaries and let it *reason* its way down, the
 an expert uses the index of a handbook. We apply that to the whole knowledge base:
 
     ⌂ root
-    ├─ 知识 (wiki)            topic cards → their child cards → …     (Layer 1, reviewed)
-    └─ 原文 (documents)       folders → documents → sections → …      (Layer 0, verbatim)
+    ├─ Knowledge (wiki)          topic cards → their child cards → …     (Layer 1, reviewed)
+    └─ Sources (documents)       folders → documents → sections → …      (Layer 0, verbatim)
                               (a document's summary card hangs on its document node)
 
 Node summaries
@@ -46,7 +46,7 @@ _LOCK = threading.RLock()
 INDEX_SYSTEM = """[[LKB:INDEX]]
 You write the navigation summaries of a document's table of contents for a computational-lithography knowledge base.
 Readers and an AI navigator will decide what to open *only* from these summaries, so each must say concretely what
-the section contains (the specific concepts, methods, numbers, conditions) — not vague phrases like "介绍了相关内容".
+the section contains (the specific concepts, methods, numbers, conditions) — not vague phrases like "introduces related content".
 Write in the document's language. Each node summary ≤ 60 characters (Chinese) / 25 words. Use only the document.
 If the document has fewer than two headings but is long, propose "virtual_sections": contiguous line ranges that
 follow its natural topic boundaries, each with a title.
@@ -342,7 +342,7 @@ class KnowledgeTree:
     def _build(self, conditions):
         from .cards import is_public
         from . import facets as F
-        self._add("k", "root", "知识（已审阅的知识卡片）", "按主题组织的知识卡片")
+        self._add("k", "root", "Knowledge (reviewed knowledge cards)", "knowledge cards organised by topic")
         idx = self.cards.index()
         vis = {}
         for cid, m in idx.items():
@@ -381,7 +381,7 @@ class KnowledgeTree:
                 v = vis[cid]
                 self._add(cid, "card", v["title"], v.get("summary", ""), "k", type=v["type"], size=len(v.get("_body", "")))
         # documents
-        self._add("d", "root", "原文（原始文档，逐字保存）", "按文件夹组织的原始文档及其章节")
+        self._add("d", "root", "Sources (original documents, kept verbatim)", "source documents and their sections, by folder")
         for p in S.list_md_by_policy(self.kb, "compile", "reference"):
             folder = posixpath.dirname(p)
             parent = "d"
@@ -414,7 +414,7 @@ class KnowledgeTree:
         for nd in self.nodes.values():  # folder summaries: what is inside (structural)
             if nd["kind"] == "folder":
                 docs = [self.nodes[c]["title"] for c in nd["children"] if self.nodes[c]["kind"] == "doc"]
-                nd["summary"] = f"{len(docs)} 篇：" + "、".join(docs[:6]) + ("…" if len(docs) > 6 else "")
+                nd["summary"] = f"{len(docs)} document(s): " + ", ".join(docs[:6]) + ("…" if len(docs) > 6 else "")
 
     # -- rendering for the navigator --------------------------------------------------
     def descendants(self, nid: str) -> int:
@@ -542,7 +542,7 @@ class Handles:
 
 NAV_SYSTEM = """[[LKB:NAVIGATE]]
 You are the navigator of LithoKB, a curated computational-lithography knowledge base. You do not answer yet.
-You see a tree of the knowledge base: 知识 (reviewed knowledge cards under topics) and 原文 (original documents →
+You see a tree of the knowledge base: Knowledge (reviewed knowledge cards under topics) and Sources (original documents →
 sections, with line ranges). Every line starts with a handle, then a tag, a title and a summary. "[+N]" means N
 nodes below it are not shown yet — ask to "expand" it to see them. <hints> lists nodes that match the question's
 words or are graph neighbours of such nodes; they are suggestions, not answers.

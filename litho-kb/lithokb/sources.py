@@ -340,7 +340,8 @@ def doc_titles(kb: KB, paths) -> dict[str, str]:
 
 # ---- per-document processing policy -------------------------------------------------
 POLICIES = ("compile", "reference", "exclude")
-POLICY_ZH = {"compile": "编译为知识", "reference": "仅参考（可浏览、可导航，不编译）", "exclude": "排除（不编译、不参与问答）"}
+POLICY_ZH = {"compile": "compile into knowledge", "reference": "reference only (browsable and navigable, not compiled)",
+             "exclude": "exclude (not compiled, not used in Q&A)"}
 
 
 def looks_like_navigation(text: str) -> bool:
@@ -373,7 +374,7 @@ def policy_of(kb: KB, rel: str, meta: dict | None = None) -> dict:
             except SourceError:
                 _NAV_CACHE[key] = False
         if _NAV_CACHE[key]:
-            return {"policy": "reference", "auto": True, "reason": "自动识别为目录/导航页"}
+            return {"policy": "reference", "auto": True, "reason": "auto-detected as a table-of-contents / navigation page"}
     return {"policy": "compile", "auto": True, "reason": ""}
 
 

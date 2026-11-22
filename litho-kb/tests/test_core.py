@@ -183,8 +183,8 @@ class TestGraphAndWiki(Base):
         self.assertTrue(g.pagerank())
         self.assertTrue(g.communities())
         # ontology: a constraint in SCHEMA is enforced as lint findings
-        text = SC.current(self.kb)["text"].replace("- `example_of`：* → *", "- `example_of`：* → *\n- `covers`：topic → topic")
-        self.assertIn("`covers`：topic", text)
+        text = SC.current(self.kb)["text"].replace("- `example_of`: * → *", "- `example_of`: * → *\n- `covers`: topic → topic")
+        self.assertIn("`covers`: topic", text)
         SC.save(self.kb, "admin", text, "test ontology")
         g2 = G.build(self.kb, self.cards, readers=True)
         self.assertIsNot(g2, g)

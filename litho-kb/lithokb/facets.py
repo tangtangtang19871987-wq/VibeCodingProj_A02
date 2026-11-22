@@ -10,7 +10,8 @@ power additional views of the same knowledge:
 
 Every facet item must cite an evidence id of the card (already verified against the
 source); items that cannot be grounded are dropped. Condition dimensions are declared
-by the domain team in SCHEMA.md ("适用条件维度"), not in code.
+by the domain team in SCHEMA.md ("Applicability condition dimensions"; legacy
+heading "适用条件维度"), not in code.
 """
 from __future__ import annotations
 
@@ -19,15 +20,16 @@ import re
 from . import schema as SC
 
 # synonyms so that "EUV" matches "13.5nm" and "ArF immersion" matches "193nm"
-_WAVELENGTH = [("euv", ("euv", "13.5nm", "13.5 nm", "极紫外")), ("arfi", ("arfi", "浸没", "immersion", "193i")),
+_WAVELENGTH = [("euv", ("euv", "13.5nm", "13.5 nm", "extreme ultraviolet", "extreme-ultraviolet", "极紫外")), ("arfi", ("arfi", "浸没", "immersion", "193i")),
                ("arf", ("arf", "193nm", "193 nm", "duv")), ("krf", ("krf", "248nm", "248 nm")),
                ("i-line", ("i-line", "i线", "365nm")), ("g-line", ("g-line", "g线", "436nm"))]
 
 
 def dims(kb) -> dict[str, tuple[str, str]]:
-    """Condition dimensions from SCHEMA.md: lines '- `dim` 名称：示例' under a heading containing 适用条件."""
+    """Condition dimensions from SCHEMA.md: lines '- `dim` Name: e.g. …' (full-width '：' also accepted)
+    under a heading containing "Applicability" (or the legacy Chinese "适用条件")."""
     text = SC.current(kb)["text"]
-    m = re.search(r"^#+[^\n]*适用条件[^\n]*\n(.*?)(?=^#+ |\Z)", text, re.M | re.S)
+    m = re.search(r"^#+[^\n]*(?:适用条件|applicability)[^\n]*\n(.*?)(?=^#+ |\Z)", text, re.M | re.S | re.I)
     out = {}
     for mm in re.finditer(r"^[ \t]*[-*][ \t]+`([a-z][a-z0-9_]*)`[ \t]+([^：:\n]+)[：:]?[ \t]*([^\n]*)$", m.group(1) if m else "", re.M):
         out[mm.group(1)] = (mm.group(2).strip(), mm.group(3).strip())
@@ -35,17 +37,18 @@ def dims(kb) -> dict[str, tuple[str, str]]:
 
 
 def _nm_interval(v: str):
-    """'≤7nm' / '7nm及以下' → (0,7); '≥28nm' / '28nm及以上' → (28,inf); '65nm–5nm' → (5,65); '5nm' → (5,5)."""
+    """'≤7nm' / '7nm and below' → (0,7); '≥28nm' / '28nm and above' → (28,inf); '65nm–5nm' → (5,65); '5nm' → (5,5).
+    Chinese qualifiers (及以下 / 及以上 / 至 …) in existing data are matched too."""
     s = v.replace(" ", "").lower()
     nums = [float(x) for x in re.findall(r"(\d+(?:\.\d+)?)(?=nm|纳米|n\b|$|[^\d.])", s)]
     if not nums:
         return None
-    if len(nums) >= 2 and re.search(r"[-–~至到]", s):
+    if len(nums) >= 2 and re.search(r"[-–~至到]|(?<=[\dm])to(?=\d)", s):
         return (min(nums[:2]), max(nums[:2]))
     n = nums[0]
-    if re.search(r"≤|<=|<|及以下|以下|以内|及更先进|beyond|below", s):
+    if re.search(r"≤|<=|<|及以下|以下|以内|及更先进|beyond|below|orless|orsmaller|andsmaller", s):
         return (0.0, n)
-    if re.search(r"≥|>=|>|及以上|以上|成熟", s):
+    if re.search(r"≥|>=|>|及以上|以上|成熟|above|orlarger|andlarger|mature", s):
         return (n, float("inf"))
     return (n, n)
 

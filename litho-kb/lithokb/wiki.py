@@ -27,13 +27,14 @@ from . import graph as G
 from . import sources as S
 from .cards import WIKILINK_RE, Cards, is_public, slug
 from .compiler import Compiler, new_run_id
+from .flows import generate
 from .store import KB, atomic_write, now
 
 PROMPT_VERSION = "lkb-hub/1"
 
 HUB_SYSTEM = """[[LKB:HUB]]
 You write the overview page of one topic in a computational-lithography wiki. You get the topic card and its
-published sub-pages (title, summary, key facts, conditions). Write a compact overview (Markdown, 150–500 字):
+published sub-pages (title, summary, key facts, conditions). Write a compact overview (Markdown, 150–500 words/characters):
 1) one-sentence definition of the topic; 2) how the sub-pages fit together (a short structured map: groups,
 order to read, how they relate / differ); 3) when which applies (conditions) if the sub-pages say so.
 Link every sub-page you mention as [[page-id]]. Use ONLY what the sub-pages say — numbers must be copied from them;
@@ -41,13 +42,13 @@ no new facts. Do not repeat each sub-page's full content; this page is a map, no
 Return exactly one JSON object in a ```json block: {"summary":"one line","body_md":"…"}"""
 
 
-STUB_MARK = "主题来自编译规范"
+STUB_MARKS = ("主题来自编译规范", "Topic from the SCHEMA.md topic skeleton")  # legacy Chinese + current stub text
 
 
 def has_overview(v: dict) -> bool:
     """A topic page has an overview when its body is more than the schema stub."""
     body = (v.get("_body") or "").strip()
-    return len(body) > 40 and STUB_MARK not in body
+    return len(body) > 40 and not any(m in body for m in STUB_MARKS)
 
 
 def _view(cards: Cards, cid: str, readers: bool):
@@ -226,22 +227,20 @@ class Wiki:
             user_msg = (f'<topic id="{cid}">\n# {head["title"]}\n{head.get("summary", "")}\n{body}\n</topic>\n\n'
                         f"# Published sub-pages ({len(kids)})\n" + "\n".join(blocks))
             from .pageindex import parse_obj
-            text, data = "", {}
-            for attempt in (1, 2):  # one corrective retry (observed: only "summary" returned)
-                msg = user_msg if attempt == 1 else user_msg + (
-                    "\n\n# Correction\nYour previous answer had no \"body_md\". Return BOTH fields: "
-                    '{"summary":"…","body_md":"the overview in Markdown with [[page-id]] links"}')
-                res = comp.llm_step(run, cfg, HUB_SYSTEM, msg, prefix="" if attempt == 1 else "retry-")
-                try:
-                    data = parse_obj(res.text)
-                except ValueError:
-                    data = {}
-                text = str(data.get("body_md", "")).strip()
-                if text:
-                    break
+
+            def check(res):
+                d = parse_obj(res.text)
+                if not str(d.get("body_md", "")).strip():
+                    raise ValueError("no body_md")  # observed: only "summary" returned
+                return d
+
+            # LangGraph GENERATE graph: generate → check → (correct → generate)
+            data, res, attempt = generate(
+                comp=comp, run=run, cfg=cfg, system=HUB_SYSTEM, user=user_msg, check=check, max_attempts=2, graph="hub",
+                correction=lambda e: ("\n\n# Correction\nYour previous answer had no \"body_md\". Return BOTH fields: "
+                                      '{"summary":"…","body_md":"the overview in Markdown with [[page-id]] links"}'))
             run["attempts"] = attempt
-            if not text:
-                raise ValueError("empty overview")
+            text = str(data["body_md"]).strip()
             known = set(self.cards.index())
             kid_ids = {v["id"] for v in kids}
             links = {slug(x) for x in WIKILINK_RE.findall(text)}
@@ -251,8 +250,8 @@ class Wiki:
             nums = set(re.findall(r"\d+(?:\.\d+)?", re.sub(r"\[\[[^\]]+\]\]", "", text)))
             new_nums = sorted(n for n in nums if n not in hay)
             cited = len(links & kid_ids) / len(kid_ids)
-            run["findings"] = ([f"链接不存在: {', '.join(bad_links)}"] if bad_links else []) + \
-                              ([f"综述中出现下级卡片里没有的数字: {', '.join(new_nums[:10])}"] if new_nums else [])
+            run["findings"] = ([f"links to missing pages: {', '.join(bad_links)}"] if bad_links else []) + \
+                              ([f"numbers not found in any sub-page: {', '.join(new_nums[:10])}"] if new_nums else [])
             card = {k: head.get(k) for k in ("id", "title", "type", "parent", "aliases", "relations", "confidence")}
             card["summary"] = str(data.get("summary") or head.get("summary", ""))[:200]
             card["evidence"] = [{k: e[k] for k in ("id", "path", "lines", "quote")} for e in head.get("evidence", [])]
@@ -263,7 +262,7 @@ class Wiki:
                       "children_cited": round(cited, 2), "children": len(kid_ids),
                       "unknown_numbers": new_nums[:20], "bad_links": bad_links}
             h = self.cards.new_revision(user["name"], card, text, origin,
-                                        change_note=f"主题综述（引用 {len(links & kid_ids)}/{len(kid_ids)} 张下级卡片）")
+                                        change_note=f"topic overview (links {len(links & kid_ids)}/{len(kid_ids)} sub-pages)")
             run["written"].append({"id": cid, "rev": h["rev"], "action": "hub"})
             run["status"] = "done"
         except Exception as e:  # noqa: BLE001
@@ -290,33 +289,33 @@ class Wiki:
             p = self.page(cid, readers=True)
             lines = [f"# {v['title']}", ""]
             if p["breadcrumbs"]:
-                lines += ["路径：" + " › ".join(f"[{b['title']}]({b['id']}.md)" for b in p["breadcrumbs"]), ""]
+                lines += ["Path: " + " › ".join(f"[{b['title']}]({b['id']}.md)" for b in p["breadcrumbs"]), ""]
             lines += [f"> {v.get('summary', '')}", "", re.sub(r"\[\[([^\]|#]+)(?:\|([^\]]*))?\]\]",
                                                           lambda mm: f"[{mm.group(2) or mm.group(1)}]({slug(mm.group(1))}.md)",
                                                           v.get("_body", "")), ""]
             if p["children"]:
-                lines += ["## 下级页面", ""] + [f"- [{c['title']}]({c['id']}.md) — {c['summary']}" for c in p["children"]] + [""]
+                lines += ["## Sub-pages", ""] + [f"- [{c['title']}]({c['id']}.md) — {c['summary']}" for c in p["children"]] + [""]
             rel = p["relations_out"] + [{**r, "rel": "←" + r["rel"]} for r in p["relations_in"]]
             if rel:
-                lines += ["## 关系", ""] + [f"- {r['rel']}：[{r['title']}]({r['id']}.md)（{r.get('basis')}）" for r in rel] + [""]
+                lines += ["## Relations", ""] + [f"- {r['rel']}: [{r['title']}]({r['id']}.md) ({r.get('basis')})" for r in rel] + [""]
             if p["sections"]:
-                lines += ["## 原文中讨论此概念的章节", ""] + [
-                    f"- 《{p['source_titles'].get(s['path'], s['path'])}》· {s['title']}（../../sources/{s['path']} L{s['start']}-{s['end']}）"
+                lines += ["## Source sections discussing this concept", ""] + [
+                    f"- “{p['source_titles'].get(s['path'], s['path'])}” · {s['title']} (../../sources/{s['path']} L{s['start']}-{s['end']})"
                     for s in p["sections"][:10]] + [""]
             ev = v.get("evidence", [])
             if ev:
-                lines += ["## 证据", ""] + [f"- [{e['id']}] ../../sources/{e['path']} L{e.get('lines', '')}：{e['quote'][:200]}" for e in ev] + [""]
-            lines += [f"_rev {v.get('rev')} · 已发布 · 由 LithoKB 生成，勿手改_", ""]
+                lines += ["## Evidence", ""] + [f"- [{e['id']}] ../../sources/{e['path']} L{e.get('lines', '')}: {e['quote'][:200]}" for e in ev] + [""]
+            lines += [f"_rev {v.get('rev')} · published · generated by LithoKB, do not edit by hand_", ""]
             atomic_write(out / f"{cid}.md", "\n".join(lines))
             keep.add(f"{cid}.md")
             n += 1
         ents = self.entities(readers=True)
-        atomic_write(out / "entities.md", "# 实体\n\n" + "\n".join(f"- {e['title']}（{e['type'] or '未分类'}）：{e['docs']} 篇文档，{e['cards']} 张卡片"
+        atomic_write(out / "entities.md", "# Entities\n\n" + "\n".join(f"- {e['title']} ({e['type'] or 'untyped'}): {e['docs']} document(s), {e['cards']} card(s)"
                                                                  for e in ents) + "\n")
         home = self.home(readers=True)
-        atomic_write(out / "index.md", "# 知识库首页\n\n## 主题\n\n" + "\n".join(
-            f"- [{t['title']}]({t['id']}.md)（{t['children']} 个下级）— {t['summary']}" for t in home["topics"]) +
-                     "\n\n## 核心概念（图谱中心度）\n\n" + "\n".join(f"- [{c['title']}]({c['id']}.md)" for c in home["central"]) + "\n")
+        atomic_write(out / "index.md", "# Knowledge base home\n\n## Topics\n\n" + "\n".join(
+            f"- [{t['title']}]({t['id']}.md) ({t['children']} sub-pages) — {t['summary']}" for t in home["topics"]) +
+                     "\n\n## Core concepts (graph centrality)\n\n" + "\n".join(f"- [{c['title']}]({c['id']}.md)" for c in home["central"]) + "\n")
         keep |= {"entities.md", "index.md"}
         for f in out.glob("*.md"):
             if f.name not in keep:

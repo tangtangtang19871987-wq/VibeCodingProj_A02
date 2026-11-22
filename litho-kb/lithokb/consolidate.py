@@ -19,6 +19,7 @@ import re
 import traceback
 
 from .cards import Cards, CardError, slug
+from .flows import generate
 from .compiler import Compiler, new_run_id
 from .quality import granularity_cfg, measure, units
 from .store import KB, atomic_write, now
@@ -27,7 +28,7 @@ PROMPT_VERSION = "lkb-consolidate/1"
 
 SYSTEM = """[[LKB:CONSOLIDATE]]
 You are the editor of LithoKB, a curated computational-lithography knowledge base. One knowledge card has grown
-by accretion (several "补充（来自…）" additions from different documents) and is now too long or fragmented.
+by accretion (several "Addendum (from …)" additions from different documents) and is now too long or fragmented.
 Rewrite it so that a domain engineer can read it in one sitting and an agent can load it cheaply.
 
 Size targets (reading units = CJK characters + Latin words): each card body between {min_units} and {target_max}
@@ -35,7 +36,7 @@ units; never above {hard_max}.
 
 Decide:
 - "rewrite": the card is ONE concept → produce one coherent body (definition first, then organised key points;
-  merge duplicates; keep formulas; remove the per-source "补充" headings — provenance stays in the evidence).
+  merge duplicates; keep formulas; remove the per-source "Addendum" headings — provenance stays in the evidence).
 - "split": the card covers SEVERAL distinct sub-concepts that each deserve a card → keep a shorter parent body
   (overview + links [[child-id]]) and create child cards (2–5) for the sub-concepts.
 
@@ -102,23 +103,20 @@ class Consolidator:
                         "\n\n# Existing ids nearby (do not reuse for children)\n" + ("\n".join(siblings) or "(none)") +
                         "\n\n# Task\nConsolidate this card following the rules.")
             step("prompt_built", units=before["units"])
-            prompt_now = user_msg
-            for attempt in (1, 2):  # one corrective retry on unusable output, as in compilation
-                res = self.comp.llm_step(run, cfg, system, prompt_now, prefix="" if attempt == 1 else "retry1-")
-                try:
-                    if res.stop_reason == "max_tokens":
-                        raise ValueError("output truncated at max_tokens")
-                    data = parse_response_any(res.text)
-                    atomic_write(self.comp._trace_dir(rid) / "parsed.json", json.dumps(data, ensure_ascii=False, indent=1))
-                    plan = self._validate(cid, head, data, ev_ids, gcfg, run["findings"])
-                    break
-                except (ValueError, json.JSONDecodeError) as e:
-                    run.setdefault("attempt_errors", []).append(f"attempt {attempt}: {e}")
-                    if attempt == 2:
-                        raise
-                    prompt_now = (user_msg + f"\n\n# Correction\nYour previous answer was not usable ({str(e)[:160]}). "
-                                  'Return exactly {"decision":…,"card":{"title","summary","body_md","aliases"},"children":[…],"notes":…} '
-                                  "with body_md INSIDE card.")
+            def check(res):
+                if res.stop_reason == "max_tokens":
+                    raise ValueError("output truncated at max_tokens")
+                d = parse_response_any(res.text)
+                atomic_write(self.comp._trace_dir(rid) / "parsed.json", json.dumps(d, ensure_ascii=False, indent=1))
+                return self._validate(cid, head, d, ev_ids, gcfg, run["findings"]), d
+
+            # LangGraph GENERATE graph: generate → check → (correct → generate)
+            (plan, data), res, attempt = generate(
+                comp=self.comp, run=run, cfg=cfg, system=system, user=user_msg, check=check, max_attempts=2,
+                graph="consolidate", on_event=step,
+                correction=lambda e: (f"\n\n# Correction\nYour previous answer was not usable ({e[:160]}). "
+                                      'Return exactly {"decision":…,"card":{"title","summary","body_md","aliases"},"children":[…],"notes":…} '
+                                      "with body_md INSIDE card."))
             run["attempts"] = attempt
             step("validated", decision=plan["decision"], children=len(plan["children"]))
             self._apply(user, cid, head, plan, rid, res.model, run)
@@ -211,7 +209,7 @@ class Consolidator:
         if plan["children"]:
             missing = [c for c in plan["children"] if f"[[{c['id']}" not in body]
             if missing:
-                body += "\n\n## 子概念\n" + "".join(f"\n- [[{c['id']}|{c['title']}]] — {c['summary']}" for c in missing)
+                body += "\n\n## Sub-concepts\n" + "".join(f"\n- [[{c['id']}|{c['title']}]] — {c['summary']}" for c in missing)
         cited = set(re.findall(r"\[(E\d+)\]", body))
         child_cited = set().union(*[set(c["evidence_ids"]) for c in plan["children"]]) if plan["children"] else set()
         coverage = len((cited | child_cited) & set(ev)) / max(1, len(ev))
@@ -260,7 +258,7 @@ def merge(cards: Cards, user: dict, src: str, into: str) -> dict:
         mapping[e["id"]] = f"E{n}"
         new_ev.append({**{k: e[k] for k in ("path", "lines", "quote")}, "id": f"E{n}"})
     add = re.sub(r"\[(E\d+)\]", lambda m: f"[{mapping.get(m.group(1), m.group(1))}]", bbody).strip()
-    body = abody.rstrip() + f"\n\n### 并入：{b['title']}\n\n{add}\n"
+    body = abody.rstrip() + f"\n\n### Merged: {b['title']}\n\n{add}\n"
     rels = list(a.get("relations", []))
     have = {(r["rel"], r["target"]) for r in rels}
     for r in b.get("relations", []):

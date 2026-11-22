@@ -11,7 +11,7 @@ Latin script (so mixed Chinese/English text is measured fairly).
   hard_max    (1600)  ≈ 4 minutes, ≈ 2k tokens — beyond this the card must be
                       consolidated (rewritten) or split into sub-concept cards
   max_evidence (24)   more evidence than this usually means several concepts in one card
-  max_appends  (3)    more "补充（来自…）" sections than this means the card reads as a
+  max_appends  (3)    more "Addendum (from …)" sections than this means the card reads as a
                       pile of excerpts and should be consolidated into one coherent text
 
 Thresholds live in config.json → "granularity" (domain teams can tune them); the
@@ -31,7 +31,7 @@ RISK_RULES_VERSION = "risk/2"
 DEFAULT_GRANULARITY = {"min_units": 60, "target_max": 900, "hard_max": 1600, "max_evidence": 24, "max_appends": 3}
 _CJK = re.compile(r"[㐀-䶿一-鿿豈-﫿]")
 _WORD = re.compile(r"[A-Za-z0-9]+(?:[.'\-][A-Za-z0-9]+)*")
-_APPEND = re.compile(r"^#{1,6}\s*补充（来自", re.M)
+_APPEND = re.compile(r"^#{1,6}\s*(?:补充（来自|Addendum \(from\b)", re.M | re.I)  # legacy Chinese + English headings
 
 
 def units(text: str) -> int:
@@ -65,8 +65,9 @@ def measure(meta: dict, body: str, cfg: dict) -> dict:
             ("long" in issues and appends > 1)}
 
 
-ISSUE_ZH = {"thin": "过薄（单一事实，宜并入相关卡片）", "long": "偏长", "too_long": "过长（需整合或拆分）",
-            "fragmented": "补充段过多（需整合重写）", "broad": "证据过多（可能包含多个概念）"}
+ISSUE_ZH = {"thin": "too thin (a single fact; merge into a related card)", "long": "on the long side",
+            "too_long": "too long (consolidate or split)", "fragmented": "too many addenda (consolidate into one text)",
+            "broad": "too much evidence (may cover several concepts)"}
 
 
 def assess(meta: dict, body: str, cfg: dict) -> dict:
@@ -75,58 +76,58 @@ def assess(meta: dict, body: str, cfg: dict) -> dict:
     ev = meta.get("evidence", [])
     unsure = [e for e in ev if e.get("check") in ("fuzzy", "missing", "no_source")]
     if unsure:
-        high.append(f"{len(unsure)} 条证据无法核验（近似/未找到/来源缺失）")
+        high.append(f"{len(unsure)} evidence quote(s) could not be verified (fuzzy/not found/source missing)")
     elided = [e for e in ev if e.get("check") == "elided"]
     if elided:
-        medium.append(f"{len(elided)} 条省略式引用，需确认省略未改变原意")
+        medium.append(f"{len(elided)} elided quote(s); confirm the omission does not change the meaning")
     bad_facets = sum(1 for k in ("conditions", "events", "facts") for x in meta.get(k, []) or [] if x.get("supported") is False)
     if bad_facets:
-        medium.append(f"{bad_facets} 条刻面与所引原文不符（视图中不显示）")
+        medium.append(f"{bad_facets} facet(s) do not match the cited source (hidden in views)")
     rels = meta.get("relations", [])
     if any(r.get("basis") == "ambiguous" for r in rels):
-        high.append("含“存疑”关系")
+        high.append("has an ambiguous relation")
     if any(r.get("rel") == "contradicts" for r in rels):
-        high.append("含“矛盾”关系")
+        high.append("has a contradicts relation")
     if meta.get("stale_sources"):
-        high.append("原文在编译后已更新")
+        high.append("source document updated after compilation")
     if not ev and meta.get("type") not in ("topic", "summary"):
-        high.append("没有证据")
+        high.append("no evidence")
     conf = meta.get("confidence")
     if isinstance(conf, (int, float)) and conf < 0.5:
-        high.append(f"模型置信度低（{conf}）")
+        high.append(f"low model confidence ({conf})")
     g = measure(meta, body, cfg)
     if "too_long" in g["issues"]:
-        high.append(f"篇幅过长（{g['units']} 字/词，约 {g['minutes']} 分钟）")
+        high.append(f"too long ({g['units']} units, about {g['minutes']} min)")
     for k in ("long", "fragmented", "broad", "thin"):
         if k in g["issues"]:
             medium.append(ISSUE_ZH[k])
     srcs = {s.get("path") for s in meta.get("sources", [])}
     if len(srcs) > 1:
-        medium.append(f"跨 {len(srcs)} 篇文档合并，需通读")
+        medium.append(f"merged from {len(srcs)} source documents; read in full")
     origin = meta.get("origin", {})
     if origin.get("kind") == "human":
-        medium.append("人工修改，需另一位审阅者逐张确认")
+        medium.append("edited by a person; another reviewer must confirm it card by card")
     if origin.get("kind") == "query":
-        medium.append("问答回写的综合内容")
+        medium.append("synthesis written back from Q&A")
     if origin.get("op") == "consolidate":
         cov = origin.get("evidence_coverage")
         if isinstance(cov, (int, float)) and cov < 0.5:
-            high.append(f"整合后正文只引用了 {round(cov * 100)}% 的证据，可能丢失内容（考虑拆分）")
+            high.append(f"consolidated body cites only {round(cov * 100)}% of the evidence; content may be lost (consider splitting)")
         else:
-            medium.append("整合重写，需通读")
+            medium.append("consolidated rewrite; read in full")
     if origin.get("op") == "hub":
         if origin.get("unknown_numbers") or origin.get("bad_links"):
-            high.append("主题综述含下级卡片中没有的数字或不存在的链接")
+            high.append("topic overview has numbers not found in child cards or links to missing cards")
         else:
-            medium.append(f"主题综述（引用 {round((origin.get('children_cited') or 0) * 100)}% 的下级卡片），需核对")
+            medium.append(f"topic overview (cites {round((origin.get('children_cited') or 0) * 100)}% of child cards); verify it")
     if meta.get("published_rev") and meta.get("rev") != meta.get("published_rev"):
-        medium.append("修改已发布内容")
+        medium.append("changes published content")
     if isinstance(conf, (int, float)) and 0.5 <= conf < 0.7:
-        medium.append(f"模型置信度一般（{conf}）")
+        medium.append(f"moderate model confidence ({conf})")
     inferred = [r for r in rels if r.get("basis") == "inferred"]
     if len(inferred) >= 3 and len(inferred) * 2 > len(rels):
-        medium.append("推断关系占多数")
+        medium.append("mostly inferred relations")
     if meta.get("type") in ("parameter", "metric", "result"):
-        medium.append("数值/结论类知识")
+        medium.append("numeric / result-type knowledge")
     level = "high" if high else "medium" if medium else "low"
     return {"level": level, "reasons": high + medium, "granularity": g, "rules": RISK_RULES_VERSION}

@@ -18,77 +18,77 @@ import re
 
 from .store import KB, LOCK, atomic_write, now, sha256
 
-DEFAULT_SCHEMA = """# LithoKB 编译规范 (SCHEMA)
+DEFAULT_SCHEMA = """# LithoKB Compilation Schema (SCHEMA)
 
-本文件定义计算光刻知识库的结构与写作规范。知识编译器（LLM）每次编译都会完整阅读本文件。
-管理员可在「编译规范」页面修改；每次修改都有版本记录，编译记录中会注明所用版本。
+This file defines the structure and writing conventions of the computational lithography knowledge base. The knowledge compiler (LLM) reads it in full on every compile.
+Admins can edit it on the "Schema" page; every edit is versioned, and each compile record notes the version it used.
 
-## 1. 领域主题骨架（topic 卡片，优先复用这些 id）
-- `imaging-models` 成像模型：Abbe / Hopkins、TCC、SOCS、矢量成像、偏振
-- `resist-models` 光刻胶与刻蚀模型：阈值、扩散、显影、紧凑模型、刻蚀偏差
-- `opc` 光学邻近效应修正：基于规则 / 基于模型、片段切分、EPE、收敛
-- `ilt` 逆向光刻：曲线掩模、梯度优化、水平集、掩模规则约束
-- `smo` 光源掩模协同优化
-- `mask-3d` 掩模三维效应（M3D）与 EUV 特有效应：阴影、吸收层、随机效应
-- `hotspot-dfm` 热点检测与可制造性设计
-- `metrology-calibration` 量测与模型校准：CD-SEM、轮廓、校准流程、误差指标
-- `ml-litho` 机器学习在计算光刻中的应用
-- `compute-platform` 计算平台与加速：GPU、分布式、全芯片运行时间
-可以新增主题，但必须挂在上述某个主题之下或说明理由（写入 notes）。
+## 1. Topic skeleton (topic cards; reuse these ids)
+- `imaging-models` Imaging models: Abbe / Hopkins, TCC, SOCS, vector imaging, polarization
+- `resist-models` Resist and etch models: threshold, diffusion, development, compact models, etch bias
+- `opc` Optical proximity correction: rule-based / model-based, fragmentation, EPE, convergence
+- `ilt` Inverse lithography: curvilinear masks, gradient optimization, level sets, mask rule constraints
+- `smo` Source-mask optimization
+- `mask-3d` Mask 3D effects (M3D) and EUV-specific effects: shadowing, absorber, stochastics
+- `hotspot-dfm` Hotspot detection and design for manufacturability
+- `metrology-calibration` Metrology and model calibration: CD-SEM, contours, calibration flow, error metrics
+- `ml-litho` Machine learning in computational lithography
+- `compute-platform` Compute platforms and acceleration: GPU, distributed computing, full-chip runtime
+New topics are allowed, but must sit under one of the topics above or state a reason (in notes).
 
-## 2. 卡片类型的使用
-- `summary`：每篇原始文档一张，概括该文档讲了什么、包含哪些知识点（OpenKB 的 summaries 层）。
-- `concept / method / model / algorithm`：跨文档的核心知识（OpenKB 的 concepts 层）。同一概念只能有一张卡片。
-- `parameter / metric`：必须写明单位、典型取值范围及其出处；没有出处就不写数值。
-- `issue`：已知问题、失效模式、限制条件。
-- `result`：实验 / 仿真结论，必须注明条件（节点、NA、波长、光源……）。
+## 2. Using card types
+- `summary`: one per source document, describing what the document covers and which knowledge points it contains (the OpenKB summaries layer).
+- `concept / method / model / algorithm`: core cross-document knowledge (the OpenKB concepts layer). One concept, one card.
+- `parameter / metric`: must state the unit, the typical value range and where it comes from; no source, no number.
+- `issue`: known problems, failure modes, limitations.
+- `result`: experimental / simulation findings; must state the conditions (node, NA, wavelength, illumination...).
 
-## 3. 命名与写作
-- id：英文 kebab-case，使用业界通用名，如 `optical-proximity-correction` 而非 `opc-method-1`。
-- 标题：中文为主，括号内附英文或缩写，如「光学邻近效应修正 (OPC)」。
-- 正文：先一句话定义，再列要点；公式保留 LaTeX；不要堆砌原文，要提炼。
-- 别名 aliases：列出缩写、英文全称、常见中文异名，用于去重与搜索。
+## 3. Naming and writing
+- id: English kebab-case using the industry-standard name, e.g. `optical-proximity-correction`, not `opc-method-1`.
+- Title: the full name with the abbreviation in parentheses, e.g. "Optical Proximity Correction (OPC)".
+- Body: a one-sentence definition first, then key points; keep formulas in LaTeX; distil, do not paste the source.
+- aliases: list abbreviations, full English names and common alternative names (including Chinese ones), for deduplication and search.
 
-## 4. 关系的含义
-- `uses`：A 的计算过程用到 B；`depends_on`：A 的正确性依赖 B（如 OPC 依赖已校准模型）。
-- `improves / alternative_to / contrasts_with`：只有原文明确比较时才用 extracted，否则标 inferred。
-- `contradicts`：两处来源说法冲突，必须在正文说明双方观点与出处。
+## 4. Meaning of relations
+- `uses`: A's computation uses B; `depends_on`: A's correctness depends on B (e.g. OPC depends on a calibrated model).
+- `improves / alternative_to / contrasts_with`: mark as extracted only when the source compares them explicitly; otherwise inferred.
+- `contradicts`: two sources disagree; the body must state both positions and where each comes from.
 
-## 5. 卡片粒度（什么值得做成一张卡片）
-- 一张卡片 = 一个概念，读者一次读完（约 1–3 分钟），智能体一次加载（约 1–2 千 token）。
-- 正文大约 60–900 个“字/词”（汉字或英文单词）；超过约 1600 必须整合或拆分。
-- 一句话的事实（某参数的典型值、某工具的名字）不单独成卡，并入相关概念卡。
-- 一个概念的内容来自多篇文档时并入同一张卡（追加），但卡片接近上限时，为新内容建立子概念卡（上级 = 原卡）。
-- 主题卡与文档摘要卡用于导航，不受最小篇幅限制。
+## 5. Card granularity (what deserves its own card)
+- One card = one concept, read in one sitting (about 1–3 minutes) and loaded by an agent in one go (about 1–2k tokens).
+- The body is roughly 60–900 units (Chinese characters or English words); beyond about 1600 it must be consolidated or split.
+- A one-sentence fact (a parameter's typical value, a tool's name) does not get its own card; merge it into the related concept card.
+- When a concept's content comes from several documents, merge it into the same card (append); when a card nears the limit, create a child concept card for the new content (parent = the original card).
+- Topic cards and document summary cards are for navigation and have no minimum length.
 
-## 6. 适用条件维度（结论在什么条件下成立）
-计算光刻的结论几乎都依赖条件。只有原文明确说明时才标注，并引用证据；未说明即视为通用。
-- `node` 工艺节点：如 ≥28nm、7nm、5nm 及以下、65nm–5nm
-- `wavelength` 光源波长：如 EUV(13.5nm)、ArF 浸没(193i)、ArF(193nm)、KrF(248nm)
-- `na` 数值孔径：如 0.33、0.55（High-NA）、1.35
-- `layer` 图层类型：如 接触孔、通孔、金属层、鳍(Fin)、栅极
-- `mask` 掩模类型：如 二元掩模、相移掩模、EUV 反射式掩模、曲线掩模
-- `application` 应用场景：如 逻辑、存储器(DRAM/NAND)、全芯片、关键层
+## 6. Applicability condition dimensions (under which conditions a conclusion holds)
+Almost every computational lithography conclusion depends on conditions. Annotate them only when the source states them explicitly, and cite evidence; otherwise the conclusion is treated as general.
+- `node` Process node: e.g. ≥28nm, 7nm, 5nm and below, 65nm–5nm
+- `wavelength` Source wavelength: e.g. EUV (13.5nm), ArF immersion (193i), ArF (193nm), KrF (248nm)
+- `na` Numerical aperture: e.g. 0.33, 0.55 (High-NA), 1.35
+- `layer` Layer type: e.g. contact, via, metal, fin, gate
+- `mask` Mask type: e.g. binary mask, phase-shift mask, EUV reflective mask, curvilinear mask
+- `application` Application: e.g. logic, memory (DRAM/NAND), full-chip, critical layers
 
-## 7. 不编译的内容
-- 目录页、导航页、版权声明、纯链接列表（可只生成 summary 卡片）。
-- 与计算光刻无关的行政信息；广告、推广、公众号 / 微信等联系方式、版权页脚。
-- 由 HTML 转换来的文档中，「图示文字：…」是示意图上的标签，只能作为辅助线索，不能单独作为事实证据。
+## 7. What not to compile
+- Table-of-contents pages, navigation pages, copyright notices, pure link lists (at most a summary card).
+- Administrative information unrelated to computational lithography; ads, promotion, social-media / WeChat contact details, copyright footers.
+- In documents converted from HTML, "Figure text: ..." lines are labels from diagrams; use them only as auxiliary hints, never as standalone factual evidence.
 
-## 8. 图谱本体（实体类型与关系约束）
-实体是原文中出现、但不单独成卡的具名对象，由文档索引识别（名称须在原文中逐字出现），用于图谱与导航：
-- `tool` 软件/工具：如 Tachyon、Calibre、Proteus、Mentor
-- `equipment` 设备：如 NXE:3400、EXE:5000、CD-SEM、扫描仪
-- `organization` 机构/公司：如 ASML、imec、台积电、Brion
-- `material` 材料：如 化学放大光刻胶、金属氧化物光刻胶、吸收层材料
-- `standard` 格式/标准：如 GDSII、OASIS
-- `product` 产品/芯片：如 某代处理器、某型号存储器
-- `person` 人物
-关系约束（主体卡片类型 → 客体卡片类型；`*` 表示任意；lint 报告违反项）：
-- `parameter_of`：parameter|metric → *
-- `measured_by`：*  → metric|parameter|tool|equipment|method|process
-- `implements`：algorithm|method|tool|model|process → *
-- `example_of`：* → *
+## 8. Graph ontology (entity types and relation constraints)
+Entities are named objects that appear in the source but do not get their own card. The document index recognises them (the name must appear verbatim in the source); they are used for the graph and navigation:
+- `tool` Software/tool: e.g. Tachyon, Calibre, Proteus, Mentor
+- `equipment` Equipment: e.g. NXE:3400, EXE:5000, CD-SEM, scanner
+- `organization` Organization/company: e.g. ASML, imec, TSMC, Brion
+- `material` Material: e.g. chemically amplified resist, metal-oxide resist, absorber material
+- `standard` Format/standard: e.g. GDSII, OASIS
+- `product` Product/chip: e.g. a processor generation, a memory part
+- `person` Person
+Relation constraints (subject card type → object card type; `*` = any; lint reports violations):
+- `parameter_of`: parameter|metric → *
+- `measured_by`: *  → metric|parameter|tool|equipment|method|process
+- `implements`: algorithm|method|tool|model|process → *
+- `example_of`: * → *
 """
 
 
@@ -151,8 +151,13 @@ def diff(kb: KB, a: int, b: int) -> str:
 
 
 def skeleton(kb: KB) -> dict[str, tuple[str, str]]:
-    """Topic skeleton declared in SCHEMA.md as list items: - `topic-id` 名称：描述"""
+    """Topic skeleton declared in SCHEMA.md as list items: - `topic-id` Name: description.
+    Read from the section whose heading contains "Topic skeleton" (or the legacy "领域主题骨架");
+    if no such heading exists the whole text is scanned (legacy behaviour)."""
+    text = current(kb)["text"]
+    m = re.search(r"^#+[^\n]*(?:领域主题骨架|topic skeleton)[^\n]*\n(.*?)(?=^#+ |\Z)", text, re.M | re.S | re.I)
     out = {}
-    for m in re.finditer(r"^[ \t]*[-*][ \t]+`([a-z0-9][a-z0-9-]*)`[ \t]+([^：:\n]+)[：:]?[ \t]*([^\n]*)$", current(kb)["text"], re.M):
-        out[m.group(1)] = (m.group(2).strip(), m.group(3).strip())
+    for m2 in re.finditer(r"^[ \t]*[-*][ \t]+`([a-z0-9][a-z0-9-]*)`[ \t]+([^：:\n]+)[：:]?[ \t]*([^\n]*)$",
+                          m.group(1) if m else text, re.M):
+        out[m2.group(1)] = (m2.group(2).strip(), m2.group(3).strip())
     return out

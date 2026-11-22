@@ -10,7 +10,7 @@ so provenance is explicit and conversion can be redone when the converter improv
 Handled: headings, paragraphs/blocks, line breaks, bold/italic/code, pre, nested
 lists, tables (→ GFM), links (sibling .html → .md), images, blockquotes, hr.
 Inline SVG diagrams: graphics are dropped, their <text> labels are kept as a
-"图示文字" line so the knowledge they carry is not lost. style/script/head ignored.
+"Figure text" line so the knowledge they carry is not lost. style/script/head ignored.
 """
 from __future__ import annotations
 
@@ -141,7 +141,7 @@ class _Conv(HTMLParser):
                 labels = [t for t in (_WS.sub(" ", x).strip() for x in self.svg_text) if t]
                 if labels:
                     self.flush(self._li_prefix(cont=True))
-                    self.emit("> 图示文字：" + " · ".join(labels))
+                    self.emit("> Figure text: " + " · ".join(labels))
                 self.svg_text = []
             return
         if self.svg:

@@ -35,7 +35,28 @@ class LLMError(Exception):
     pass
 
 
+class TransientLLMError(LLMError):
+    """Rate limit / server error / connection problem — the CALL graph backs off and retries."""
+
+
+class WatchdogAbort(LLMError):
+    """The model kept reasoning past the watchdog limit without writing any answer —
+    the CALL graph retries one reasoning-effort level lower."""
+
+    def __init__(self, info: dict):
+        super().__init__(f"reasoning watchdog abort at effort {info.get('effort')}")
+        self.info = info
+
+
 def call(cfg: dict, system: str, user: str) -> LLMResult:
+    """Every LLM call runs through the LangGraph CALL graph (flows.py): invoke → step_down /
+    backoff → invoke … → finish. Providers below perform exactly one attempt."""
+    from .flows import run_call
+    return run_call(cfg, system, user)
+
+
+def attempt(cfg: dict, system: str, user: str) -> LLMResult:
+    """One attempt at one backend (no retries here — retries are graph edges)."""
     backend = cfg.get("backend", "mock")
     t0 = time.time()
     if backend == "anthropic":
@@ -45,6 +66,7 @@ def call(cfg: dict, system: str, user: str) -> LLMResult:
     elif backend == "command":
         r = _command(cfg, system, user)
     elif backend == "mock":
+        _mock_faults(cfg, user)
         r = _mock(system, user)
     else:
         raise LLMError(f"unknown backend {backend}")
@@ -72,11 +94,13 @@ def _anthropic(cfg: dict, system: str, user: str) -> LLMResult:
         ) as stream:
             msg = stream.get_final_message()
     except anthropic.RateLimitError as e:
-        raise LLMError(f"rate limited: {e}") from e
+        raise TransientLLMError(f"rate limited: {e}") from e
     except anthropic.APIStatusError as e:
+        if e.status_code >= 500:
+            raise TransientLLMError(f"API error {e.status_code}: {e.message}") from e
         raise LLMError(f"API error {e.status_code}: {e.message}") from e
     except anthropic.APIConnectionError as e:
-        raise LLMError(f"connection error: {e}") from e
+        raise TransientLLMError(f"connection error: {e}") from e
     text = "".join(b.text for b in msg.content if b.type == "text")
     thinking = "\n\n".join(getattr(b, "thinking", "") or "" for b in msg.content if b.type == "thinking")
     u = msg.usage
@@ -116,66 +140,47 @@ def _openrouter(cfg: dict, system: str, user: str) -> LLMResult:
         body["response_format"] = {"type": "json_object"}
     stall = int(cfg.get("stall_s", 120))
     # reasoning watchdog: if the model keeps thinking past `reasoning_watchdog_chars` without having
-    # written a single character of the answer, abort and retry one effort level lower.
-    ladder = ["high", "medium", "low", "none"]
+    # written a single character of the answer, abort (WatchdogAbort) — the CALL graph steps down.
     effort = cfg.get("openrouter_reasoning", "low") or "none"
     effort = "none" if effort in ("off", False) else effort
     watchdog = int(cfg.get("reasoning_watchdog_chars", 20000))
-    aborts: list[dict] = []
-    attempt = 0
-    while True:
-        body.pop("reasoning", None)
-        body["reasoning"] = {"enabled": False} if effort == "none" else {"effort": effort}
-        data = json.dumps(body).encode()
-        req = urllib.request.Request(OPENROUTER_URL, data=data, method="POST",
-                                     headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
-        content, reasoning, usage_raw, finish, served, gen_id = [], [], {}, "", model, ""
-        rchars, cchars, aborted = 0, 0, False
-        try:
-            with urllib.request.urlopen(req, timeout=stall) as resp:  # timeout applies per read → stall detection
-                for raw in resp:
-                    line = raw.decode("utf-8", "replace").strip()
-                    if not line.startswith("data: ") or line == "data: [DONE]":
-                        continue
-                    ev = json.loads(line[6:])
-                    if "error" in ev:
-                        raise LLMError(f"openrouter error: {json.dumps(ev['error'], ensure_ascii=False)[:800]}")
-                    served, gen_id = ev.get("model", served), ev.get("id", gen_id)
-                    if ev.get("usage"):
-                        usage_raw = ev["usage"]
-                    for ch in ev.get("choices") or []:
-                        d = ch.get("delta") or {}
-                        if d.get("content"):
-                            content.append(d["content"])
-                            cchars += len(d["content"])
-                        if d.get("reasoning"):
-                            reasoning.append(d["reasoning"])
-                            rchars += len(d["reasoning"])
-                        if ch.get("finish_reason"):
-                            finish = ch["finish_reason"]
-                    if watchdog and cchars == 0 and rchars > watchdog and effort != "none":
-                        aborted = True
-                        break
-            if aborted:
-                lower = ladder[min(len(ladder) - 1, ladder.index(effort) + 1)] if effort in ladder else "none"
-                aborts.append({"effort": effort, "reasoning_chars": rchars, "retry_with": lower,
-                               "reasoning_tail": "".join(reasoning)[-400:]})
-                effort = lower
-                continue
-            break
-        except urllib.error.HTTPError as e:
-            detail = e.read().decode("utf-8", "replace")[:800]
-            attempt += 1
-            if e.code in (429, 500, 502, 503, 504) and attempt < 3:
-                time.sleep(4 * attempt)
-                continue
-            raise LLMError(f"openrouter HTTP {e.code}: {detail}") from e
-        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
-            attempt += 1
-            if attempt < 3:
-                time.sleep(4 * attempt)
-                continue
-            raise LLMError(f"openrouter connection error / stalled > {stall}s: {e}") from e
+    body["reasoning"] = {"enabled": False} if effort == "none" else {"effort": effort}
+    req = urllib.request.Request(OPENROUTER_URL, data=json.dumps(body).encode(), method="POST",
+                                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+    content, reasoning, usage_raw, finish, served, gen_id = [], [], {}, "", model, ""
+    rchars, cchars = 0, 0
+    try:
+        with urllib.request.urlopen(req, timeout=stall) as resp:  # timeout applies per read → stall detection
+            for raw in resp:
+                line = raw.decode("utf-8", "replace").strip()
+                if not line.startswith("data: ") or line == "data: [DONE]":
+                    continue
+                ev = json.loads(line[6:])
+                if "error" in ev:
+                    raise LLMError(f"openrouter error: {json.dumps(ev['error'], ensure_ascii=False)[:800]}")
+                served, gen_id = ev.get("model", served), ev.get("id", gen_id)
+                if ev.get("usage"):
+                    usage_raw = ev["usage"]
+                for ch in ev.get("choices") or []:
+                    d = ch.get("delta") or {}
+                    if d.get("content"):
+                        content.append(d["content"])
+                        cchars += len(d["content"])
+                    if d.get("reasoning"):
+                        reasoning.append(d["reasoning"])
+                        rchars += len(d["reasoning"])
+                    if ch.get("finish_reason"):
+                        finish = ch["finish_reason"]
+                if watchdog and cchars == 0 and rchars > watchdog and effort != "none":
+                    raise WatchdogAbort({"effort": effort, "reasoning_chars": rchars,
+                                         "reasoning_tail": "".join(reasoning)[-400:]})
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")[:800]
+        if e.code in (429, 500, 502, 503, 504):
+            raise TransientLLMError(f"openrouter HTTP {e.code}: {detail}") from e
+        raise LLMError(f"openrouter HTTP {e.code}: {detail}") from e
+    except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+        raise TransientLLMError(f"openrouter connection error / stalled > {stall}s: {e}") from e
     u = usage_raw or {}
     usage = {"input_tokens": u.get("prompt_tokens", 0), "output_tokens": u.get("completion_tokens", 0)}
     if (u.get("completion_tokens_details") or {}).get("reasoning_tokens"):
@@ -184,8 +189,7 @@ def _openrouter(cfg: dict, system: str, user: str) -> LLMResult:
         usage["cost_usd_reported"] = u["cost"]
     return LLMResult(text="".join(content), model=served, backend="openrouter", usage=usage,
                      stop_reason={"length": "max_tokens", "stop": "end_turn"}.get(finish, finish or "unknown"),
-                     thinking="".join(reasoning), raw_meta={"id": gen_id, "reasoning_effort": effort,
-                                                            **({"watchdog_aborts": aborts} if aborts else {})})
+                     thinking="".join(reasoning), raw_meta={"id": gen_id, "reasoning_effort": effort})
 
 
 def _command(cfg: dict, system: str, user: str) -> LLMResult:
@@ -205,6 +209,21 @@ def _command(cfg: dict, system: str, user: str) -> LLMResult:
 _H_RE = re.compile(r"^(#{1,3})\s+(.+?)\s*$")
 
 
+_FLAKY: dict[str, int] = {}
+
+
+def _mock_faults(cfg: dict, user: str) -> None:
+    """Test hooks that exercise the CALL graph's recovery edges offline."""
+    if "[[MOCK:WATCHDOG]]" in user and (cfg.get("openrouter_reasoning") or "low") in ("high", "medium"):
+        raise WatchdogAbort({"effort": cfg.get("openrouter_reasoning"), "reasoning_chars": 99999,
+                             "reasoning_tail": "(mock) still thinking…"})
+    if "[[MOCK:FLAKY]]" in user:
+        k = hashlib.md5(user.encode()).hexdigest()
+        _FLAKY[k] = _FLAKY.get(k, 0) + 1
+        if _FLAKY[k] == 1:
+            raise TransientLLMError("(mock) HTTP 503")
+
+
 def _terms(q: str) -> list[str]:
     """Question terms: ASCII words and Chinese character bigrams (no embeddings)."""
     words = [w.lower() for w in re.findall(r"[A-Za-z0-9]{2,}", q)]
@@ -221,8 +240,8 @@ def _mock(system: str, user: str) -> LLMResult:
         text, note = _mock_consolidate(user)
     elif "[[LKB:HUB]]" in system:
         pages = re.findall(r'<page id="([^"]+)"[^>]*>\n# (.*?)\n(.*?)\n', user)
-        body = "本主题包括：\n\n" + "\n".join(f"- [[{i}]]：{s}" for i, t, s in pages)
-        text, note = _fence({"summary": "主题概览", "body_md": body}), "list of sub-pages"
+        body = "This topic covers:\n\n" + "\n".join(f"- [[{i}]]: {s}" for i, t, s in pages)
+        text, note = _fence({"summary": "Topic overview", "body_md": body}), "list of sub-pages"
     elif "[[LKB:INDEX]]" in system:
         text, note = _mock_index(user)
     elif "[[LKB:NAVIGATE]]" in system and "<tree>" in user:
@@ -282,9 +301,9 @@ def _mock_compile(user: str):
                                       {"rel": "subtopic_of", "target": c["parent"], "basis": "inferred", "confidence": 0.7})
         first = next(((n, t) for n, t in lines if t.strip()), (1, ""))
         cards.append({"action": "update" if f'<card id="{sid}">' in user else "create", "id": sid,
-                      "title": f"文档摘要：{path}", "type": "summary", "parent": "", "aliases": [],
-                      "summary": f"{path} 涵盖 {len(made)} 个知识点。",
-                      "body_md": f"本文档以「{first[1].lstrip('# ').strip()}」开头 [E1]，包含：" +
+                      "title": f"Document summary: {path}", "type": "summary", "parent": "", "aliases": [],
+                      "summary": f"{path} covers {len(made)} knowledge item(s).",
+                      "body_md": f"This document opens with “{first[1].lstrip('# ').strip()}” [E1] and contains:" +
                                  "".join(f"\n- [[{c['id']}]]" for c in made),
                       "relations": [{"rel": "covers", "target": c["id"], "basis": "extracted", "confidence": 1.0,
                                      "evidence": "E1"} for c in made],
@@ -302,8 +321,8 @@ def _mock_annotate(user: str):
         eid, q = m.group(1), m.group(2)
         if "EUV" in q:
             conds.append({"dim": "wavelength", "value": "EUV", "evidence": eid})
-        for n in re.findall(r"(\d+)\s*nm(?:及以下|以下)", q):
-            conds.append({"dim": "node", "value": f"{n}nm 及以下", "evidence": eid})
+        for n in re.findall(r"(\d+)\s*nm\s*(?:及以下|以下|and below|or below)", q):
+            conds.append({"dim": "node", "value": f"{n}nm and below", "evidence": eid})
         for y in re.findall(r"((?:19|20)\d\d)年?", q):
             events.append({"when": y, "what": q[:60], "evidence": eid})
         for name, op, val, unit in re.findall(r"([A-Za-z]{2,6})\s*([<>≥≤]=?)\s*(\d+(?:\.\d+)?)\s*(nm|%)", q):
@@ -312,20 +331,20 @@ def _mock_annotate(user: str):
 
 
 def _mock_consolidate(user: str):
-    """Drop the '补充' headings, keep the evidence-marked paragraphs; split the second half off
+    """Drop the addendum headings (legacy "补充" or "Addendum"), keep the evidence-marked paragraphs; split the second half off
     into one child card when the card is long."""
     m = re.search(r'<card id="([^"]+)">\ntitle: (.*?)\n.*?\n\n(.*)\n</card>', user, re.S)
     cid, title, body = m.group(1), m.group(2), m.group(3)
-    paras = [p_.strip() for p_ in re.split(r"\n\s*\n", body) if p_.strip() and not re.match(r"#{1,6}\s*补充", p_.strip())]
+    paras = [p_.strip() for p_ in re.split(r"\n\s*\n", body) if p_.strip() and not re.match(r"#{1,6}\s*(?:补充|Addendum)", p_.strip())]
     split = len(paras) >= 6
     keep, rest = (paras[: len(paras) // 2], paras[len(paras) // 2:]) if split else (paras, [])
     children = []
     if rest:
         ids = sorted(set(re.findall(r"\[(E\d+)\]", "\n".join(rest))), key=lambda x: int(x[1:]))
-        children.append({"id": f"{cid}-details", "title": f"{title}：细节", "type": "concept",
-                         "summary": "从原卡拆分出的细节。", "body_md": "\n\n".join(rest), "evidence": ids})
+        children.append({"id": f"{cid}-details", "title": f"{title}: details", "type": "concept",
+                         "summary": "Details split off from the original card.", "body_md": "\n\n".join(rest), "evidence": ids})
     out = {"decision": "split" if children else "rewrite",
-           "card": {"title": title, "summary": "整合后的卡片。", "body_md": "\n\n".join(keep), "aliases": []},
+           "card": {"title": title, "summary": "Consolidated card.", "body_md": "\n\n".join(keep), "aliases": []},
            "children": children, "notes": "mock consolidation"}
     return _fence(out), "dropped addendum headings; halves when long"
 
@@ -407,8 +426,8 @@ def _mock_answer(user: str):
             if mm and mm.group(2).strip() and not mm.group(2).startswith("#") and any(t in mm.group(2).lower() for t in terms):
                 sid = f"S{len(ev) + 1}"
                 ev.append({"id": sid, "path": m.group(1), "lines": f"{mm.group(1)}-{mm.group(1)}", "quote": mm.group(2).strip()[:200]})
-                parts.append(f"- 原文：{mm.group(2).strip()[:200]} [{sid}]")
+                parts.append(f"- Source: {mm.group(2).strip()[:200]} [{sid}]")
                 break
-    ans = ("根据知识库：\n" + "\n".join(parts)) if parts else "知识库中没有找到与该问题相关的内容。"
+    ans = ("From the knowledge base:\n" + "\n".join(parts)) if parts else "Nothing in the knowledge base relates to this question."
     return _fence({"answer_md": ans, "evidence": ev, "used_cards": used, "confidence": 0.4 if parts else 0.0,
-                   "gaps": "" if parts else "无相关资料"}), "stitched summaries + matching lines"
+                   "gaps": "" if parts else "no relevant material"}), "stitched summaries + matching lines"

@@ -446,15 +446,15 @@ def main(argv=None) -> None:
         if run["status"] != "done":
             sys.exit(f"query failed: {run.get('error')}  (trace {run['id']})")
         nav, ans = run["navigation"], run["answer"]
-        print(f"# 阅读计划  {nav['reasoning']}")
-        print("  卡片: " + (", ".join(nav["cards"]) or "—"))
+        print(f"# Reading plan  {nav['reasoning']}")
+        print("  Cards: " + (", ".join(nav["cards"]) or "—"))
         for s_ in nav["sections"]:
-            print(f"  章节: {s_['path']} {s_['node']} [L{s_['lines']}] {s_['title']}")
+            print(f"  Sections: {s_['path']} {s_['node']} [L{s_['lines']}] {s_['title']}")
         print("\n" + ans["answer_md"] + "\n")
         for e in ans["evidence"]:
             print(f"  [{e['id']}] {e['check']:9s} {e['path']}:L{e.get('found_lines') or e['lines']}  “{e['quote'][:80]}”")
         if ans.get("gaps"):
-            print(f"\n缺口: {ans['gaps']}")
+            print(f"\nGaps: {ans['gaps']}")
         print(f"\ntrace {run['id']} · grounding {run['grounding']['score']} · {run.get('latency_s')}s")
         if args.file_back is not None:
             A.require(me, "reviewer")

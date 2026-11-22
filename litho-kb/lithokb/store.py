@@ -77,7 +77,7 @@ class _WriterLock:
 LOCK = _WriterLock()
 
 DEFAULT_CONFIG = {
-    "site_name": "LithoKB · 计算光刻知识库",
+    "site_name": "LithoKB · Computational Lithography Knowledge Base",
     "public_read": True,  # anonymous visitors may read published knowledge + sources
     "review": {
         "required_approvals": 1,

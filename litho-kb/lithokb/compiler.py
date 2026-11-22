@@ -32,6 +32,7 @@ import uuid
 
 from . import doctree
 from . import llm
+from .flows import generate
 from . import schema as SC
 from . import sources as S
 from .cards import BASES, CARD_TYPES, RELATIONS, Cards, slug, summary_id
@@ -267,11 +268,11 @@ def apply_append(cards: Cards, c: dict, add_md: str, run_paths: list[str]) -> tu
         mapping[e["id"]] = nid
         new_ev.append({**e, "id": nid})
     add = re.sub(r"\[(E\d+)\]", lambda mm: f"[{mapping.get(mm.group(1), mm.group(1))}]", add_md).strip()
-    # the model sometimes imitates the "补充（来自 …）" headings it sees in the card: drop its own copy
-    add = re.sub(r"^\s*#{1,6}\s*补充[（(][^\n]*\n+", "", add).strip()
+    # the model sometimes imitates the addendum headings it sees in the card ("Addendum (from …)", legacy "补充（来自 …）"): drop its own copy
+    add = re.sub(r"^\s*#{1,6}\s*(?:补充[（(]|Addendum \()[^\n]*\n+", "", add).strip()
     titles = S.doc_titles(cards.kb, run_paths)
-    origin = "、".join(f"[《{titles.get(p, p)}》](src:{p})" for p in run_paths)  # titled link to the original
-    new_body = body.rstrip() + f"\n\n### 补充（来自 {origin}）\n\n{add}\n"
+    origin = ", ".join(f"[“{titles.get(p, p)}”](src:{p})" for p in run_paths)  # titled link to the original
+    new_body = body.rstrip() + f"\n\n### Addendum (from {origin})\n\n{add}\n"
     rels = [{k: v for k, v in r.items()} for r in head.get("relations", [])]
     have = {(r["rel"], r["target"]) for r in rels}
     for r in c["relations"]:
@@ -518,6 +519,10 @@ class Compiler:
             call["cost_usd"] = round(res.usage["input_tokens"] / 1e6 * price[0] + res.usage["output_tokens"] / 1e6 * price[1], 4)
         if res.raw_meta.get("watchdog_aborts"):
             call["watchdog_aborts"] = res.raw_meta["watchdog_aborts"]
+        if res.raw_meta.get("graph_path"):
+            call["graph_path"] = res.raw_meta["graph_path"]  # LangGraph CALL graph: invoke/step_down/backoff/finish
+        if res.raw_meta.get("transient_retries"):
+            call["transient_retries"] = res.raw_meta["transient_retries"]
         calls.append(call)
         # run-level aggregates
         run["model"] = res.model
@@ -633,31 +638,28 @@ class Compiler:
                               "index_cards": len(self.cards.index())}
             step("prompt_built")
             attempts = max(1, int(self.kb.config["compile"].get("max_attempts", 2)))
-            data, prompt_now = None, user
-            for attempt in range(1, attempts + 1):
-                prefix = "" if attempt == 1 else f"retry{attempt - 1}-"
-                res = self.llm_step(run, cfg, system, prompt_now, prefix=prefix)
-                step("llm_returned", attempt=attempt, latency_s=res.latency_s, stop_reason=res.stop_reason)
-                try:
-                    if res.stop_reason == "max_tokens":
-                        raise ValueError("output truncated at max_tokens (too long or looping)")
-                    data = parse_response(res.text)
-                    if not data["cards"]:
-                        raise ValueError("empty 'cards' list")
-                    bad = sum(not isinstance(c, dict) for c in data["cards"])
-                    if bad * 2 >= len(data["cards"]):
-                        raise ValueError(f"{bad} of {len(data['cards'])} card entries are not objects (malformed JSON)")
-                    break
-                except (ValueError, json.JSONDecodeError) as e:
-                    # degenerate output (observed with cheap models in JSON mode: {"": [""]}) → one corrective retry
-                    run.setdefault("attempt_errors", []).append(f"attempt {attempt}: {type(e).__name__}: {e}")
-                    step("invalid_response", attempt=attempt, error=str(e)[:200])
-                    if attempt == attempts:
-                        raise
-                    prompt_now = (user + "\n\n# Correction\nYour previous answer was not usable (" + str(e)[:160] +
-                                  "). Return the complete JSON object exactly as specified in the protocol — a JSON object, not a string "
-                                  "containing JSON; be concise (fewer, well-formed cards are better than many): "
-                                  '{"cards":[ ...full card objects... ],"notes":"..."} — with every card fully written out.')
+
+            def check(res):
+                if res.stop_reason == "max_tokens":
+                    raise ValueError("output truncated at max_tokens (too long or looping)")
+                d = parse_response(res.text)
+                if not d["cards"]:
+                    raise ValueError("empty 'cards' list")
+                bad = sum(not isinstance(c, dict) for c in d["cards"])
+                if bad * 2 >= len(d["cards"]):
+                    raise ValueError(f"{bad} of {len(d['cards'])} card entries are not objects (malformed JSON)")
+                return d
+
+            def correction(err):  # degenerate output (observed with cheap models in JSON mode: {"": [""]})
+                return ("\n\n# Correction\nYour previous answer was not usable (" + err[:160] +
+                        "). Return the complete JSON object exactly as specified in the protocol — a JSON object, not a string "
+                        "containing JSON; be concise (fewer, well-formed cards are better than many): "
+                        '{"cards":[ ...full card objects... ],"notes":"..."} — with every card fully written out.')
+
+            # LangGraph GENERATE graph: generate → check → (correct → generate)* (flows.py)
+            data, res, attempt = generate(comp=self, run=run, cfg=cfg, system=system, user=user, check=check,
+                                          correction=correction, max_attempts=attempts, graph="compile",
+                                          on_event=step)
             run["attempts"] = attempt
             atomic_write(self._trace_dir(rid) / "parsed.json", json.dumps(data, ensure_ascii=False, indent=1))
             norm, findings = validate(self.cards, data, paths, [summary_id(p) for p in paths])
@@ -796,8 +798,8 @@ def register_issues(kb: KB, actor: str, data: dict, norm: list[dict], rid: str) 
     for c in norm:
         for r in c.get("relations", []):
             if r.get("rel") == "contradicts":
-                x = reg.create(actor, "contradiction", f"{c['id']} 与 {r['target']} 的说法存在矛盾",
-                               r.get("note", "") or "编译器标注了 contradicts 关系", cards=[c["id"], r["target"]],
+                x = reg.create(actor, "contradiction", f"{c['id']} and {r['target']} make contradicting statements",
+                               r.get("note", "") or "the compiler marked a contradicts relation", cards=[c["id"], r["target"]],
                                sources=c.get("sources", []), origin={"kind": "compile", "run": rid})
                 out.append(x["id"])
     return sorted(set(out))
@@ -819,7 +821,7 @@ def schema_topic_stubs(kb: KB, cards: Cards, norm: list[dict]) -> list[dict]:
         title, desc = skel[t]
         out.append({"card": {"id": t, "title": title, "type": "topic", "parent": "", "aliases": [], "summary": desc,
                              "relations": [], "evidence": [], "sources": []},
-                    "body": f"{desc}\n\n_主题来自编译规范 SCHEMA.md 的领域主题骨架，由系统自动建立；内容由下属卡片组成。_\n"})
+                    "body": f"{desc}\n\n_Topic from the SCHEMA.md topic skeleton, created automatically; its content is made of its sub-cards._\n"})
     return out
 
 

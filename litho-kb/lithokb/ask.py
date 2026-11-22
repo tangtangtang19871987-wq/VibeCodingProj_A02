@@ -20,6 +20,9 @@ import re
 
 from . import doctree
 from . import pageindex as PI
+from .flows import generate, mark
+from typing import TypedDict
+from langgraph.graph import END, START, StateGraph
 from . import sources as S
 from .cards import Cards, _norm, grounding, is_public, slug, verify_evidence
 from .compiler import Compiler, new_run_id, parse_response
@@ -92,14 +95,14 @@ class Navigator:
         lex = [cid for _, cid in self.cards.text_index(readers).search(question, 8) if cid in tree.nodes]
         for cid in lex:
             seen.add(cid)
-            out.append(tree.line(cid, H.get(cid), 0) + "   ← 词匹配")
+            out.append(tree.line(cid, H.get(cid), 0) + "   ← word match")
         try:
             sec = [k for _, k in PI.section_index(self.kb).search(question, 8) if k in tree.nodes]
         except Exception:  # noqa: BLE001 — hints are optional
             sec = []
         for k in sec:
             seen.add(k)
-            out.append(tree.line(k, H.get(k), 0) + f"   ← 原文词匹配（{tree.nodes[tree.nodes[k]['parent']]['title'][:30] if tree.nodes[k]['parent'] else ''}）")
+            out.append(tree.line(k, H.get(k), 0) + f"   ← word match in source ({tree.nodes[tree.nodes[k]['parent']]['title'][:30] if tree.nodes[k]['parent'] else ''})")
         try:
             g = G.build(self.kb, self.cards, readers)
             for cid in lex[:3]:
@@ -107,7 +110,7 @@ class Navigator:
                     if nb["id"] in tree.nodes and nb["id"] not in seen and nb["rel"] in G.STRONG:
                         seen.add(nb["id"])
                         out.append(tree.line(nb["id"], H.get(nb["id"]), 0) +
-                                   f"   ← 图谱：{tree.nodes[cid]['title'][:20]} {nb['rel']}")
+                                   f"   ← graph: {tree.nodes[cid]['title'][:20]} {nb['rel']}")
         except Exception:  # noqa: BLE001
             pass
         return out
@@ -120,17 +123,26 @@ class Navigator:
         H = PI.Handles(tree)
         hints = self.hints(tree, H, question, readers)
         system = PI.NAV_SYSTEM % (MAX_CARDS, MAX_SECTIONS)
-        view, _ = tree.render(["k", "d"], H, budget)
+        view0, _ = tree.render(["k", "d"], H, budget)
         cards, secs, dropped, rounds, reasoning = [], [], [], [], []
-        for r in range(1, max_rounds + 1):
+
+        # LangGraph NAVIGATE graph:  START → decide ──expand→ open → decide …  ──done→ END
+        class NavState(TypedDict, total=False):
+            round: int
+            view: str
+            expand: list
+            done: bool
+
+        def n_decide(st: NavState) -> dict:
+            r = st.get("round", 0) + 1
             sel = ""
             if cards or secs:
                 sel = "\n<selected>\n" + "\n".join(H.get(c) for c in cards) + "\n" + \
-                      "\n".join(H.get(f"s:{s['path']}#{s['node']}") if s["node"] != "root" else H.get(f"d:{s['path']}")
-                                for s in secs) + "\n</selected>\n"
+                      "\n".join(H.get(f"s:{x['path']}#{x['node']}") if x["node"] != "root" else H.get(f"d:{x['path']}")
+                                for x in secs) + "\n</selected>\n"
             user = (f"<question>{question}</question>{cond_txt}\n<round n=\"{r}\" of=\"{max_rounds}\"/>\n"
                     f"# Knowledge tree ({len(tree.visible_cards)} cards, {sum(1 for n in tree.nodes.values() if n['kind'] == 'doc')} documents)\n"
-                    f"<tree>\n{view}\n</tree>\n\n<hints>\n" + ("\n".join(hints) or "(none)") + "\n</hints>\n" + sel)
+                    f"<tree>\n{st['view']}\n</tree>\n\n<hints>\n" + ("\n".join(hints) or "(none)") + "\n</hints>\n" + sel)
             res = self.comp.llm_step(run, cfg, system, user, prefix="nav-" if r == 1 else f"nav{r}-")
             d = parse_response_obj(res.text)
             reasoning.append(str(d.get("reasoning", "")))
@@ -144,7 +156,7 @@ class Navigator:
                 if nd["kind"] == "card" and nid not in cards and len(cards) < MAX_CARDS:
                     cards.append(nid)
                 elif nd["kind"] == "section" and len(secs) < MAX_SECTIONS and \
-                        not any(s["path"] == nd["path"] and s["node"] == nd["node"] for s in secs):
+                        not any(x["path"] == nd["path"] and x["node"] == nd["node"] for x in secs):
                     secs.append({"path": nd["path"], "node": nd["node"], "title": nd["title"],
                                  "lines": f"{nd['start']}-{nd['end']}", "why": str(d.get("reasoning", ""))[:200]})
                 elif nd["kind"] == "doc" and len(secs) < MAX_SECTIONS:
@@ -158,20 +170,33 @@ class Navigator:
                     continue
                 reads.append(nid)
             exp = [x for x in (H.resolve(h) for h in d.get("expand", []) or []) if x and tree.nodes[x]["children"]]
-            dropped += bad
+            dropped.extend(bad)
+            done = d.get("done", True) is True or not exp or r == max_rounds
             rounds.append({"round": r, "prompt_chars": len(system) + len(user), "read": [H.get(x) for x in reads],
                            "expand": [H.get(x) for x in exp], "invalid": bad[:20], "done": bool(d.get("done", True))})
-            if d.get("done", True) is True or not exp or r == max_rounds:
-                break
+            mark(run, "navigate", "decide", round=r, read=len(reads), expand=len(exp))
+            return {"round": r, "expand": exp, "done": done}
+
+        def n_open(st: NavState) -> dict:
+            exp = st["expand"][:6]
             parts = []
-            for x in exp[:6]:
+            for x in exp:
                 trail = tree.path_to(x)
                 parts += [tree.line(y, H.get(y), i) for i, y in enumerate(trail[:-1])]
-                txt, _ = tree.render([x], H, max(2000, budget // max(1, len(exp[:6]))), len(trail) - 1)
+                txt, _ = tree.render([x], H, max(2000, budget // max(1, len(exp))), len(trail) - 1)
                 parts.append(txt)
-            view = "\n".join(parts)
+            mark(run, "navigate", "open", nodes=len(exp))
+            return {"view": "\n".join(parts)}
+
+        g = StateGraph(NavState)
+        g.add_node("decide", n_decide)
+        g.add_node("open", n_open)
+        g.add_edge(START, "decide")
+        g.add_conditional_edges("decide", lambda st: END if st["done"] else "open", {"open": "open", END: END})
+        g.add_edge("open", "decide")
+        g.compile().invoke({"round": 0, "view": view0}, config={"recursion_limit": 4 * max_rounds + 4})
         return {"reasoning": " / ".join(x for x in reasoning if x), "cards": cards, "sections": secs,
-                "dropped": dropped[:20], "rounds": rounds, "hints": len(hints), "method": "tree-search/1",
+                "dropped": dropped[:20], "rounds": rounds, "hints": len(hints), "method": "tree-search/langgraph",
                 "_visible": list(tree.visible_cards)}
 
 
@@ -221,63 +246,106 @@ class Asker:
             cond_txt = ("\n<conditions>The user asks about: " + ", ".join(f"{k}={v}" for k, v in conditions.items()) +
                         ". Prefer knowledge stated for these conditions; general knowledge (no condition stated) may "
                         "still apply.</conditions>\n") if conditions else ""
-            nav = Navigator(self.kb, self.cards, self.comp).run(run, cfg, question, cond_txt,
-                                                                readers=not include_unpublished, conditions=conditions)
-            chosen, secs = nav["cards"], nav["sections"]
-            vis_ids = set(nav.pop("_visible"))
-            run["navigation"] = nav
-            step("navigated", cards=len(chosen), sections=len(secs), rounds=len(nav["rounds"]),
-                 dropped=len(nav["dropped"]))
 
-            blocks = [self._card_text(c, include_unpublished) for c in chosen]
-            texts = {}
-            for s in secs:
-                texts.setdefault(s["path"], S.read_text(self.kb, s["path"]))
-                lines = texts[s["path"]].splitlines()
-                a, b = (int(x) for x in s["lines"].split("-"))
-                b = min(b, a + 400)  # keep a single section bounded
-                num = "\n".join(f"{i:5d}|{lines[i - 1]}" for i in range(a, min(b, len(lines)) + 1))
-                blocks.append(f'<section path="{s["path"]}" node="{s["node"]}" lines="{a}-{b}" title="{s["title"]}">\n{num}\n</section>')
-            run["sources"] = sorted({s["path"] for s in secs})
-            run["source_shas"] = {p: meta[p]["sha256"] for p in run["sources"]}
-            ans_user = f"<question>{question}</question>{cond_txt}\n\n# Reading material\n" + ("\n\n".join(blocks) or "(nothing selected)")
-            res = self.comp.llm_step(run, cfg, ANS_SYSTEM, ans_user, prefix="ans-")
-            ans = parse_response_obj(res.text)
-            cache: dict = {}
-            read_paths = {s["path"] for s in secs}
-            ev = []
-            for i, e in enumerate(ans.get("evidence", []) or []):
-                if not isinstance(e, dict):
-                    continue
-                item = {"id": str(e.get("id", f"S{i + 1}")), "path": str(e.get("path", "")),
-                        "lines": str(e.get("lines", "")), "quote": str(e.get("quote", ""))[:600]}
-                cid = slug(item["path"])
-                if cid in chosen and item["path"] not in read_paths:
-                    # quoted from a card it read: check against that card's text (second-hand, card is grounded)
-                    head, body = self.cards.load(cid)
-                    if not include_unpublished:
-                        head, body = self.cards.load_rev(cid, head["published_rev"])
-                    hay = _norm(" ".join([head.get("title", ""), head.get("summary", ""), body] +
-                                         [x.get("quote", "") for x in head.get("evidence", [])]))
-                    item["check"] = "card" if _norm(item["quote"]) and _norm(item["quote"]) in hay else "missing"
-                    item["card"] = cid
-                    ev.append(item)
-                    continue
-                r = verify_evidence(self.kb, item, cache)
-                if r["path"] not in read_paths:
-                    r["not_read"] = True  # cites a document section the navigator did not select
-                ev.append(r)
-            used = [c for c in (slug(str(x)) for x in ans.get("used_cards", []) or []) if c in vis_ids]
-            run["answer"] = {"answer_md": str(ans.get("answer_md", "")), "evidence": ev, "used_cards": used,
-                             "confidence": ans.get("confidence"), "gaps": str(ans.get("gaps", "") or "")}
-            run["grounding"] = grounding(ev)
-            if run["answer"]["gaps"].strip() and run["answer"]["gaps"].strip() not in ("无", "none", "None", "-"):
-                from .issues import Issues  # what users need but the knowledge base cannot answer → gap register
-                gap = Issues(self.kb).create(user["name"], "gap", question[:120], run["answer"]["gaps"],
-                                             cards=used, sources=run["sources"], origin={"kind": "query", "run": rid})
-                run["gap_issue"] = gap["id"]
+            # LangGraph ASK graph:  START → navigate (NAVIGATE subgraph) → read → answer (GENERATE subgraph) → verify → END
+            class AskState(TypedDict, total=False):
+                chosen: list
+                secs: list
+                vis_ids: list
+                ans_user: str
+                ans: dict
+
+            def n_navigate(st: AskState) -> dict:
+                nav = Navigator(self.kb, self.cards, self.comp).run(run, cfg, question, cond_txt,
+                                                                    readers=not include_unpublished, conditions=conditions)
+                vis = nav.pop("_visible")
+                run["navigation"] = nav
+                mark(run, "ask", "navigate", cards=len(nav["cards"]), sections=len(nav["sections"]))
+                step("navigated", cards=len(nav["cards"]), sections=len(nav["sections"]), rounds=len(nav["rounds"]),
+                     dropped=len(nav["dropped"]))
+                return {"chosen": nav["cards"], "secs": nav["sections"], "vis_ids": vis}
+
+            def n_read(st: AskState) -> dict:
+                blocks = [self._card_text(c, include_unpublished) for c in st["chosen"]]
+                texts = {}
+                for x in st["secs"]:
+                    texts.setdefault(x["path"], S.read_text(self.kb, x["path"]))
+                    lines = texts[x["path"]].splitlines()
+                    a_, b_ = (int(v) for v in x["lines"].split("-"))
+                    b_ = min(b_, a_ + 400)  # keep a single section bounded
+                    num = "\n".join(f"{i:5d}|{lines[i - 1]}" for i in range(a_, min(b_, len(lines)) + 1))
+                    blocks.append(f'<section path="{x["path"]}" node="{x["node"]}" lines="{a_}-{b_}" title="{x["title"]}">\n{num}\n</section>')
+                run["sources"] = sorted({x["path"] for x in st["secs"]})
+                run["source_shas"] = {q: meta[q]["sha256"] for q in run["sources"]}
+                mark(run, "ask", "read", blocks=len(blocks))
+                return {"ans_user": f"<question>{question}</question>{cond_txt}\n\n# Reading material\n" +
+                                    ("\n\n".join(blocks) or "(nothing selected)")}
+
+            def n_answer(st: AskState) -> dict:
+                def check(res):
+                    d = parse_response_obj(res.text)
+                    if not str(d.get("answer_md", "")).strip():
+                        raise ValueError("empty answer_md")
+                    return d
+                ans, _, _ = generate(comp=self.comp, run=run, cfg=cfg, system=ANS_SYSTEM, user=st["ans_user"], check=check,
+                                     correction=lambda e: ("\n\n# Correction\nYour previous answer was not usable (" + e[:160] +
+                                                           '). Return one JSON object: {"answer_md":"…","evidence":[…],'
+                                                           '"used_cards":[…],"confidence":0.0,"gaps":"…"}'),
+                                     max_attempts=2, prefix="ans-", graph="answer")
+                mark(run, "ask", "answer")
+                return {"ans": ans}
+
+            def n_verify(st: AskState) -> dict:
+                ans, chosen, secs = st["ans"], st["chosen"], st["secs"]
+                cache: dict = {}
+                read_paths = {x["path"] for x in secs}
+                ev = []
+                for i, e in enumerate(ans.get("evidence", []) or []):
+                    if not isinstance(e, dict):
+                        continue
+                    item = {"id": str(e.get("id", f"S{i + 1}")), "path": str(e.get("path", "")),
+                            "lines": str(e.get("lines", "")), "quote": str(e.get("quote", ""))[:600]}
+                    cid = slug(item["path"])
+                    if cid in chosen and item["path"] not in read_paths:
+                        # quoted from a card it read: check against that card's text (second-hand, card is grounded)
+                        head, body = self.cards.load(cid)
+                        if not include_unpublished:
+                            head, body = self.cards.load_rev(cid, head["published_rev"])
+                        hay = _norm(" ".join([head.get("title", ""), head.get("summary", ""), body] +
+                                             [x.get("quote", "") for x in head.get("evidence", [])]))
+                        item["check"] = "card" if _norm(item["quote"]) and _norm(item["quote"]) in hay else "missing"
+                        item["card"] = cid
+                        ev.append(item)
+                        continue
+                    r = verify_evidence(self.kb, item, cache)
+                    if r["path"] not in read_paths:
+                        r["not_read"] = True  # cites a document section the navigator did not select
+                    ev.append(r)
+                vis_ids = set(st["vis_ids"])
+                used = [c for c in (slug(str(x)) for x in ans.get("used_cards", []) or []) if c in vis_ids]
+                run["answer"] = {"answer_md": str(ans.get("answer_md", "")), "evidence": ev, "used_cards": used,
+                                 "confidence": ans.get("confidence"), "gaps": str(ans.get("gaps", "") or "")}
+                run["grounding"] = grounding(ev)
+                gaps = run["answer"]["gaps"].strip()
+                if gaps and gaps.lower() not in ("无", "none", "-", "n/a"):  # "无" = "none" in Chinese answers
+                    from .issues import Issues  # what users need but the knowledge base cannot answer → gap register
+                    gap = Issues(self.kb).create(user["name"], "gap", question[:120], run["answer"]["gaps"],
+                                                 cards=used, sources=run["sources"], origin={"kind": "query", "run": rid})
+                    run["gap_issue"] = gap["id"]
+                mark(run, "ask", "verify", evidence=len(ev))
+                return {}
+
+            g = StateGraph(AskState)
+            for name, fn in (("navigate", n_navigate), ("read", n_read), ("answer", n_answer), ("verify", n_verify)):
+                g.add_node(name, fn)
+            g.add_edge(START, "navigate")
+            g.add_edge("navigate", "read")
+            g.add_edge("read", "answer")
+            g.add_edge("answer", "verify")
+            g.add_edge("verify", END)
+            g.compile().invoke({})
             run["status"] = "done"
-            step("answered", evidence=len(ev), grounding=run["grounding"]["score"])
+            step("answered", evidence=len(run["answer"]["evidence"]), grounding=run["grounding"]["score"])
         except Exception as e:
             import traceback
             run["status"] = "failed"
@@ -303,9 +371,9 @@ class Asker:
             cid = slug(cid + "-" + rid[-4:])
         mapping = {e["id"]: f"E{i + 1}" for i, e in enumerate(ans["evidence"])}
         body = re.sub(r"\[(S\d+)\]", lambda m: f"[{mapping.get(m.group(1), m.group(1))}]", ans["answer_md"])
-        body = f"> **问题**：{run['question']}\n\n{body}"
+        body = f"> **Question:** {run['question']}\n\n{body}"
         if ans.get("gaps"):
-            body += f"\n\n**尚不明确 / 资料缺口**：{ans['gaps']}"
+            body += f"\n\n**Open points / gaps in the material:** {ans['gaps']}"
         evidence = [{"id": mapping[e["id"]], "path": e["path"], "lines": e["lines"], "quote": e["quote"]} for e in ans["evidence"]]
         card = {"id": cid, "title": title or run["question"][:80], "type": "synthesis", "parent": slug(parent),
                 "aliases": [], "summary": ans["answer_md"].strip().splitlines()[0][:200] if ans["answer_md"].strip() else "",

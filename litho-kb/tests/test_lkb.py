@@ -452,7 +452,7 @@ class TestHTMLIngest(unittest.TestCase):
         self.assertIn("OPC 通过修改**掩模图形**补偿失真。", body)
         self.assertIn("1. 涂胶：均匀涂覆。\n2. 曝光", body)
         self.assertIn("| ArF | 193nm \\| 浸没 |", body)
-        self.assertIn("> 图示文字：初始掩模 · EPE计算", body)
+        self.assertIn("> Figure text: 初始掩模 · EPE计算", body)
         self.assertIn("```\nfor i in range(3):\n    step()\n```", body)
         self.assertIn("### [下一章](ch2.md#sec)", body)  # block-level card link → linked heading
         self.assertIn("[第二章](ch2.md)", body)
@@ -586,7 +586,7 @@ class TestMergeMechanisms(unittest.TestCase):
         from lithokb.compiler import apply_append
         card, body = apply_append(self.cards, norm[0], norm[0]["add_md"], ["b.md"])
         self.assertIn("定义 [E1]", body)                       # existing content kept
-        self.assertIn("### 补充（来自 [《B》](src:b.md)）\n\n模型型 OPC 以它为目标 [E2]。", body)  # titled link, not a path  # new evidence renumbered
+        self.assertIn("### Addendum (from [“B”](src:b.md))\n\n模型型 OPC 以它为目标 [E2]。", body)  # titled link, not a path  # new evidence renumbered
         self.assertEqual([e["id"] for e in card["evidence"]], ["E1", "E2"])
         self.assertEqual(card["sources"], ["a.md", "b.md"])
         self.assertIn("边放误差", card["aliases"])
@@ -598,7 +598,7 @@ class TestMergeMechanisms(unittest.TestCase):
         norm = [{"id": "x", "parent": "mask-3d", "relations": [{"rel": "uses", "target": "smo"}, {"rel": "uses", "target": "not-in-schema"}]}]
         stubs = schema_topic_stubs(self.kb, self.cards, norm)
         self.assertEqual([s_["card"]["id"] for s_ in stubs], ["mask-3d", "smo"])
-        self.assertEqual(stubs[0]["card"]["title"], "掩模三维效应（M3D）与 EUV 特有效应")
+        self.assertEqual(stubs[0]["card"]["title"], "Mask 3D effects (M3D) and EUV-specific effects")
 
 
 class TestFixRound(unittest.TestCase):
@@ -715,7 +715,7 @@ class TestReviewUX(unittest.TestCase):
         c = {"id": "pw", "aliases": [], "relations": [],
              "evidence": [{"id": "E1", "path": "b.md", "lines": "3", "quote": "SMO 扩大工艺窗口。"}]}
         card, body = apply_append(self.cards, c, "### 补充（来自 b.md）\n\nSMO 的作用 [E1]。", ["b.md"])
-        self.assertEqual(body.count("补充（来自"), 1)
+        self.assertEqual(body.count("Addendum (from") + body.count("补充（来自"), 1)
         self.assertEqual([e["id"] for e in card["evidence"]], ["E1", "E2"])
 
     def test_semantic_diff_ignores_number_formatting(self):
@@ -754,7 +754,7 @@ class TestRiskBatchGranularity(unittest.TestCase):
         self.assertEqual(self.cards.risk("amb")["level"], "high")
         bad = [{"id": "E1", "path": "a.md", "lines": "3", "quote": "原文中不存在的一句话"}]
         self.mk("bad", "工艺窗口" * 30 + " [E1]", bad)
-        self.assertIn("无法核验", self.cards.risk("bad")["reasons"][0])
+        self.assertIn("could not be verified", self.cards.risk("bad")["reasons"][0])
         self.mk("thin", "一句话 [E1]", good)
         r = self.cards.risk("thin")
         self.assertEqual(r["level"], "medium")
@@ -802,13 +802,13 @@ class TestRiskBatchGranularity(unittest.TestCase):
         quotes = {e["quote"] for e in head["evidence"]} | {e["quote"] for e in child["evidence"]}
         self.assertEqual(quotes, {e["quote"] for e in ev})  # no provenance lost
         self.assertEqual(child["grounding"]["score"], 1.0)
-        self.assertIn("整合重写，需通读", self.cards.risk("big")["reasons"])
+        self.assertIn("consolidated rewrite; read in full", self.cards.risk("big")["reasons"])
         # merge a thin card into another
         self.mk("thin", "SMO 扩大工艺窗口 [E1]", [{"id": "E1", "path": "b.md", "lines": "3", "quote": "SMO 扩大工艺窗口。"}], title="SMO 作用")
         with self.assertRaises(PermissionError):
             merge(self.cards, self.rev, "thin", "big")
         h = merge(self.cards, self.admin, "thin", "big")
-        self.assertIn("### 并入：SMO 作用", self.cards.load("big")[1])
+        self.assertIn("### Merged: SMO 作用", self.cards.load("big")[1])
         self.assertIn("SMO 作用", h["aliases"])
         t, _ = self.cards.load("thin")
         self.assertEqual((t["lifecycle"], t["replaced_by"]), ("superseded", "big"))
@@ -869,7 +869,7 @@ class TestViewsFacetsIssuesMCP(unittest.TestCase):
         self.assertEqual(F._nm_interval("65nm–5nm"), (5.0, 65.0))
         self.assertEqual(F._nm_interval("≥28nm"), (28.0, float("inf")))
         self.assertIn("node", F.dims(self.kb))
-        self.assertIn("1 条刻面", " ".join(self.cards.risk("euv")["reasons"]).replace("3 条刻面", "1 条刻面"))
+        self.assertIn("1 facet(s)", " ".join(self.cards.risk("euv")["reasons"]).replace("3 facet(s)", "1 facet(s)"))
 
     def test_issue_register(self):
         from lithokb.issues import Issues

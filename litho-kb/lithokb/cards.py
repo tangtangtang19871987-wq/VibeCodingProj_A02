@@ -6,11 +6,11 @@ revision. Readers only ever see the *published* revision.
 
 Review status of the head revision:
     draft ─submit→ in_review ─approve(xN)→ approved ─publish→ published
-                       │ request_changes        │ return (打回)
+                       │ request_changes        │ return (send back)
                        ▼                        ▼
                 changes_requested ◀────────────┘   ─edit/recompile→ in_review
                        reject → rejected ─reopen→ in_review
-Lifecycle of the card as a whole (admin):  active | withdrawn (下架) | superseded (被替换)
+Lifecycle of the card as a whole (admin):  active | withdrawn (taken down) | superseded (replaced)
 A new revision of a published card goes through review again while the old
 published revision stays visible to readers until the new one is published.
 """
@@ -275,7 +275,7 @@ class Cards:
         from .quality import RISK_RULES_VERSION, granularity_cfg
         comment = (comment or "").strip()
         if len(comment) < 10:
-            raise CardError("批量操作必须填写评语（至少 10 个字），说明依据与核对方式")
+            raise CardError("a batch action needs a comment (at least 10 characters) explaining the basis and how it was checked")
         if action not in ("approve", "publish"):
             raise CardError("batch supports approve | publish")
         require(user, "reviewer" if action == "approve" else "admin")
@@ -289,12 +289,12 @@ class Cards:
                 if action == "approve":
                     r = self.risk(cid)
                     if r["level"] != "low":  # server-side rule: only low risk may be batch-approved
-                        raise CardError(f"风险等级 {r['level']}：" + "；".join(r["reasons"][:3]))
+                        raise CardError(f"risk {r['level']}: " + "; ".join(r["reasons"][:3]))
                     if m["status"] != "in_review":
-                        raise CardError(f"状态为 {m['status']}，不在审阅中")
+                        raise CardError(f"status is {m['status']}, not in review")
                 elif m["status"] != "approved":
-                    raise CardError(f"状态为 {m['status']}，未通过审阅")
-                self.act(user, cid, action, f"[批量 {bid}] {comment}", extra={"batch": bid})
+                    raise CardError(f"status is {m['status']}, not approved")
+                self.act(user, cid, action, f"[batch {bid}] {comment}", extra={"batch": bid})
                 done.append(cid)
             except (CardError, PermissionError) as e:
                 skipped.append({"id": cid, "reason": str(e)})
@@ -478,7 +478,7 @@ class Cards:
                                                                    "published_at": meta["published_at"],
                                                                    "published_by": user["name"]},
                                                                   self.load_rev(cid, rev)[1]))
-                elif action == "return":  # 打回
+                elif action == "return":  # send back to the author
                     if st not in ("approved", "in_review", "rejected"):
                         raise CardError(f"cannot return from '{st}'")
                     meta["status"] = "changes_requested"
@@ -488,7 +488,7 @@ class Cards:
                     if st not in ("rejected", "changes_requested"):
                         raise CardError(f"cannot reopen from '{st}'")
                     meta["status"] = "in_review"
-                elif action == "withdraw":  # 下架
+                elif action == "withdraw":  # take down
                     if not meta.get("published_rev"):
                         raise CardError("card was never published")
                     meta["lifecycle"] = "withdrawn"
@@ -496,7 +496,7 @@ class Cards:
                     if meta.get("lifecycle") == "active":
                         raise CardError("card is already active")
                     meta["lifecycle"], meta["replaced_by"] = "active", ""
-                elif action == "supersede":  # 被替换
+                elif action == "supersede":  # replaced by another card
                     target = slug(target)
                     if not target or target == cid or not self.exists(target):
                         raise CardError("supersede needs an existing target card id")
@@ -660,14 +660,14 @@ class Cards:
             for k in g["issues"]:
                 if k != "long":
                     issues.append({"card": cid, "kind": f"granularity_{k}",
-                                   "detail": f"{g['units']} 字/词 · {g['appends']} 段补充 · {g['evidence']} 条证据"})
+                                   "detail": f"{g['units']} units · {g['appends']} addenda · {g['evidence']} evidence"})
         for d in S.near_duplicates(self.kb):
             issues.append({"card": summary_id(d["b"]), "kind": "duplicate_source",
                            "detail": f"{d['b']} ≈ {d['a']} (similarity {d['similarity']}, containment {d['containment']}) — consider retiring one"})
         for p in S.list_md(self.kb):
             if summary_id(p) not in idx and any(s["path"] == p for m in idx.values() for s in m.get("sources", [])):
                 issues.append({"card": summary_id(p), "kind": "missing_summary", "detail": p})
-        try:  # graph-level checks: ontology constraints (SCHEMA "图谱本体"), entity types
+        try:  # graph-level checks: ontology constraints (SCHEMA "Graph ontology"), entity types
             from . import graph as G
             issues.extend(G.build(self.kb, self, readers=False).findings)
         except Exception as e:  # noqa: BLE001 — lint must never fail because of a derived index
