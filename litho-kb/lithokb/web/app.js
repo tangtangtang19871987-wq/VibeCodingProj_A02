@@ -633,13 +633,15 @@ async function traceView(rid, q) {
   const r = t.run;
   const tab = q.tab || 'overview';
   const NAMES = { 'thinking.md': 'Thinking summary', 'prompt.md': 'User prompt', 'system.md': 'System prompt', 'response.md': 'Raw output', 'parsed.json': 'Parsed result', 'error.txt': 'Error' };
-  const STEP = { 'nav-': 'Navigate · ', 'ans-': 'Answer · ' };
   const order = ['thinking.md', 'prompt.md', 'system.md', 'response.md', 'parsed.json', 'error.txt'];
   const files = Object.keys(t).filter(k => k !== 'run');
-  const rank = f => (f.startsWith('ans-') ? 1 : 0) + (/^retry/.test(f) ? 2 : 0);
-  files.sort((a, b) => rank(a) - rank(b) || order.indexOf(a.replace(/^(nav|ans|retry\d+)-/, '')) - order.indexOf(b.replace(/^(nav|ans|retry\d+)-/, '')));
-  const pre = f => (f.match(/^(nav|ans|retry\d+)-/) || [''])[0];
-  const label = f => { const p = pre(f); return (STEP[p] || (p ? 'Retry ' + p.slice(5, -1) + ' · ' : '')) + (NAMES[f.slice(p.length)] || f); };
+  // file prefixes: nav- / nav2- … (navigation rounds), idx- (index), ans- (answer), retryN- / ans-retryN- (corrective retries)
+  const pre = f => (f.match(/^((?:nav\d*|ans|idx)-)?(retry\d+-)?/) || [''])[0];
+  const stage = f => { const m = f.match(/^(nav(\d*)|ans|idx)-/); return !m ? 'Compile' : m[1] === 'ans' ? 'Answer' : m[1] === 'idx' ? 'Index' : 'Navigate' + (m[2] ? ' round ' + m[2] : ''); };
+  const rank = f => { const m = f.match(/^nav(\d*)-/); return f.startsWith('ans-') ? 100 : m ? (+m[2 - 1] || 1) : 0; };
+  const label = f => { const p = pre(f); const r = (p.match(/retry(\d+)-/) || [])[1];
+    return (p ? stage(f) + (r ? ' · retry ' + r : '') + ' · ' : '') + (NAMES[f.slice(p.length)] || f); };
+  files.sort((a, b) => rank(a) - rank(b) || pre(a).localeCompare(pre(b)) || order.indexOf(a.slice(pre(a).length)) - order.indexOf(b.slice(pre(b).length)));
   const tabs = [['overview', 'Overview'], ...files.map(f => [f, label(f)])];
   const u = r.usage || {};
   let body = '';
@@ -647,7 +649,8 @@ async function traceView(rid, q) {
       <div>Asked by</div><div>${esc(r.by)} · scope: ${r.scope === 'all' ? 'incl. unpublished' : 'published only'}</div><div>Backend / model</div><div>${esc(r.backend)} / ${esc(r.model)}</div>
       <div>Latency / cost</div><div>${r.latency_s}s ${r.cost_usd !== undefined ? '· $' + r.cost_usd : ''}</div><div>Quote verification</div><div>${r.grounding ? gbadge(r.grounding) : ''}</div></div>
       <p><a href="#/ask/${esc(r.id)}">View the answer and reading plan in Ask →</a></p>
-      <h3>LLM calls</h3><table class="grid">${(r.calls || []).map(c => `<tr><td>${esc(c.step)}</td><td class="small">${esc(c.model)}</td><td>${c.latency_s}s</td><td class="small mono">${esc(JSON.stringify(c.usage))}</td><td class="small">${(c.prompt_chars / 1000).toFixed(1)}k chars</td></tr>`).join('')}</table>
+      <h3>LLM calls <span class="muted small">(each runs the LangGraph CALL graph)</span></h3><table class="grid"><tr><th>Step</th><th>Model</th><th>Latency</th><th>Usage</th><th>Prompt</th><th>Graph path</th></tr>${(r.calls || []).map(c => `<tr><td>${esc(c.step)}</td><td class="small">${esc(c.model)}</td><td>${c.latency_s}s</td><td class="small mono">${esc(JSON.stringify(c.usage))}</td><td class="small">${(c.prompt_chars / 1000).toFixed(1)}k chars</td><td class="small mono">${esc((c.graph_path || []).join(' → '))}${c.watchdog_aborts ? ' <span class="badge b-request_changes">watchdog step-down ×' + c.watchdog_aborts.length + '</span>' : ''}${c.transient_retries ? ' <span class="badge">retried ×' + c.transient_retries + '</span>' : ''}</td></tr>`).join('')}</table>
+      ${(r.graph || []).length ? `<h3>Pipeline graph <span class="muted small">(LangGraph node visits, in order)</span></h3><p class="small mono">${r.graph.map(g => `<span title="${esc(JSON.stringify(Object.fromEntries(Object.entries(g).filter(([k]) => !['graph', 'node'].includes(k)))))}">${esc(g.graph)}.${esc(g.node)}</span>`).join(' → ')}</p>` : ''}
       <h3>Timeline</h3><ul class="timeline">${(r.timeline || []).map(s => `<li><span class="mono">${fmtTime(s.ts).slice(11)}</span> ${esc(s.step)} <span class="muted">${esc(JSON.stringify(Object.fromEntries(Object.entries(s).filter(([k]) => !['ts', 'step'].includes(k)))))}</span></li>`).join('')}</ul>`;
   else if (tab === 'overview') body = `<div class="kv"><div>Status</div><div>${badge(r.status)} ${esc(r.error || '')}</div><div>Started by</div><div>${esc(r.by)}</div>
       <div>Backend / model</div><div>${esc(r.backend)} / ${esc(r.model)} ${r.effort ? '· effort ' + esc(r.effort) : ''}</div><div>Prompt version</div><div class="mono">${esc(r.prompt_version)}</div>
@@ -934,7 +937,15 @@ routes.mindmap = async ([id], q) => {
     const g = kids(n.c.id).slice(0, 6);
     g.forEach((c, i) => nodes.push({ c, x: n.x + 120 * Math.cos(n.a + (i - (g.length - 1) / 2) * 0.32), y: n.y + 120 * Math.sin(n.a + (i - (g.length - 1) / 2) * 0.32), kind: 'grand', from: n }));
   });
-  const wrap = (t, n) => { const s = String(t).replace(/\s*[（(][^)）]*[)）]\s*$/, ''); const out = []; for (let i = 0; i < s.length && out.length < 3; i += n) out.push(s.slice(i, i + n)); return out; };
+  const wrap = (t, n) => {
+    const s = String(t).replace(/\s*[（(][^)）]*[)）]\s*$/, '') || String(t); const out = [];
+    if (/\s/.test(s) && !/[\u4e00-\u9fff]/.test(s)) {  // Latin text: wrap at word boundaries (~1.7× chars per line)
+      const w = Math.round(n * 1.7); let cur = '';
+      for (const word of s.split(/\s+/)) { if (cur && (cur + ' ' + word).length > w) { out.push(cur); cur = word; } else cur = cur ? cur + ' ' + word : word; }
+      if (cur) out.push(cur);
+      return out.length > 3 ? [...out.slice(0, 2), out.slice(2).join(' ').slice(0, w - 1) + '…'] : out;
+    }
+    for (let i = 0; i < s.length && out.length < 3; i += n) out.push(s.slice(i, i + n)); return out; };
   const label = (n, size, fill, w) => wrap(n.c.title, w).map((ln, i, arr) => `<text x="${n.x}" y="${n.y + (i - (arr.length - 1) / 2) * (size + 3) + size / 3}" text-anchor="middle" font-size="${size}" fill="${fill}">${esc(ln)}</text>`).join('');
   let svg = '';
   nodes.forEach(n => { const p = n.from || { x: cx, y: cy }; svg += `<path d="M${p.x},${p.y} Q${(p.x + n.x) / 2 + (n.kind === 'related' ? 0 : 0)},${(p.y + n.y) / 2} ${n.x},${n.y}" fill="none" stroke="${n.kind === 'related' ? 'var(--warn)' : 'var(--line)'}" stroke-width="${n.kind === 'grand' ? 1 : 2}" ${n.kind === 'related' ? 'stroke-dasharray="5 4"' : ''}/>`; });
