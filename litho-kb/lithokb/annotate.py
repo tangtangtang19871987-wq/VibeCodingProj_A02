@@ -67,7 +67,7 @@ class Annotator:
                "written": [], "findings": []}
         try:
             dims = F.dims(self.kb)
-            system = SYSTEM.format(dims="\n".join(f"  - {k}: {v[0]}（{v[1]}）" for k, v in dims.items()) or "  (none declared)")
+            system = SYSTEM.format(dims="\n".join(f"  - {k}: {v[0]} ({v[1]})" for k, v in dims.items()) or "  (none declared)")
             ev = head.get("evidence", [])
             user_msg = (f"<card id=\"{cid}\" type=\"{head['type']}\">\n# {head['title']}\n{head.get('summary', '')}\n\n{body}\n</card>\n\n"
                         "# Evidence (id | source | verbatim quote)\n" + "\n".join(f"{e['id']} | {e['path']} | {e['quote']}" for e in ev))

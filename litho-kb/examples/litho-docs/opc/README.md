@@ -1,4 +1,4 @@
-# OPC 与 ILT
+# OPC and ILT
 
-- [OPC 概述](opc-basics.md)
-- [逆向光刻 ILT](ilt.md)
+- [OPC overview](opc-basics.md)
+- [Inverse lithography (ILT)](ilt.md)

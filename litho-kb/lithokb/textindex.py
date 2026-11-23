@@ -19,10 +19,11 @@ import threading
 from collections import Counter, defaultdict
 
 _ASCII = re.compile(r"[a-z0-9]+(?:[.\-][a-z0-9]+)*")
-_CJK = re.compile(r"[㐀-䶿一-鿿豈-﫿]+")
-_STOP = {"的", "了", "和", "是", "在", "与", "及", "或", "等", "中", "对", "为", "由", "其", "the", "a", "an", "of",
-         "and", "or", "to", "in", "for", "is", "are", "on", "with", "by", "what", "how", "why", "什么", "如何",
-         "怎么", "哪些", "为什么"}
+_CJK = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+")
+# stop words: common Chinese function words (as \u escapes) and English ones
+_STOP = {"\u7684", "\u4e86", "\u548c", "\u662f", "\u5728", "\u4e0e", "\u53ca", "\u6216", "\u7b49", "\u4e2d", "\u5bf9", "\u4e3a", "\u7531", "\u5176", "the", "a", "an", "of",
+         "and", "or", "to", "in", "for", "is", "are", "on", "with", "by", "what", "how", "why", "\u4ec0\u4e48", "\u5982\u4f55",
+         "\u600e\u4e48", "\u54ea\u4e9b", "\u4e3a\u4ec0\u4e48"}
 
 
 def tokens(text: str) -> list[str]:

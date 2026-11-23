@@ -1,7 +1,7 @@
-# 计算光刻入门资料
+# Computational lithography primer
 
-本目录是示例资料集，用于演示 LithoKB。
+This folder is a sample document set used to demonstrate LithoKB.
 
-- [成像模型](imaging/README.md)
-- [OPC 与 ILT](opc/README.md)
-- [术语表](glossary.md)
+- [Imaging models](imaging/README.md)
+- [OPC and ILT](opc/README.md)
+- [Glossary](glossary.md)

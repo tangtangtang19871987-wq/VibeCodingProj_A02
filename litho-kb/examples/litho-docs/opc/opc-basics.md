@@ -1,11 +1,11 @@
-# OPC 概述
+# OPC overview
 
-光学邻近效应修正（OPC）通过修改掩模图形来补偿成像过程中的图形失真，使晶圆上的轮廓尽可能接近设计目标。
+Optical proximity correction (OPC) modifies the mask pattern to compensate for pattern distortion during imaging, so that the contour on the wafer is as close as possible to the design target.
 
-## 基于模型的 OPC
+## Model-based OPC
 
-基于模型的 OPC 把图形边缘切分为片段，迭代移动片段位置以最小化 EPE。它依赖于经过校准的[成像模型](../imaging/hopkins.md)与[光刻胶模型](../imaging/resist.md)。
+Model-based OPC fragments pattern edges into segments and iteratively moves the segments to minimize EPE. It depends on a calibrated [imaging model](../imaging/hopkins.md) and [resist model](../imaging/resist.md).
 
-## 基于规则的 OPC
+## Rule-based OPC
 
-基于规则的 OPC 根据查表规则添加偏置和衬线，速度快但精度有限，主要用于成熟节点。
+Rule-based OPC adds biases and serifs from lookup-table rules; it is fast but of limited accuracy and is mainly used at mature nodes.

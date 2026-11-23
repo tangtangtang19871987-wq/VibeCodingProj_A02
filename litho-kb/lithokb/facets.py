@@ -11,7 +11,7 @@ power additional views of the same knowledge:
 Every facet item must cite an evidence id of the card (already verified against the
 source); items that cannot be grounded are dropped. Condition dimensions are declared
 by the domain team in SCHEMA.md ("Applicability condition dimensions"; legacy
-heading "适用条件维度"), not in code.
+heading "Applicability condition dimensions"), not in code.
 """
 from __future__ import annotations
 
@@ -20,35 +20,35 @@ import re
 from . import schema as SC
 
 # synonyms so that "EUV" matches "13.5nm" and "ArF immersion" matches "193nm"
-_WAVELENGTH = [("euv", ("euv", "13.5nm", "13.5 nm", "extreme ultraviolet", "extreme-ultraviolet", "极紫外")), ("arfi", ("arfi", "浸没", "immersion", "193i")),
+_WAVELENGTH = [("euv", ("euv", "13.5nm", "13.5 nm", "extreme ultraviolet", "extreme-ultraviolet", "\u6781\u7d2b\u5916")), ("arfi", ("arfi", "\u6d78\u6ca1", "immersion", "193i")),
                ("arf", ("arf", "193nm", "193 nm", "duv")), ("krf", ("krf", "248nm", "248 nm")),
-               ("i-line", ("i-line", "i线", "365nm")), ("g-line", ("g-line", "g线", "436nm"))]
+               ("i-line", ("i-line", "i\u7ebf", "365nm")), ("g-line", ("g-line", "g\u7ebf", "436nm"))]
 
 
 def dims(kb) -> dict[str, tuple[str, str]]:
-    """Condition dimensions from SCHEMA.md: lines '- `dim` Name: e.g. …' (full-width '：' also accepted)
-    under a heading containing "Applicability" (or the legacy Chinese "适用条件")."""
+    """Condition dimensions from SCHEMA.md: lines '- `dim` Name: e.g. …' (a full-width colon is also accepted)
+    under a heading containing "Applicability" (or its legacy Chinese equivalent)."""
     text = SC.current(kb)["text"]
-    m = re.search(r"^#+[^\n]*(?:适用条件|applicability)[^\n]*\n(.*?)(?=^#+ |\Z)", text, re.M | re.S | re.I)
+    m = re.search(r"^#+[^\n]*(?:\u9002\u7528\u6761\u4ef6|applicability)[^\n]*\n(.*?)(?=^#+ |\Z)", text, re.M | re.S | re.I)
     out = {}
-    for mm in re.finditer(r"^[ \t]*[-*][ \t]+`([a-z][a-z0-9_]*)`[ \t]+([^：:\n]+)[：:]?[ \t]*([^\n]*)$", m.group(1) if m else "", re.M):
+    for mm in re.finditer(r"^[ \t]*[-*][ \t]+`([a-z][a-z0-9_]*)`[ \t]+([^\uff1a:\n]+)[\uff1a:]?[ \t]*([^\n]*)$", m.group(1) if m else "", re.M):
         out[mm.group(1)] = (mm.group(2).strip(), mm.group(3).strip())
     return out
 
 
 def _nm_interval(v: str):
     """'≤7nm' / '7nm and below' → (0,7); '≥28nm' / '28nm and above' → (28,inf); '65nm–5nm' → (5,65); '5nm' → (5,5).
-    Chinese qualifiers (及以下 / 及以上 / 至 …) in existing data are matched too."""
+    Chinese qualifiers ("and below", "and above", "to", …) in existing data are matched too."""
     s = v.replace(" ", "").lower()
-    nums = [float(x) for x in re.findall(r"(\d+(?:\.\d+)?)(?=nm|纳米|n\b|$|[^\d.])", s)]
+    nums = [float(x) for x in re.findall(r"(\d+(?:\.\d+)?)(?=nm|\u7eb3\u7c73|n\b|$|[^\d.])", s)]
     if not nums:
         return None
-    if len(nums) >= 2 and re.search(r"[-–~至到]|(?<=[\dm])to(?=\d)", s):
+    if len(nums) >= 2 and re.search(r"[-–~\u81f3\u5230]|(?<=[\dm])to(?=\d)", s):
         return (min(nums[:2]), max(nums[:2]))
     n = nums[0]
-    if re.search(r"≤|<=|<|及以下|以下|以内|及更先进|beyond|below|orless|orsmaller|andsmaller", s):
+    if re.search(r"≤|<=|<|\u53ca\u4ee5\u4e0b|\u4ee5\u4e0b|\u4ee5\u5185|\u53ca\u66f4\u5148\u8fdb|beyond|below|orless|orsmaller|andsmaller", s):
         return (0.0, n)
-    if re.search(r"≥|>=|>|及以上|以上|成熟|above|orlarger|andlarger|mature", s):
+    if re.search(r"≥|>=|>|\u53ca\u4ee5\u4e0a|\u4ee5\u4e0a|\u6210\u719f|above|orlarger|andlarger|mature", s):
         return (n, float("inf"))
     return (n, n)
 
@@ -141,7 +141,7 @@ def year_of(when: str) -> float | None:
     if not m:
         return None
     y = float(m.group(1))
-    mo = re.search(r"(1[89]\d\d|20\d\d)[-./年](\d{1,2})", when)
+    mo = re.search(r"(1[89]\d\d|20\d\d)[-./\u5e74](\d{1,2})", when)
     return y + (int(mo.group(2)) - 1) / 12 if mo else y
 
 

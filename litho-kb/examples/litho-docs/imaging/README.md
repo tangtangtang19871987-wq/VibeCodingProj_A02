@@ -1,6 +1,6 @@
-# 成像模型
+# Imaging models
 
-成像模型描述掩模图形经过投影光学系统后在晶圆上形成的空间像。
+Imaging models describe the aerial image that a mask pattern forms on the wafer after passing through the projection optics.
 
-1. [Hopkins 部分相干成像](hopkins.md)
-2. [光刻胶模型](resist.md)
+1. [Hopkins partially coherent imaging](hopkins.md)
+2. [Resist models](resist.md)

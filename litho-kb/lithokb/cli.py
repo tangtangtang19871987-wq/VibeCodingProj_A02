@@ -10,6 +10,7 @@ import argparse
 import getpass
 import json
 import os
+import re
 import sys
 
 from . import auth as A
@@ -339,7 +340,7 @@ def main(argv=None) -> None:
         from collections import Counter
         rows = [(m["id"], cards.risk(m["id"])) for m in cards.listing(status="in_review")]
         print("in review by risk:", dict(Counter(r["level"] for _, r in rows)))
-        reasons = Counter(x.split("（")[0] for _, r in rows for x in r["reasons"])
+        reasons = Counter(re.split(r" \(|\uff08", x)[0] for _, r in rows for x in r["reasons"])
         for k, v in reasons.most_common(12):
             print(f"  {v:>3}  {k}")
         return

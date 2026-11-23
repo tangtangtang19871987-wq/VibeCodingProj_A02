@@ -30,8 +30,8 @@ def _first_sentence(lines: list[str]) -> str:
         if not s or s.startswith(("#", "|", "```", "~~~", "![", "<", "$$", "---")):
             continue
         s = re.sub(r"^[-*+>]\s+|^\d+[.)]\s+", "", s)
-        s = re.sub(r"\*\*|__|`|^(?:图示文字：|Figure text:\s*)", "", s).strip()
-        return re.split(r"(?<=[.。!?！？；;])\s*", s)[0][:160]
+        s = re.sub(r"\*\*|__|`|^(?:\u56fe\u793a\u6587\u5b57\uff1a|Figure text:\s*)", "", s).strip()
+        return re.split(r"(?<=[.\u3002!?\uff01\uff1f\uff1b;])\s*", s)[0][:160]
     return ""
 
 

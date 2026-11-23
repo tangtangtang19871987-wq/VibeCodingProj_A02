@@ -327,7 +327,7 @@ class Asker:
                                  "confidence": ans.get("confidence"), "gaps": str(ans.get("gaps", "") or "")}
                 run["grounding"] = grounding(ev)
                 gaps = run["answer"]["gaps"].strip()
-                if gaps and gaps.lower() not in ("无", "none", "-", "n/a"):  # "无" = "none" in Chinese answers
+                if gaps and gaps.lower() not in ("\u65e0", "none", "-", "n/a"):  # includes the Chinese word for "none"
                     from .issues import Issues  # what users need but the knowledge base cannot answer → gap register
                     gap = Issues(self.kb).create(user["name"], "gap", question[:120], run["answer"]["gaps"],
                                                  cards=used, sources=run["sources"], origin={"kind": "query", "run": rid})

@@ -58,8 +58,8 @@ def summary_id(path: str) -> str:
 _MARKS = re.compile(r"[`*_>#|~]|^\s*(?:[-+]|\d+[.)])\s+", re.M)
 # segment separators inside a quote: ellipses, line breaks (multi-line quotes often keep only the start of each
 # line) and the " — " the outline uses between heading and gist (models sometimes quote the outline view)
-_ELLIPSIS = re.compile(r"…+|\.{3,}|。。。|\n+| — ")
-_QUOTES = str.maketrans({"“": '"', "”": '"', "„": '"', "‟": '"', "「": '"', "」": '"', "‘": "'", "’": "'", "『": '"', "』": '"'})
+_ELLIPSIS = re.compile(r"…+|\.{3,}|\u3002\u3002\u3002|\n+| — ")
+_QUOTES = str.maketrans({"“": '"', "”": '"', "„": '"', "‟": '"', "\u300c": '"', "\u300d": '"', "‘": "'", "’": "'", "\u300e": '"', "\u300f": '"'})
 
 
 def _norm(s: str) -> str:
@@ -103,7 +103,7 @@ def verify_evidence(kb: KB, ev: dict, text_cache: dict | None = None) -> dict:
     raw = ev.get("quote", "")
     whole = _norm(raw)  # line breaks vanish in the comparison form: a verbatim multi-line quote is one string
     segs = [x for x in (_norm(t) for t in _ELLIPSIS.split(raw)) if len(x) >= 2]
-    multi = len(segs) > 1 or bool(re.search(r"…|\.{3,}|。。。", raw))  # a trailing "…" also marks an abbreviation
+    multi = len(segs) > 1 or bool(re.search(r"…|\.{3,}|\u3002\u3002\u3002", raw))  # a trailing "…" also marks an abbreviation
     a, b = _parse_lines(ev.get("lines", ""), len(lines))
     window = _norm("\n".join(lines[a - 1:b])) if a else ""
     if not whole:

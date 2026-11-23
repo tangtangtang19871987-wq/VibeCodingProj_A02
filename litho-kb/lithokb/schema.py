@@ -152,12 +152,12 @@ def diff(kb: KB, a: int, b: int) -> str:
 
 def skeleton(kb: KB) -> dict[str, tuple[str, str]]:
     """Topic skeleton declared in SCHEMA.md as list items: - `topic-id` Name: description.
-    Read from the section whose heading contains "Topic skeleton" (or the legacy "领域主题骨架");
+    Read from the section whose heading contains "Topic skeleton" (or its legacy Chinese heading);
     if no such heading exists the whole text is scanned (legacy behaviour)."""
     text = current(kb)["text"]
-    m = re.search(r"^#+[^\n]*(?:领域主题骨架|topic skeleton)[^\n]*\n(.*?)(?=^#+ |\Z)", text, re.M | re.S | re.I)
+    m = re.search(r"^#+[^\n]*(?:\u9886\u57df\u4e3b\u9898\u9aa8\u67b6|topic skeleton)[^\n]*\n(.*?)(?=^#+ |\Z)", text, re.M | re.S | re.I)
     out = {}
-    for m2 in re.finditer(r"^[ \t]*[-*][ \t]+`([a-z0-9][a-z0-9-]*)`[ \t]+([^：:\n]+)[：:]?[ \t]*([^\n]*)$",
+    for m2 in re.finditer(r"^[ \t]*[-*][ \t]+`([a-z0-9][a-z0-9-]*)`[ \t]+([^\uff1a:\n]+)[\uff1a:]?[ \t]*([^\n]*)$",
                           m.group(1) if m else text, re.M):
         out[m2.group(1)] = (m2.group(2).strip(), m2.group(3).strip())
     return out

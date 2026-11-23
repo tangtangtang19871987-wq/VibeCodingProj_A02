@@ -350,7 +350,7 @@ def looks_like_navigation(text: str) -> bool:
     lines = [ln.strip() for ln in body.splitlines() if ln.strip() and not ln.strip().startswith("#")]
     if not lines:
         return True
-    linky = sum(1 for ln in lines if _LINK_RE.search(ln) and len(_LINK_RE.sub("", ln).strip(" -*0-9.、:：|")) < 60)
+    linky = sum(1 for ln in lines if _LINK_RE.search(ln) and len(_LINK_RE.sub("", ln).strip(" -*0-9.\u3001:\uff1a|")) < 60)
     prose = sum(len(ln) for ln in lines if not _LINK_RE.search(ln))
     if linky >= 5 and linky / len(lines) >= 0.5 and prose < 1500:
         return True

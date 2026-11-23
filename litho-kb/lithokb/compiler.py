@@ -215,7 +215,7 @@ def _names(m: dict) -> set[str]:
         if not n:
             continue
         out.add(n)
-        mm = re.match(r"^(.*?)\s*[（(]\s*([^()（）]+?)\s*[)）]\s*$", n)
+        mm = re.match(r"^(.*?)\s*[\uff08(]\s*([^()\uff08\uff09]+?)\s*[)\uff09]\s*$", n)
         if mm:
             out.update({mm.group(1).strip(), mm.group(2).strip()})
     keep = set()
@@ -268,8 +268,8 @@ def apply_append(cards: Cards, c: dict, add_md: str, run_paths: list[str]) -> tu
         mapping[e["id"]] = nid
         new_ev.append({**e, "id": nid})
     add = re.sub(r"\[(E\d+)\]", lambda mm: f"[{mapping.get(mm.group(1), mm.group(1))}]", add_md).strip()
-    # the model sometimes imitates the addendum headings it sees in the card ("Addendum (from …)", legacy "补充（来自 …）"): drop its own copy
-    add = re.sub(r"^\s*#{1,6}\s*(?:补充[（(]|Addendum \()[^\n]*\n+", "", add).strip()
+    # the model sometimes imitates the addendum headings it sees in the card ("Addendum (from …)", or the legacy Chinese form of that heading): drop its own copy
+    add = re.sub(r"^\s*#{1,6}\s*(?:\u8865\u5145[\uff08(]|Addendum \()[^\n]*\n+", "", add).strip()
     titles = S.doc_titles(cards.kb, run_paths)
     origin = ", ".join(f"[“{titles.get(p, p)}”](src:{p})" for p in run_paths)  # titled link to the original
     new_body = body.rstrip() + f"\n\n### Addendum (from {origin})\n\n{add}\n"

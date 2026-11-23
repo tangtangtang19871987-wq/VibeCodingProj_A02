@@ -45,7 +45,7 @@ def card_source_paths(meta: dict, body: str) -> set:
     """Every source document a card refers to: sources, evidence, and links in its body."""
     paths = {x["path"] for x in meta.get("sources", [])} | {e.get("path", "") for e in meta.get("evidence", [])}
     paths |= set(re.findall(r"\(src:([^)\s]+)\)", body))
-    paths |= set(re.findall(r"补充（来自 ([^）\[\]]+?\.(?:md|markdown|mdx))）", body))  # legacy Chinese heading
+    paths |= set(re.findall(r"\u8865\u5145\uff08\u6765\u81ea ([^\uff09\[\]]+?\.(?:md|markdown|mdx))\uff09", body))  # legacy Chinese heading
     paths |= set(re.findall(r"Addendum \(from ([^)\[\]]+?\.(?:md|markdown|mdx))\)", body))
     return {p for p in paths if p}
 

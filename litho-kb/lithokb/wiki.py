@@ -42,7 +42,7 @@ no new facts. Do not repeat each sub-page's full content; this page is a map, no
 Return exactly one JSON object in a ```json block: {"summary":"one line","body_md":"…"}"""
 
 
-STUB_MARKS = ("主题来自编译规范", "Topic from the SCHEMA.md topic skeleton")  # legacy Chinese + current stub text
+STUB_MARKS = ("\u4e3b\u9898\u6765\u81ea\u7f16\u8bd1\u89c4\u8303", "Topic from the SCHEMA.md topic skeleton")  # legacy Chinese + current stub text
 
 
 def has_overview(v: dict) -> bool:

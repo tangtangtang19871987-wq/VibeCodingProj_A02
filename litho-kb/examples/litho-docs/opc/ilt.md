@@ -1,9 +1,9 @@
-# 逆向光刻 ILT
+# Inverse Lithography Technology (ILT)
 
-逆向光刻技术（ILT）把掩模优化表述为一个逆问题：给定目标图形，求解使成像结果最接近目标的掩模。
+Inverse lithography technology (ILT) formulates mask optimization as an inverse problem: given the target pattern, find the mask whose imaging result is closest to the target.
 
-## 特点
+## Characteristics
 
-ILT 生成的掩模通常是曲线形状，相比 OPC 可以获得更大的工艺窗口。ILT 的计算量远大于传统 OPC，因此通常借助 GPU 加速。
+ILT masks are usually curvilinear and can achieve a larger process window than OPC. ILT needs far more computation than conventional OPC, so it is usually GPU-accelerated.
 
-与 [OPC](opc-basics.md) 相比，ILT 不受片段切分的约束。
+Compared with [OPC](opc-basics.md), ILT is not constrained by edge fragmentation.

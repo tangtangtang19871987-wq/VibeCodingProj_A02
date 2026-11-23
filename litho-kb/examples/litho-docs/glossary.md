@@ -1,11 +1,11 @@
 ---
-title: 术语表 Glossary
+title: Glossary
 weight: 99
 ---
-# 术语表
+# Glossary
 
-- **NA**：数值孔径（Numerical Aperture），决定光学系统的分辨能力。
-- **k1 因子**：工艺因子，分辨率公式 $R = k_1 \lambda / NA$ 中的常数。
-- **EPE**：边缘放置误差（Edge Placement Error），轮廓与目标边缘之间的距离。
+- **NA**: numerical aperture; determines the resolving power of the optical system.
+- **k1 factor**: process factor, the constant in the resolution formula $R = k_1 \lambda / NA$.
+- **EPE**: edge placement error, the distance between the contour and the target edge.
 
-参见 [Hopkins 成像](imaging/hopkins.md#tcc-分解) 与 [OPC 概述](opc/opc-basics.md)。
+See [Hopkins imaging](imaging/hopkins.md#tcc-decomposition) and [OPC overview](opc/opc-basics.md).

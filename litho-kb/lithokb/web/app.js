@@ -77,8 +77,8 @@ function srcHref(path, q) { return '#/src/' + path.split('/').map(encodeURICompo
 const docTitle = p => S.titles[p] || p.split('/').pop().replace(/\.(md|markdown|mdx)$/i, '');
 const docLink = (p, q, label) => `<a href="${srcHref(p, q)}" title="${esc(p)}">“${esc(docTitle(p))}”${label ? ' ' + label : ''}</a>`;
 function renderCardBody(card, known) {
-  // legacy bodies say "补充（来自 path.md）", newer ones "Addendum (from path.md)": show the document title, linked to the original
-  const body = (card.body || '').replace(/补充（来自 ([^）\[\]]+?\.(?:md|markdown|mdx))）|Addendum \(from ([^)\[\]]+?\.(?:md|markdown|mdx))\)/g,
+  // legacy bodies carry a Chinese "Addendum (from path.md)" heading, newer ones the English form: show the document title, linked to the original
+  const body = (card.body || '').replace(/\u8865\u5145\uff08\u6765\u81ea ([^\uff09\[\]]+?\.(?:md|markdown|mdx))\uff09|Addendum \(from ([^)\[\]]+?\.(?:md|markdown|mdx))\)/g,
     (_, p1, p2) => { const p = p1 || p2; return `Addendum (from [“${docTitle(p)}”](src:${p}))`; });
   return MD.render(body, {
     wiki: (id, label) => {
@@ -869,7 +869,7 @@ async function condBar() {
   const dims = Object.keys(S.dims);
   if (!dims.length) return '';
   return `<div class="row small condbar"><b>Applicability conditions</b>${dims.map(d => `<label>${esc((S.dims[d] || [DIM_LABEL[d] || d])[0])}
-      <input data-cond="${esc(d)}" value="${esc(S.cond[d] || '')}" placeholder="e.g. ${esc(((S.dims[d] || [])[1] || '').split(/[、,]/)[0].replace(/^(?:如|e\.g\.)\s*/i, ''))}" style="width:120px"></label>`).join('')}
+      <input data-cond="${esc(d)}" value="${esc(S.cond[d] || '')}" placeholder="e.g. ${esc(((S.dims[d] || [])[1] || '').split(/[\u3001,]/)[0].replace(/^(?:\u5982|e\.g\.)\s*/i, ''))}" style="width:120px"></label>`).join('')}
     <button id="condgo">Filter</button>${condQS() ? '<button id="condclr">Clear</button>' : ''}
     <span class="muted">Knowledge with no stated conditions is treated as general and always shown (marked “General”).</span></div>`;
 }
@@ -938,7 +938,7 @@ routes.mindmap = async ([id], q) => {
     g.forEach((c, i) => nodes.push({ c, x: n.x + 120 * Math.cos(n.a + (i - (g.length - 1) / 2) * 0.32), y: n.y + 120 * Math.sin(n.a + (i - (g.length - 1) / 2) * 0.32), kind: 'grand', from: n }));
   });
   const wrap = (t, n) => {
-    const s = String(t).replace(/\s*[（(][^)）]*[)）]\s*$/, '') || String(t); const out = [];
+    const s = String(t).replace(/\s*[\uff08(][^)\uff09]*[)\uff09]\s*$/, '') || String(t); const out = [];
     if (/\s/.test(s) && !/[\u4e00-\u9fff]/.test(s)) {  // Latin text: wrap at word boundaries (~1.7× chars per line)
       const w = Math.round(n * 1.7); let cur = '';
       for (const word of s.split(/\s+/)) { if (cur && (cur + ' ' + word).length > w) { out.push(cur); cur = word; } else cur = cur ? cur + ' ' + word : word; }

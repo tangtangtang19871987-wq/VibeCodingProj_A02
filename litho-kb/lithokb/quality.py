@@ -29,9 +29,9 @@ import re
 
 RISK_RULES_VERSION = "risk/2"
 DEFAULT_GRANULARITY = {"min_units": 60, "target_max": 900, "hard_max": 1600, "max_evidence": 24, "max_appends": 3}
-_CJK = re.compile(r"[㐀-䶿一-鿿豈-﫿]")
+_CJK = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 _WORD = re.compile(r"[A-Za-z0-9]+(?:[.'\-][A-Za-z0-9]+)*")
-_APPEND = re.compile(r"^#{1,6}\s*(?:补充（来自|Addendum \(from\b)", re.M | re.I)  # legacy Chinese + English headings
+_APPEND = re.compile(r"^#{1,6}\s*(?:\u8865\u5145\uff08\u6765\u81ea|Addendum \(from\b)", re.M | re.I)  # legacy Chinese + English headings
 
 
 def units(text: str) -> int:

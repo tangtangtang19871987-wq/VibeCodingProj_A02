@@ -1,11 +1,11 @@
-# 光刻胶模型
+# Resist models
 
-光刻胶模型把空间像转换为显影后的轮廓。
+A resist model converts the aerial image into the developed contour.
 
-## 阈值模型
+## Threshold model
 
-最简单的光刻胶模型是常数阈值模型（CTR）：空间像强度高于阈值的区域被视为曝光区域。
+The simplest resist model is the constant threshold resist model (CTR): regions where the aerial image intensity exceeds the threshold are treated as exposed.
 
-## 扩散与卷积模型
+## Diffusion and convolution models
 
-更精确的紧凑模型在阈值之前对空间像做高斯卷积，以近似酸扩散效应。扩散长度是需要通过量测数据校准的关键参数。
+More accurate compact models convolve the aerial image with a Gaussian before thresholding to approximate acid diffusion. The diffusion length is a key parameter that must be calibrated with metrology data.

@@ -13,7 +13,7 @@ Layers (each edge carries `layer` and an epistemic `basis`):
   provenance  card —derived_from→ doc     the card's evidence sources
 
 Entities that are named like a card (title / alias) *are* that card (entity resolution).
-Ontology constraints come from SCHEMA.md ("Graph ontology"; legacy "图谱本体"): entity types and the allowed subject →
+Ontology constraints come from SCHEMA.md ("Graph ontology", or its legacy Chinese heading): entity types and the allowed subject →
 object card types of each relation; violations are reported by lint, never silently dropped.
 
 Queries: neighbours (k hops, relation / layer filters), shortest explained path, ego subgraph,
@@ -44,19 +44,19 @@ _SCAN_CACHE: dict = {}
 def ontology(kb) -> dict:
     """{"entity_types": {type: label}, "constraints": {rel: (set(subject types)|{'*'}, set(object types)|{'*'})}}"""
     text = SC.current(kb)["text"]
-    # section heading: "Graph ontology" (or the legacy Chinese "图谱本体"); constraints follow
-    # "Relation constraints" (legacy "关系约束"); both '：' and ':' are accepted
-    m = re.search(r"^#+[^\n]*(?:本体|ontology)[^\n]*\n(.*?)(?=^#{1,2} |\Z)", text, re.M | re.S | re.I)
+    # section heading: "Graph ontology" (or its legacy Chinese heading); constraints follow
+    # "Relation constraints" (or the legacy Chinese label); full-width and ASCII colons are accepted
+    m = re.search(r"^#+[^\n]*(?:\u672c\u4f53|ontology)[^\n]*\n(.*?)(?=^#{1,2} |\Z)", text, re.M | re.S | re.I)
     et, cons = {}, {}
     if m:
         part = m.group(1)
-        cm = re.search(r"关系约束|relation constraints", part, re.I)
+        cm = re.search(r"\u5173\u7cfb\u7ea6\u675f|relation constraints", part, re.I)
         cpos = cm.start() if cm else -1
         ent_part = part[:cpos] if cpos >= 0 else part
-        for mm in re.finditer(r"^[ \t]*[-*][ \t]+`([a-z][a-z0-9_]*)`[ \t]+([^：:\n]+)", ent_part, re.M):
+        for mm in re.finditer(r"^[ \t]*[-*][ \t]+`([a-z][a-z0-9_]*)`[ \t]+([^\uff1a:\n]+)", ent_part, re.M):
             et[mm.group(1)] = mm.group(2).strip()
         if cpos >= 0:
-            for mm in re.finditer(r"^[ \t]*[-*][ \t]+`([a-z_]+)`[ \t]*[：:][ \t]*([\w|*]+)[ \t]*(?:→|->)[ \t]*([\w|*]+)",
+            for mm in re.finditer(r"^[ \t]*[-*][ \t]+`([a-z_]+)`[ \t]*[\uff1a:][ \t]*([\w|*]+)[ \t]*(?:→|->)[ \t]*([\w|*]+)",
                                   part[cpos:], re.M):
                 cons[mm.group(1)] = (set(mm.group(2).split("|")), set(mm.group(3).split("|")))
     return {"entity_types": et or dict(DEFAULT_ENTITY_TYPES), "constraints": cons}
@@ -337,11 +337,11 @@ def build(kb, cards, readers: bool) -> Graph:
     for cid, v in vis.items():
         if v["type"] in ("summary", "synthesis"):
             continue
-        for name in [v["title"], re.sub(r"[（(].*?[)）]", "", v["title"]).strip()] + list(v.get("aliases", [])):
+        for name in [v["title"], re.sub(r"[\uff08(].*?[)\uff09]", "", v["title"]).strip()] + list(v.get("aliases", [])):
             gz.add(name, cid)
-        for inner in re.findall(r"[（(]([^)）]{2,40})[)）]", v["title"]):  # "Optical Proximity Correction (OPC)" → OPC
+        for inner in re.findall(r"[\uff08(]([^)\uff09]{2,40})[)\uff09]", v["title"]):  # "Optical Proximity Correction (OPC)" → OPC
             gz.add(inner, cid)
-            for part in re.split(r"[,，/;；]\s*", inner):  # "(Edge Placement Error, EPE)" → both names
+            for part in re.split(r"[,\uff0c/;\uff1b]\s*", inner):  # "(Edge Placement Error, EPE)" → both names
                 gz.add(part.strip(), cid)
         if re.fullmatch(r"[a-z]{2,6}", cid):  # acronym-like ids of schema topics: opc, smo, ilt
             gz.add(cid.upper(), cid)

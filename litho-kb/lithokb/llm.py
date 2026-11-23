@@ -227,9 +227,10 @@ def _mock_faults(cfg: dict, user: str) -> None:
 def _terms(q: str) -> list[str]:
     """Question terms: ASCII words and Chinese character bigrams (no embeddings)."""
     words = [w.lower() for w in re.findall(r"[A-Za-z0-9]{2,}", q)]
-    cjk = re.findall(r"[一-鿿]+", q)
+    cjk = re.findall(r"[\u4e00-\u9fff]+", q)
     bigrams = [c[i:i + 2] for c in cjk for i in range(len(c) - 1)]
-    stop = {"什么", "如何", "怎么", "为什", "哪些", "是否", "之间", "区别", "关系", "the", "what", "how"}
+    # question words: Chinese (as \u escapes) and English
+    stop = {"\u4ec0\u4e48", "\u5982\u4f55", "\u600e\u4e48", "\u4e3a\u4ec0", "\u54ea\u4e9b", "\u662f\u5426", "\u4e4b\u95f4", "\u533a\u522b", "\u5173\u7cfb", "the", "what", "how"}
     return [t for t in dict.fromkeys(words + bigrams) if t not in stop]
 
 
@@ -290,7 +291,7 @@ def _mock_compile(user: str):
                 made.append(current)
                 continue
             if current and text.strip() and not current["summary"] and not text.lstrip().startswith(("|", "```", "!", "-", "*", ">", "$")):
-                sent = re.split(r"(?<=[.。!?！？])\s*", text.strip())[0]
+                sent = re.split(r"(?<=[.\u3002!?\uff01\uff1f])\s*", text.strip())[0]
                 current["summary"] = sent[:240]
                 current["body_md"] = f"{sent} [E1]"
                 current["evidence"].append({"id": "E1", "path": path, "lines": f"{n}-{n}", "quote": sent[:200]})
@@ -321,9 +322,9 @@ def _mock_annotate(user: str):
         eid, q = m.group(1), m.group(2)
         if "EUV" in q:
             conds.append({"dim": "wavelength", "value": "EUV", "evidence": eid})
-        for n in re.findall(r"(\d+)\s*nm\s*(?:及以下|以下|and below|or below)", q):
+        for n in re.findall(r"(\d+)\s*nm\s*(?:\u53ca\u4ee5\u4e0b|\u4ee5\u4e0b|and below|or below)", q):
             conds.append({"dim": "node", "value": f"{n}nm and below", "evidence": eid})
-        for y in re.findall(r"((?:19|20)\d\d)年?", q):
+        for y in re.findall(r"((?:19|20)\d\d)\u5e74?", q):
             events.append({"when": y, "what": q[:60], "evidence": eid})
         for name, op, val, unit in re.findall(r"([A-Za-z]{2,6})\s*([<>≥≤]=?)\s*(\d+(?:\.\d+)?)\s*(nm|%)", q):
             facts.append({"name": name, "value": f"{op} {val}", "unit": unit, "evidence": eid})
@@ -331,11 +332,11 @@ def _mock_annotate(user: str):
 
 
 def _mock_consolidate(user: str):
-    """Drop the addendum headings (legacy "补充" or "Addendum"), keep the evidence-marked paragraphs; split the second half off
+    """Drop the addendum headings (legacy Chinese form or "Addendum"), keep the evidence-marked paragraphs; split the second half off
     into one child card when the card is long."""
     m = re.search(r'<card id="([^"]+)">\ntitle: (.*?)\n.*?\n\n(.*)\n</card>', user, re.S)
     cid, title, body = m.group(1), m.group(2), m.group(3)
-    paras = [p_.strip() for p_ in re.split(r"\n\s*\n", body) if p_.strip() and not re.match(r"#{1,6}\s*(?:补充|Addendum)", p_.strip())]
+    paras = [p_.strip() for p_ in re.split(r"\n\s*\n", body) if p_.strip() and not re.match(r"#{1,6}\s*(?:\u8865\u5145|Addendum)", p_.strip())]
     split = len(paras) >= 6
     keep, rest = (paras[: len(paras) // 2], paras[len(paras) // 2:]) if split else (paras, [])
     children = []
@@ -360,11 +361,11 @@ def _mock_index(user: str):
         nid, a, b, title = m.group(1), int(m.group(2)), int(m.group(3)), m.group(4)
         first = next((lines[i].strip() for i in range(a + 1, b + 1) if i in lines and lines[i].strip()
                       and not lines[i].lstrip().startswith("#")), "")
-        nodes[nid] = (title + "：" + re.sub(r"[*`]", "", first))[:60]
+        nodes[nid] = (title + ": " + re.sub(r"[*`]", "", first))[:60]
     title = re.search(r'title="([^"]*)"', user)
     words = re.findall(r"\b([A-Z][a-z]+[A-Z][A-Za-z]+|[A-Z]{3,}[0-9]*)\b", body)
     ents = [{"name": w, "type": "tool", "aliases": [], "nodes": []} for w in dict.fromkeys(words)][:5]
-    return _fence({"doc_summary": f"{title.group(1) if title else ''}：" + "；".join(list(nodes.values())[:3])[:110],
+    return _fence({"doc_summary": f"{title.group(1) if title else ''}: " + "; ".join(list(nodes.values())[:3])[:110],
                    "keywords": list(dict.fromkeys(_terms(title.group(1) if title else "")))[:6],
                    "nodes": nodes, "virtual_sections": [], "entities": ents}), "first line per section"
 
@@ -419,7 +420,7 @@ def _mock_answer(user: str):
     parts, ev, used = [], [], []
     for m in re.finditer(r'<card id="([^"]+)"[^>]*>\n# (.*?)\n(.*?)\n', user):
         used.append(m.group(1))
-        parts.append(f"- [[{m.group(1)}]]：{m.group(3)}")
+        parts.append(f"- [[{m.group(1)}]]: {m.group(3)}")
     for m in re.finditer(r'<section path="([^"]+)"[^>]*>\n(.*?)\n</section>', user, re.S):
         for ln in m.group(2).splitlines():
             mm = re.match(r"\s*(\d+)\|(.*)$", ln)
