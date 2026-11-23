@@ -52,14 +52,16 @@ class Base(unittest.TestCase):
 
 class TestLexical(Base):
     def test_cjk_tokens_and_ranked_search_without_spaces(self):
-        self.assertIn("掩模", tokens("掩模三维效应"))
+        self.assertIn("\u63a9\u6a21", tokens("\u63a9\u6a21\u4e09\u7ef4\u6548\u5e94"))  # Chinese: "mask" in "mask 3D effects" (CJK bigrams)
         self.assertIn("13.5nm", tokens("EUV 13.5nm"))
-        hits = self.cards.search("邻近效应修正", visible_only=False)  # no spaces, Chinese
+        hits = self.cards.search("proximity correction", visible_only=False)
         self.assertTrue(hits and "opc" in hits[0]["id"])
         self.assertTrue(all("score" in h for h in hits))
         b = BM25()
-        b.put("a", 1, [("光学邻近效应修正", 1)])
+        b.put("a", 1, [("\u5149\u5b66\u90bb\u8fd1\u6548\u5e94\u4fee\u6b63", 1)])  # Chinese: "optical proximity correction"
         self.assertFalse(b.put("a", 1, [("x", 1)]))  # unchanged signature → not re-tokenised
+        # ranked search in Chinese text without spaces; Chinese: "proximity correction"
+        self.assertEqual([k for _, k in b.search("\u90bb\u8fd1\u6548\u5e94\u4fee\u6b63")], ["a"])
         b.sync(set())
         self.assertEqual(len(b), 0)
         self.assertEqual(b.post, {})
@@ -70,11 +72,11 @@ class TestLexical(Base):
         other = sorted(i1)[1]
         obj_other = i1[other]
         g1 = self.cards.generation
-        self.cards.human_edit(user(self.kb, "rev"), some, {"summary": "改过的摘要"})
+        self.cards.human_edit(user(self.kb, "rev"), some, {"summary": "Edited summary"})
         i2 = self.cards.index()
         self.assertGreater(self.cards.generation, g1)
         self.assertIs(i2[other], obj_other)  # not re-parsed
-        self.assertEqual(i2[some]["summary"], "改过的摘要")
+        self.assertEqual(i2[some]["summary"], "Edited summary")
         self.assertIs(self.cards.index(), i2)  # warm: nothing changed
 
 
@@ -123,7 +125,7 @@ class TestPageIndex(Base):
         self.assertEqual([e["name"] for e in data["entities"]], ["EPE"])
         self.assertTrue(any("not found verbatim" in f for f in findings))
         # changing a document re-indexes only that document
-        S.put(self.kb, "rev", [{"path": "opc/opc-basics.md", "text": t + "\n## 新节\n\n新增内容。\n"}])
+        S.put(self.kb, "rev", [{"path": "opc/opc-basics.md", "text": t + "\n## New section\n\nNew content.\n"}])
         self.assertEqual(ix.status()["pending"], ["opc/opc-basics.md"])
 
     def test_tree_render_respects_budget_and_collapses(self):
@@ -142,14 +144,15 @@ class TestPageIndex(Base):
 
     def test_tree_search_takes_extra_rounds_when_the_tree_does_not_fit(self):
         asker = Asker(self.kb, self.cards, self.comp)
-        r1 = asker.ask(user(self.kb, "rev"), "基于模型的 OPC 片段", self.cfg, include_unpublished=True)
+        r1 = asker.ask(user(self.kb, "rev"), "Model-based OPC fragments", self.cfg, include_unpublished=True)
         self.assertEqual(r1["status"], "done")
         self.assertEqual(len(r1["navigation"]["rounds"]), 1)  # small KB: everything visible in round 1
         cfgp = self.kb.root / "config.json"
         c = json.loads(cfgp.read_text())
-        c["query"] = {**c.get("query", {}), "nav_budget_chars": 500}
+        # 900 chars shows only part of the tree (the English sample text is longer than the former Chinese one)
+        c["query"] = {**c.get("query", {}), "nav_budget_chars": 900}
         cfgp.write_text(json.dumps(c))
-        r2 = asker.ask(user(self.kb, "rev"), "基于模型的 OPC 片段", self.cfg, include_unpublished=True)
+        r2 = asker.ask(user(self.kb, "rev"), "Model-based OPC fragments", self.cfg, include_unpublished=True)
         self.assertEqual(r2["status"], "done", r2.get("error"))
         nav = r2["navigation"]
         self.assertGreaterEqual(len(nav["rounds"]), 2)
@@ -195,9 +198,10 @@ class TestGraphAndWiki(Base):
         gz = G.Gazetteer()
         gz.add("OPC", "a")
         gz.add("OPC", "b")  # same name, two cards
-        gz.add("逆向光刻", "c")
+        gz.add("\u9006\u5411\u5149\u523b", "c")  # Chinese name ("inverse lithography"): matched without word boundaries
         gz.finalize()
-        hits = gz.scan("OPC 与 逆向光刻 的比较；HOPC 不算")
+        # Chinese: "Comparison of OPC and inverse lithography; HOPC does not count"
+        hits = gz.scan("OPC \u4e0e \u9006\u5411\u5149\u523b \u7684\u6bd4\u8f83\uff1bHOPC \u4e0d\u7b97")
         self.assertNotIn("a", hits)
         self.assertEqual(hits["c"], 1)
         g = G.build(self.kb, self.cards, readers=True)
@@ -258,13 +262,13 @@ class TestMCPCore(Base):
         top = s.browse_tree()["tree"]
         self.assertIn("k ", top)
         self.assertIn("d ", top)
-        secs = s.search_sections("阈值模型")
+        secs = s.search_sections("threshold model")
         self.assertTrue(secs and secs[0]["lines"])
         cid = next(c for c, m in self.cards.index().items() if m["type"] == "concept")
         self.assertEqual(s.wiki_page(cid)["id"], cid)
         self.assertIsInstance(s.graph_neighbors(cid), list)
         node = "d:opc/opc-basics.md"
-        self.assertIn("基于模型", s.browse_tree(node=node)["tree"])
+        self.assertIn("Model-based", s.browse_tree(node=node)["tree"])
 
 
 if __name__ == "__main__":

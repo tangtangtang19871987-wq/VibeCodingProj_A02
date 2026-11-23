@@ -29,6 +29,9 @@ from lithokb.server import App, make_handler  # noqa: E402
 from lithokb.store import KB  # noqa: E402
 
 EXAMPLES = ROOT / "examples" / "litho-docs"
+# Legacy Chinese addendum heading prefix, still found in stored cards: "Addendum (from"; the heading closes with a
+# full-width parenthesis "\uff09" after the source
+ADDENDUM_ZH = "\u8865\u5145\uff08\u6765\u81ea"
 
 
 def fresh_kb():
@@ -48,7 +51,7 @@ def user(kb, name):
 
 class TestFrontmatter(unittest.TestCase):
     def test_roundtrip_and_handwritten(self):
-        meta = {"id": "x", "evidence": [{"quote": "a: b \"c\""}], "n": None, "t": "中文"}
+        meta = {"id": "x", "evidence": [{"quote": "a: b \"c\""}], "n": None, "t": "\u4e2d\u6587"}  # Chinese: "Chinese" (non-ASCII values round-trip unescaped)
         m2, body, _ = fm.split(fm.dump(meta, "# body\n"))
         self.assertEqual(m2, meta)
         self.assertEqual(body, "# body\n")
@@ -71,7 +74,7 @@ class TestSources(unittest.TestCase):
         S.put(self.kb, "admin", [{"path": "opc/ilt.md", "text": "# ILT v2\n"}])
         meta = S.load_meta(self.kb)["opc/ilt.md"]
         self.assertEqual((meta["version"], meta["by"], meta["first_by"]), (2, "admin", "rev"))
-        self.assertIn("逆向光刻", S.read_text(self.kb, "opc/ilt.md", version=1))  # old bytes kept
+        self.assertIn("Inverse lithography", S.read_text(self.kb, "opc/ilt.md", version=1))  # old bytes kept
         self.assertEqual(S.read_text(self.kb, "opc/ilt.md"), "# ILT v2\n")
         tree = S.tree(self.kb)
         imaging = next(c for c in tree["children"] if c["name"] == "imaging")
@@ -107,7 +110,7 @@ class TestWorkflow(unittest.TestCase):
             self.assertIn(part, t)
         self.assertIn("    1|", t["prompt.md"])  # whole document, line-numbered
         self.assertEqual(self.comp.plan(None), [])  # nothing changed
-        S.put(self.kb, "rev", [{"path": "imaging/hopkins.md", "text": S.read_text(self.kb, "imaging/hopkins.md") + "\n更多内容。\n"}])
+        S.put(self.kb, "rev", [{"path": "imaging/hopkins.md", "text": S.read_text(self.kb, "imaging/hopkins.md") + "\nMore content.\n"}])
         self.assertEqual(self.comp.plan(None), ["imaging/hopkins.md"])
         self.assertIn("imaging/hopkins.md", self.cards.index()[self.cid]["stale_sources"])
         # recompiling sends the existing derived cards back to the model for update
@@ -124,10 +127,10 @@ class TestWorkflow(unittest.TestCase):
             self.cards.act(admin, c, "publish")  # not approved yet
         with self.assertRaises(PermissionError):
             self.cards.act(rev, c, "publish")
-        self.cards.act(rev, c, "request_changes", "E1 引用不完整")
+        self.cards.act(rev, c, "request_changes", "E1 quote is incomplete")
         self.assertEqual(self.cards.load(c)[0]["status"], "changes_requested")
         # human edit → new revision, back in review, votes reset
-        m = self.cards.human_edit(rev, c, {"summary": "TCC 是四维核函数。", "change_note": "fix"})
+        m = self.cards.human_edit(rev, c, {"summary": "The TCC is a four-dimensional kernel.", "change_note": "fix"})
         self.assertEqual((m["rev"], m["status"]), (2, "in_review"))
         with self.assertRaises(CardError):
             self.cards.act(rev, c, "approve")  # self-approval blocked
@@ -142,9 +145,9 @@ class TestWorkflow(unittest.TestCase):
         head = self.cards.load(c)[0]
         self.assertEqual((head["rev"], head["published_rev"], head["status"]), (3, 2, "in_review"))
         self.assertTrue(is_public(head))
-        self.cards.act(admin, c, "return", "打回")
+        self.cards.act(admin, c, "return", "sent back")
         self.assertEqual(self.cards.load(c)[0]["status"], "changes_requested")
-        self.cards.act(admin, c, "withdraw", "下架")
+        self.cards.act(admin, c, "withdraw", "taken down")
         self.assertFalse(is_public(self.cards.load(c)[0]))
         self.cards.act(admin, c, "restore")
         other = next(x for x in self.cards.index() if x != c)
@@ -154,16 +157,16 @@ class TestWorkflow(unittest.TestCase):
         kinds = [r["verdict"] for r in self.cards.reviews(c)]
         self.assertEqual(kinds, ["request_changes", "approve", "publish", "return", "withdraw", "restore", "supersede"])
         diff = self.cards.diff(c, 1, 2)
-        self.assertIn('+summary: "TCC 是四维核函数。"', diff)
+        self.assertIn('+summary: "The TCC is a four-dimensional kernel."', diff)
         self.assertIn("-summary:", diff)
 
     def test_evidence_grounding(self):
         good = {"cards": [{"id": "hopkins-imaging-model", "title": "Hopkins", "type": "model", "parent": "",
                            "summary": "s", "body_md": "x [E1] y [E2] z [E3] [E4]", "relations": [{"rel": "uses", "target": "nope"}],
                            "evidence": [
-                               {"id": "E1", "path": "imaging/hopkins.md", "lines": "3-3", "quote": "Hopkins 公式是计算光刻中描述部分相干照明成像的标准模型。"},
-                               {"id": "E2", "path": "imaging/hopkins.md", "lines": "1-1", "quote": "典型做法保留 10 到 30 个核"},  # wrong lines
-                               {"id": "E3", "path": "imaging/hopkins.md", "lines": "3-3", "quote": "Hopkins 模型是唯一正确的模型"},  # invented
+                               {"id": "E1", "path": "imaging/hopkins.md", "lines": "3-3", "quote": "The Hopkins formulation is the standard model for imaging under partially coherent illumination in computational lithography."},
+                               {"id": "E2", "path": "imaging/hopkins.md", "lines": "1-1", "quote": "typically 10 to 30 kernels are kept"},  # wrong lines
+                               {"id": "E3", "path": "imaging/hopkins.md", "lines": "3-3", "quote": "The Hopkins model is the only correct model"},  # invented
                                {"id": "E4", "path": "nowhere.md", "lines": "1", "quote": "x"}]}]}
         norm, findings = validate(self.cards, good, ["imaging/hopkins.md"])
         msgs = " ".join(f["msg"] for f in findings)
@@ -263,7 +266,7 @@ class TestHTTPFusion(TestHTTP):
     def test_ask_schema_outline_endpoints(self):
         adm, bob = self.login("admin", "pw-admin"), self.login("bob", "pw-bob")
         self.assertEqual(self.call("POST", "/api/ask", {"question": "OPC"})[0], 403)  # anonymous
-        st, run = self.call("POST", "/api/ask", {"question": "ILT 与 OPC", "include_unpublished": True}, bob)
+        st, run = self.call("POST", "/api/ask", {"question": "ILT and OPC", "include_unpublished": True}, bob)
         self.assertEqual((st, run["status"], run["scope"]), (200, "done", "published"))  # readers can't widen scope
         self.assertEqual(self.call("POST", f"/api/queries/{run['id']}/file", {}, bob)[0], 403)
         self.assertEqual(self.call("GET", f"/api/queries/{run['id']}", token=bob)[0], 200)
@@ -272,7 +275,7 @@ class TestHTTPFusion(TestHTTP):
         self.assertEqual(st, 200)
         self.assertEqual(self.call("PUT", "/api/schema", {"text": sc["text"] + "\nx\n", "note": "t"}, adm)[1]["version"], sc["version"] + 1)
         f = self.call("GET", "/api/sources/file?path=imaging/hopkins.md")[1]
-        self.assertEqual([n["title"] for n in f["tree"]["nodes"]], ["Hopkins 部分相干成像"])
+        self.assertEqual([n["title"] for n in f["tree"]["nodes"]], ["Hopkins partially coherent imaging"])
 
 
 class TestCLI(unittest.TestCase):
@@ -308,8 +311,8 @@ from lithokb.ask import Asker  # noqa: E402
 from lithokb.cards import summary_id  # noqa: E402
 from lithokb.compiler import normalize_relation  # noqa: E402
 
-LONG_DOC = "# SMO\n\nSMO 同时优化光源与掩模。\n\n" + "".join(
-    f"## 第{i}节\n\n第{i}节：光源像素化与掩模联合求解。{'补充。' * 40}\n\n```\n# not a heading {i}\n```\n\n" for i in range(1, 7))
+LONG_DOC = "# SMO\n\nSMO optimizes the source and the mask together.\n\n" + "".join(
+    f"## Section {i}\n\nSection {i}: joint solution of source pixelation and mask.{' More.' * 40}\n\n```\n# not a heading {i}\n```\n\n" for i in range(1, 7))
 
 
 class TestDocTree(unittest.TestCase):
@@ -395,10 +398,10 @@ class TestFusion(unittest.TestCase):
         asker = Asker(self.kb, self.cards, self.comp)
         cfg = {**self.kb.config["llm"], "backend": "mock"}
         # readers see published knowledge only: nothing published yet → no cards read
-        r0 = asker.ask(bob, "Hopkins 模型的局限", cfg)
+        r0 = asker.ask(bob, "limitations of the Hopkins model", cfg)
         self.assertEqual(r0["navigation"]["cards"], [])
         self.assertTrue(r0["navigation"]["sections"])  # but source ToCs are navigable
-        r = asker.ask(rev, "Hopkins 模型的局限", cfg, include_unpublished=True)
+        r = asker.ask(rev, "limitations of the Hopkins model", cfg, include_unpublished=True)
         self.assertEqual(r["status"], "done")
         self.assertTrue(r["navigation"]["cards"])
         self.assertTrue(all(e["check"] == "exact" for e in r["answer"]["evidence"]))
@@ -423,16 +426,16 @@ class TestFusion(unittest.TestCase):
 
 
 class TestHTMLIngest(unittest.TestCase):
-    PAGE = """<!doctype html><html><head><title>OPC 章节 - 某课程网站</title><style>h1{color:red}</style>
-<script>alert(1)</script></head><body><header><h1><i class="fa fa-x"></i> OPC 章节</h1></header>
-<section><h2>一、概述</h2><p>OPC 通过修改<strong>掩模图形</strong>补偿失真。<i class="icon"></i></p>
-<ol><li>涂胶：均匀涂覆。</li><li>曝光</li></ol>
-<table><tr><th>节点</th><th>波长</th></tr><tr><td>ArF</td><td>193nm | 浸没</td></tr></table>
-<svg><rect/><text>初始掩模</text><text>EPE计算</text></svg>
+    PAGE = """<!doctype html><html><head><title>OPC chapter - Some course site</title><style>h1{color:red}</style>
+<script>alert(1)</script></head><body><header><h1><i class="fa fa-x"></i> OPC chapter</h1></header>
+<section><h2>1. Overview</h2><p>OPC compensates distortion by modifying the <strong>mask pattern</strong>.<i class="icon"></i></p>
+<ol><li>Coating: apply evenly.</li><li>Exposure</li></ol>
+<table><tr><th>Node</th><th>Wavelength</th></tr><tr><td>ArF</td><td>193nm | immersion</td></tr></table>
+<svg><rect/><text>Initial mask</text><text>EPE calculation</text></svg>
 <pre>for i in range(3):
     step()</pre>
-<a href="ch2.html#sec"><div><h3>下一章</h3><p>卡片式链接</p></div></a> <p>见 <a href="ch2.html">第二章</a></p></section>
-<footer>公众号: xxx</footer></body></html>"""
+<a href="ch2.html#sec"><div><h3>Next chapter</h3><p>Card-style link</p></div></a> <p>See <a href="ch2.html">Chapter 2</a></p></section>
+<footer>Follow us: xxx</footer></body></html>"""
 
     def setUp(self):
         self.kb = fresh_kb()
@@ -444,18 +447,18 @@ class TestHTMLIngest(unittest.TestCase):
         from lithokb.html2md import convert
         md = convert(self.PAGE, source_name="ch1.html")
         meta, body, _ = fm.split(md)
-        self.assertEqual(meta["title"], "OPC 章节")  # h1 preferred over <title> with site suffix
-        self.assertEqual(meta["html_title"], "OPC 章节 - 某课程网站")
+        self.assertEqual(meta["title"], "OPC chapter")  # h1 preferred over <title> with site suffix
+        self.assertEqual(meta["html_title"], "OPC chapter - Some course site")
         self.assertNotIn("alert", md)
         self.assertNotIn("color:red", md)
-        self.assertIn("## 一、概述", body)
-        self.assertIn("OPC 通过修改**掩模图形**补偿失真。", body)
-        self.assertIn("1. 涂胶：均匀涂覆。\n2. 曝光", body)
-        self.assertIn("| ArF | 193nm \\| 浸没 |", body)
-        self.assertIn("> Figure text: 初始掩模 · EPE计算", body)
+        self.assertIn("## 1. Overview", body)
+        self.assertIn("OPC compensates distortion by modifying the **mask pattern**.", body)
+        self.assertIn("1. Coating: apply evenly.\n2. Exposure", body)
+        self.assertIn("| ArF | 193nm \\| immersion |", body)
+        self.assertIn("> Figure text: Initial mask · EPE calculation", body)
         self.assertIn("```\nfor i in range(3):\n    step()\n```", body)
-        self.assertIn("### [下一章](ch2.md#sec)", body)  # block-level card link → linked heading
-        self.assertIn("[第二章](ch2.md)", body)
+        self.assertIn("### [Next chapter](ch2.md#sec)", body)  # block-level card link → linked heading
+        self.assertIn("[Chapter 2](ch2.md)", body)
         self.assertNotIn("**\n", body)
 
     def test_ingest_keeps_original_and_derives_markdown(self):
@@ -469,7 +472,7 @@ class TestHTMLIngest(unittest.TestCase):
         self.assertEqual(names, ["ch1.md"])  # the HTML original is reachable from its rendition, not duplicated in nav
         again = S.put(self.kb, "rev", [{"path": "course/ch1.html", "text": self.PAGE}])
         self.assertEqual((again[0]["status"], again[0]["derived"]["status"]), ("unchanged", "unchanged"))
-        S.put(self.kb, "rev", [{"path": "course/ch1.html", "text": self.PAGE.replace("曝光", "曝光与显影")}])
+        S.put(self.kb, "rev", [{"path": "course/ch1.html", "text": self.PAGE.replace("Exposure", "Exposure and development")}])
         self.assertEqual(S.load_meta(self.kb)["course/ch1.md"]["version"], 2)
         # an authored Markdown file is never overwritten by a conversion
         S.put(self.kb, "rev", [{"path": "course/ch3.md", "text": "# authored\n"}])
@@ -479,16 +482,27 @@ class TestHTMLIngest(unittest.TestCase):
 
 
 class TestGroundingRealCases(unittest.TestCase):
-    """Cases observed when compiling real course material with a cheap LLM."""
+    """Cases observed when compiling real course material with a cheap LLM.
+
+    The source is real Chinese course text (written as \\u escapes, English meaning in comments): grounding must
+    cope with CJK text without spaces, full-width punctuation and Chinese curly quotes."""
 
     def setUp(self):
         self.kb = fresh_kb()
         S.put(self.kb, "rev", [{"path": "d.md", "text": (
-            "# ILT\n\n而ILT是**逆向求解**：直接计算出*最优或近似最优的掩模图形*。\n\n"
-            "- **解析梯度：**通过光刻模型的解析表达式求导，计算精确但复杂\n"
-            "- **数值梯度：**通过有限差分法近似计算，简单但计算量大\n\n"
-            "**核心价值：**利用物理模型进行“预失真”补偿。\n\n"
-            "| 维度 | 规则型 | 模型型 |\n|---|---|---|\n| 灵活性 | 低 | 高，可处理任意二维图形 |\n| 计算成本 | 低 | 高，需要大量仿真迭代 |\n")}])
+            # line 3: "ILT instead solves the **inverse problem**: it directly computes *the optimal or near-optimal mask pattern*."
+            "# ILT\n\n\u800cILT\u662f**\u9006\u5411\u6c42\u89e3**\uff1a\u76f4\u63a5\u8ba1\u7b97\u51fa*\u6700\u4f18\u6216\u8fd1\u4f3c\u6700\u4f18\u7684\u63a9\u6a21\u56fe\u5f62*\u3002\n\n"
+            # line 5: "- **Analytic gradient:** differentiate the analytic expression of the litho model; exact but complex"
+            "- **\u89e3\u6790\u68af\u5ea6\uff1a**\u901a\u8fc7\u5149\u523b\u6a21\u578b\u7684\u89e3\u6790\u8868\u8fbe\u5f0f\u6c42\u5bfc\uff0c\u8ba1\u7b97\u7cbe\u786e\u4f46\u590d\u6742\n"
+            # line 6: "- **Numerical gradient:** approximate by finite differences; simple but expensive"
+            "- **\u6570\u503c\u68af\u5ea6\uff1a**\u901a\u8fc7\u6709\u9650\u5dee\u5206\u6cd5\u8fd1\u4f3c\u8ba1\u7b97\uff0c\u7b80\u5355\u4f46\u8ba1\u7b97\u91cf\u5927\n\n"
+            # line 8: "**Core value:** use a physical model for “pre-distortion” compensation."
+            "**\u6838\u5fc3\u4ef7\u503c\uff1a**\u5229\u7528\u7269\u7406\u6a21\u578b\u8fdb\u884c“\u9884\u5931\u771f”\u8865\u507f\u3002\n\n"
+            # lines 10-13: table "Dimension | Rule-based | Model-based"; "Flexibility | low | high, handles any 2D pattern";
+            # "Compute cost | low | high, needs many simulation iterations"
+            "| \u7ef4\u5ea6 | \u89c4\u5219\u578b | \u6a21\u578b\u578b |\n|---|---|---|\n"
+            "| \u7075\u6d3b\u6027 | \u4f4e | \u9ad8\uff0c\u53ef\u5904\u7406\u4efb\u610f\u4e8c\u7ef4\u56fe\u5f62 |\n"
+            "| \u8ba1\u7b97\u6210\u672c | \u4f4e | \u9ad8\uff0c\u9700\u8981\u5927\u91cf\u4eff\u771f\u8fed\u4ee3 |\n")}])
 
     def tearDown(self):
         shutil.rmtree(self.kb.root)
@@ -498,15 +512,25 @@ class TestGroundingRealCases(unittest.TestCase):
         return verify_evidence(self.kb, {"id": "E1", "path": "d.md", "lines": lines, "quote": quote})["check"]
 
     def test_cases(self):
-        self.assertEqual(self.check("而ILT是逆向求解：直接计算出最优或近似最优的掩模图形。", "3"), "exact")  # markers removed, not spaced (CJK)
-        self.assertEqual(self.check('**核心价值：** 利用物理模型进行"预失真"补偿。', "8"), "exact")  # curly vs straight quotes, width
-        self.assertEqual(self.check("**解析梯度：**通过光刻模型的解析表达式求导…", "5"), "elided")  # trailing ellipsis
-        self.assertEqual(self.check("**解析梯度：**通过光刻模型的解析表达式求导\n**数值梯度：**通过有限差分法近似计算", "5-6"), "elided")
-        self.assertEqual(self.check("- **解析梯度：**通过光刻模型的解析表达式求导，计算精确但复杂\n- **数值梯度：**通过有限差分法近似计算，简单但计算量大", "5-6"), "exact")
-        self.assertEqual(self.check("## ILT — 而ILT是逆向求解", "1-3"), "elided")  # quoted from the outline view
-        self.assertEqual(self.check("而ILT是逆向求解", "1"), "moved")
-        self.assertIn(self.check("高，可处理任意二维图形 | 高，需要大量仿真迭代", "12-13"), ("fuzzy", "missing"))  # stitched table cells
-        self.assertEqual(self.check("ILT 是唯一正确的方法", "3"), "missing")
+        # line 3 without the emphasis markers: markers removed, not spaced (CJK)
+        self.assertEqual(self.check("\u800cILT\u662f\u9006\u5411\u6c42\u89e3\uff1a\u76f4\u63a5\u8ba1\u7b97\u51fa\u6700\u4f18\u6216\u8fd1\u4f3c\u6700\u4f18\u7684\u63a9\u6a21\u56fe\u5f62\u3002", "3"), "exact")
+        # line 8 with straight quotes and an extra space: curly vs straight quotes, width
+        self.assertEqual(self.check('**\u6838\u5fc3\u4ef7\u503c\uff1a** \u5229\u7528\u7269\u7406\u6a21\u578b\u8fdb\u884c"\u9884\u5931\u771f"\u8865\u507f\u3002', "8"), "exact")
+        # start of line 5 + trailing ellipsis
+        self.assertEqual(self.check("**\u89e3\u6790\u68af\u5ea6\uff1a**\u901a\u8fc7\u5149\u523b\u6a21\u578b\u7684\u89e3\u6790\u8868\u8fbe\u5f0f\u6c42\u5bfc…", "5"), "elided")
+        # starts of lines 5 and 6
+        self.assertEqual(self.check("**\u89e3\u6790\u68af\u5ea6\uff1a**\u901a\u8fc7\u5149\u523b\u6a21\u578b\u7684\u89e3\u6790\u8868\u8fbe\u5f0f\u6c42\u5bfc\n"
+                                    "**\u6570\u503c\u68af\u5ea6\uff1a**\u901a\u8fc7\u6709\u9650\u5dee\u5206\u6cd5\u8fd1\u4f3c\u8ba1\u7b97", "5-6"), "elided")
+        # lines 5 and 6 in full
+        self.assertEqual(self.check("- **\u89e3\u6790\u68af\u5ea6\uff1a**\u901a\u8fc7\u5149\u523b\u6a21\u578b\u7684\u89e3\u6790\u8868\u8fbe\u5f0f\u6c42\u5bfc\uff0c\u8ba1\u7b97\u7cbe\u786e\u4f46\u590d\u6742\n"
+                                    "- **\u6570\u503c\u68af\u5ea6\uff1a**\u901a\u8fc7\u6709\u9650\u5dee\u5206\u6cd5\u8fd1\u4f3c\u8ba1\u7b97\uff0c\u7b80\u5355\u4f46\u8ba1\u7b97\u91cf\u5927", "5-6"), "exact")
+        # "ILT instead solves the inverse problem", quoted from the outline view
+        self.assertEqual(self.check("## ILT — \u800cILT\u662f\u9006\u5411\u6c42\u89e3", "1-3"), "elided")
+        self.assertEqual(self.check("\u800cILT\u662f\u9006\u5411\u6c42\u89e3", "1"), "moved")
+        # stitched table cells from lines 12-13
+        self.assertIn(self.check("\u9ad8\uff0c\u53ef\u5904\u7406\u4efb\u610f\u4e8c\u7ef4\u56fe\u5f62 | \u9ad8\uff0c\u9700\u8981\u5927\u91cf\u4eff\u771f\u8fed\u4ee3", "12-13"), ("fuzzy", "missing"))
+        # invented: "ILT is the only correct method"
+        self.assertEqual(self.check("ILT \u662f\u552f\u4e00\u6b63\u786e\u7684\u65b9\u6cd5", "3"), "missing")
 
 
 class TestCarryForward(unittest.TestCase):
@@ -514,13 +538,13 @@ class TestCarryForward(unittest.TestCase):
         from lithokb.compiler import carry_forward_evidence
         kb = fresh_kb()
         try:
-            S.put(kb, "rev", [{"path": "a.md", "text": "# A\n\nOPC 修改掩模。\n"}, {"path": "b.md", "text": "# B\n\nOPC 依赖模型。\n"}])
+            S.put(kb, "rev", [{"path": "a.md", "text": "# A\n\nOPC modifies the mask.\n"}, {"path": "b.md", "text": "# B\n\nOPC depends on models.\n"}])
             cards = Cards(kb)
             cards.new_revision("x", {"id": "opc", "title": "OPC", "type": "method",
-                                     "evidence": [{"id": "E1", "path": "a.md", "lines": "3", "quote": "OPC 修改掩模。"}],
+                                     "evidence": [{"id": "E1", "path": "a.md", "lines": "3", "quote": "OPC modifies the mask."}],
                                      "sources": ["a.md"]}, "body [E1]", {"kind": "llm"})
             upd = {"id": "opc", "title": "OPC", "type": "method", "relations": [], "sources": ["b.md"],
-                   "evidence": [{"id": "E1", "path": "b.md", "lines": "3", "quote": "OPC 依赖模型。"}]}
+                   "evidence": [{"id": "E1", "path": "b.md", "lines": "3", "quote": "OPC depends on models."}]}
             self.assertEqual(carry_forward_evidence(cards, upd, ["b.md"]), 1)
             self.assertEqual({e["path"] for e in upd["evidence"]}, {"a.md", "b.md"})
             self.assertEqual(len({e["id"] for e in upd["evidence"]}), 2)  # id collision renumbered
@@ -535,7 +559,7 @@ class TestRetry(unittest.TestCase):
     def test_degenerate_json_is_retried_once(self):
         kb = fresh_kb()
         try:
-            S.put(kb, "rev", [{"path": "a.md", "text": "# A\n\nOPC 修改掩模图形。\n"}])
+            S.put(kb, "rev", [{"path": "a.md", "text": "# A\n\nOPC modifies the mask pattern.\n"}])
             comp = Compiler(kb, Cards(kb))
             run = comp.run_once("admin", ["a.md"], {**kb.config["llm"], "backend": "mock"}, instructions="[[MOCK:DEGENERATE]]")
             self.assertEqual((run["status"], run["attempts"]), ("done", 2))
@@ -557,13 +581,13 @@ class TestMergeMechanisms(unittest.TestCase):
 
     def setUp(self):
         self.kb = fresh_kb()
-        S.put(self.kb, "rev", [{"path": "a.md", "text": "# A\n\nEPE 是边缘放置误差。\n"},
-                               {"path": "b.md", "text": "# B\n\n模型型OPC 以 EPE 为目标，EPE 越小越好。\n"}])
+        S.put(self.kb, "rev", [{"path": "a.md", "text": "# A\n\nEPE is the edge placement error.\n"},
+                               {"path": "b.md", "text": "# B\n\nModel-based OPC targets EPE; the smaller the EPE, the better.\n"}])
         self.cards = Cards(self.kb)
-        self.cards.new_revision("x", {"id": "edge-placement-error", "title": "边缘放置误差 (EPE)", "type": "metric",
+        self.cards.new_revision("x", {"id": "edge-placement-error", "title": "Edge placement error (EPE)", "type": "metric",
                                       "aliases": ["Edge Placement Error"], "relations": [],
-                                      "evidence": [{"id": "E1", "path": "a.md", "lines": "3", "quote": "EPE 是边缘放置误差。"}],
-                                      "sources": ["a.md"]}, "定义 [E1]", {"kind": "llm"})
+                                      "evidence": [{"id": "E1", "path": "a.md", "lines": "3", "quote": "EPE is the edge placement error."}],
+                                      "sources": ["a.md"]}, "Definition text [E1]", {"kind": "llm"})
 
     def tearDown(self):
         shutil.rmtree(self.kb.root)
@@ -576,20 +600,20 @@ class TestMergeMechanisms(unittest.TestCase):
         self.assertIn("edge-placement-error", related)
 
     def test_append_merges_deterministically(self):
-        data = {"cards": [{"action": "append", "id": "edge-placement-error", "add_md": "模型型 OPC 以它为目标 [E1]。",
-                           "evidence": [{"id": "E1", "path": "b.md", "lines": "3", "quote": "模型型OPC 以 EPE 为目标"}],
+        data = {"cards": [{"action": "append", "id": "edge-placement-error", "add_md": "Model-based OPC minimises it [E1].",
+                           "evidence": [{"id": "E1", "path": "b.md", "lines": "3", "quote": "Model-based OPC targets EPE"}],
                            "relations": [{"rel": "measured_by", "target": "edge-placement-error", "basis": "inferred"}],
-                           "aliases": ["边放误差"]}, "not a card"]}
+                           "aliases": ["placement error"]}, "not a card"]}
         norm, findings = validate(self.cards, data, ["b.md"])
         self.assertTrue(norm[0]["append"])
         self.assertTrue(any("not an object" in f["msg"] for f in findings))  # robust to junk items
         from lithokb.compiler import apply_append
         card, body = apply_append(self.cards, norm[0], norm[0]["add_md"], ["b.md"])
-        self.assertIn("定义 [E1]", body)                       # existing content kept
-        self.assertIn("### Addendum (from [“B”](src:b.md))\n\n模型型 OPC 以它为目标 [E2]。", body)  # titled link, not a path  # new evidence renumbered
+        self.assertIn("Definition text [E1]", body)            # existing content kept
+        self.assertIn("### Addendum (from [“B”](src:b.md))\n\nModel-based OPC minimises it [E2].", body)  # titled link, not a path  # new evidence renumbered
         self.assertEqual([e["id"] for e in card["evidence"]], ["E1", "E2"])
         self.assertEqual(card["sources"], ["a.md", "b.md"])
-        self.assertIn("边放误差", card["aliases"])
+        self.assertIn("placement error", card["aliases"])
         m = self.cards.new_revision("x", card, body, {"kind": "llm"})
         self.assertEqual((m["rev"], m["grounding"]["exact"]), (2, 2))
 
@@ -609,8 +633,9 @@ class TestFixRound(unittest.TestCase):
         kb = fresh_kb()
         try:
             cards = Cards(kb)
-            for cid, title in (("opc", "光学邻近效应修正"), ("process-window", "工艺窗口 (Process Window)"),
-                               ("edge-placement-error", "边缘放置误差 (EPE)")):
+            # the "opc" title does not spell out the acronym, so only the initials rule can resolve it
+            for cid, title in (("opc", "Proximity correction"), ("process-window", "Process window (PW)"),
+                               ("edge-placement-error", "Edge placement error (EPE)")):
                 cards.new_revision("x", {"id": cid, "title": title, "type": "concept", "evidence": []}, "", {"kind": "llm"})
             r = IdResolver(cards, set())
             self.assertEqual(r.resolve("optical-proximity-correction"), ("opc", "acronym"))
@@ -618,7 +643,7 @@ class TestFixRound(unittest.TestCase):
             self.assertEqual(r.resolve("process-window"), ("process-window", ""))
             self.assertEqual(r.resolve("totally-unknown"), ("totally-unknown", ""))
             data = {"cards": [{"id": "x1", "title": "X", "type": "concept", "parent": "optical-proximity-correction",
-                               "body_md": "见 [[epe]] 与 [[nothing-here]]", "relations": [{"rel": "uses", "target": "epe", "basis": "inferred"}],
+                               "body_md": "See [[epe]] and [[nothing-here]]", "relations": [{"rel": "uses", "target": "epe", "basis": "inferred"}],
                                "evidence": []}]}
             norm, findings = validate(cards, data, [])
             self.assertEqual(norm[0]["parent"], "opc")
@@ -632,10 +657,10 @@ class TestFixRound(unittest.TestCase):
     def test_near_duplicates(self):
         kb = fresh_kb()
         try:
-            toc = "".join(f"\n- [{i}、第{i}章：光刻原理与OPC方法第{i}部分]({i:02d}.md)" for i in range(1, 25))
-            S.put(kb, "rev", [{"path": "index.md", "text": "# 目录" + toc},
-                              {"path": "index1.md", "text": "# 课程目录\n" + toc.replace("\n- ", "\n").replace("](", "](./")},
-                              {"path": "ch1.md", "text": "# 第一章\n\n" + "光刻胶模型描述显影过程。" * 30}])
+            toc = "".join(f"\n- [{i}. Chapter {i}: lithography principles and OPC methods, part {i}]({i:02d}.md)" for i in range(1, 25))
+            S.put(kb, "rev", [{"path": "index.md", "text": "# Contents" + toc},
+                              {"path": "index1.md", "text": "# Course contents\n" + toc.replace("\n- ", "\n").replace("](", "](./")},
+                              {"path": "ch1.md", "text": "# Chapter 1\n\n" + "The resist model describes the development process. " * 30}])
             pairs = {(d["a"], d["b"]) for d in S.near_duplicates(kb)}
             self.assertEqual(pairs, {("index.md", "index1.md")})
             self.assertTrue(any(i["kind"] == "duplicate_source" for i in Cards(kb).lint()))
@@ -659,7 +684,7 @@ class TestFixRound(unittest.TestCase):
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
                 self.end_headers()
-                chunks = ([{"reasoning": "想" * 500}] * 20) if eff == "high" else [{"reasoning": "ok"}, {"content": '{"cards": []}'}]
+                chunks = ([{"reasoning": "think" * 100}] * 20) if eff == "high" else [{"reasoning": "ok"}, {"content": '{"cards": []}'}]
                 try:
                     for d in chunks:
                         self.wfile.write(b"data: " + json.dumps({"id": "g", "model": "m", "choices": [{"delta": d}]}).encode() + b"\n\n")
@@ -694,45 +719,49 @@ class TestReviewUX(unittest.TestCase):
 
     def setUp(self):
         self.kb = fresh_kb()
-        S.put(self.kb, "rev", [{"path": "a.md", "text": "# A\n\n工艺窗口定义。\n\n| 模型 | 轮廓 |\n|---|---|\n| 阈值 | Contour = { (x,y) \\| I = Ith } |\n"},
-                               {"path": "b.md", "text": "# B\n\nSMO 扩大工艺窗口。\n"}])
+        S.put(self.kb, "rev", [{"path": "a.md", "text": "# A\n\nProcess window definition.\n\n| Model | Contour |\n|---|---|\n| Threshold | Contour = { (x,y) \\| I = Ith } |\n"},
+                               {"path": "b.md", "text": "# B\n\nSMO enlarges the process window.\n"}])
         self.cards = Cards(self.kb)
-        self.cards.new_revision("x", {"id": "pw", "title": "工艺窗口", "type": "concept",
+        self.cards.new_revision("x", {"id": "pw", "title": "Process window", "type": "concept",
                                       "relations": [{"rel": "uses", "target": "smo", "basis": "extracted", "confidence": 1.0, "evidence": "E1"}],
-                                      "evidence": [{"id": "E1", "path": "a.md", "lines": "3", "quote": "工艺窗口定义。"}]},
-                                "定义 [E1]", {"kind": "llm"})
+                                      "evidence": [{"id": "E1", "path": "a.md", "lines": "3", "quote": "Process window definition."}]},
+                                "Definition [E1]", {"kind": "llm"})
 
     def tearDown(self):
         shutil.rmtree(self.kb.root)
 
     def test_escaped_pipe_in_converted_table_is_exact(self):
         from lithokb.cards import verify_evidence
-        r = verify_evidence(self.kb, {"id": "E", "path": "a.md", "lines": "7", "quote": "| 阈值 | Contour = { (x,y) | I = Ith } |"})
+        r = verify_evidence(self.kb, {"id": "E", "path": "a.md", "lines": "7", "quote": "| Threshold | Contour = { (x,y) | I = Ith } |"})
         self.assertEqual(r["check"], "exact")
 
     def test_append_heading_not_duplicated_and_ids_monotonic(self):
         from lithokb.compiler import apply_append
         c = {"id": "pw", "aliases": [], "relations": [],
-             "evidence": [{"id": "E1", "path": "b.md", "lines": "3", "quote": "SMO 扩大工艺窗口。"}]}
-        card, body = apply_append(self.cards, c, "### 补充（来自 b.md）\n\nSMO 的作用 [E1]。", ["b.md"])
-        self.assertEqual(body.count("Addendum (from") + body.count("补充（来自"), 1)
+             "evidence": [{"id": "E1", "path": "b.md", "lines": "3", "quote": "SMO enlarges the process window."}]}
+        # the model wrote the legacy Chinese addendum heading itself: "### Addendum (from b.md)"
+        card, body = apply_append(self.cards, c, f"### {ADDENDUM_ZH} b.md\uff09\n\nRole of SMO [E1].", ["b.md"])
+        self.assertEqual(body.count("Addendum (from") + body.count(ADDENDUM_ZH), 1)
         self.assertEqual([e["id"] for e in card["evidence"]], ["E1", "E2"])
 
     def test_semantic_diff_ignores_number_formatting(self):
         m, body = self.cards.load("pw")
         rel = [{**m["relations"][0], "confidence": 1}]  # browser round-trip turns 1.0 into 1
-        self.cards.human_edit({"name": "rev"}, "pw", {"relations": rel, "body": body.replace("定义", "定义（修订）")})
+        self.cards.human_edit({"name": "rev"}, "pw", {"relations": rel, "body": body.replace("Definition", "Definition (revised)")})
         sd = self.cards.semantic_diff("pw", 1, 2)
         self.assertEqual((sd["fields"], sd["relations_changed"], sd["relations_added"]), ([], [], []))
-        self.assertIn("+定义（修订） [E1]", sd["body"])
+        self.assertIn("+Definition (revised) [E1]", sd["body"])
         self.assertEqual(self.cards.reverify("admin")["evidence"], 1)
+
+
+POINT = "Point {}: notes on the relation between the lithography process window and mask optimization, with fairly descriptive text."
 
 
 class TestRiskBatchGranularity(unittest.TestCase):
     def setUp(self):
         self.kb = fresh_kb()
-        text = "# A\n\n" + "".join(f"第{i}点：光刻工艺窗口与掩模优化的关系说明，包含较多的描述性文字。\n\n" for i in range(1, 61))
-        S.put(self.kb, "rev", [{"path": "a.md", "text": text}, {"path": "b.md", "text": "# B\n\nSMO 扩大工艺窗口。\n"}])
+        text = "# A\n\n" + "".join(f"{POINT.format(i)}\n\n" for i in range(1, 61))
+        S.put(self.kb, "rev", [{"path": "a.md", "text": text}, {"path": "b.md", "text": "# B\n\nSMO enlarges the process window.\n"}])
         self.cards = Cards(self.kb)
         self.rev, self.rev2, self.admin = (user(self.kb, n) for n in ("rev", "rev2", "admin"))
 
@@ -746,29 +775,29 @@ class TestRiskBatchGranularity(unittest.TestCase):
 
     def test_risk_levels(self):
         from lithokb.quality import units
-        self.assertEqual(units("光刻 OPC model [E1] [[x]]"), 4)  # 2 CJK + 2 words; markers ignored
-        good = [{"id": "E1", "path": "a.md", "lines": "3", "quote": "第1点：光刻工艺窗口与掩模优化的关系说明，包含较多的描述性文字。"}]
-        self.mk("low1", "工艺窗口与掩模优化之间的关系：" + "说明文字" * 20 + " [E1]", good)
+        self.assertEqual(units("\u5149\u523b OPC model [E1] [[x]]"), 4)  # Chinese "lithography": 2 CJK + 2 words; markers ignored
+        good = [{"id": "E1", "path": "a.md", "lines": "3", "quote": POINT.format(1)}]
+        self.mk("low1", "The relation between process window and mask optimization: " + "explanatory text " * 40 + " [E1]", good)
         self.assertEqual(self.cards.risk("low1")["level"], "low")
-        self.mk("amb", "工艺窗口" * 30 + " [E1]", good, relations=[{"rel": "uses", "target": "low1", "basis": "ambiguous"}])
+        self.mk("amb", "process window " * 40 + " [E1]", good, relations=[{"rel": "uses", "target": "low1", "basis": "ambiguous"}])
         self.assertEqual(self.cards.risk("amb")["level"], "high")
-        bad = [{"id": "E1", "path": "a.md", "lines": "3", "quote": "原文中不存在的一句话"}]
-        self.mk("bad", "工艺窗口" * 30 + " [E1]", bad)
+        bad = [{"id": "E1", "path": "a.md", "lines": "3", "quote": "A sentence that is not in the source"}]
+        self.mk("bad", "process window " * 40 + " [E1]", bad)
         self.assertIn("could not be verified", self.cards.risk("bad")["reasons"][0])
-        self.mk("thin", "一句话 [E1]", good)
+        self.mk("thin", "One sentence [E1]", good)
         r = self.cards.risk("thin")
         self.assertEqual(r["level"], "medium")
         self.assertIn("thin", r["granularity"]["issues"])
 
     def test_batch_requires_comment_low_risk_and_audits(self):
-        good = [{"id": "E1", "path": "a.md", "lines": "3", "quote": "第1点：光刻工艺窗口与掩模优化的关系说明，包含较多的描述性文字。"}]
-        self.mk("c1", "关系说明" * 30 + " [E1]", good)
-        self.mk("c2", "关系说明" * 30 + " [E1]", good, relations=[{"rel": "uses", "target": "c1", "basis": "ambiguous"}])
+        good = [{"id": "E1", "path": "a.md", "lines": "3", "quote": POINT.format(1)}]
+        self.mk("c1", "relation note " * 40 + " [E1]", good)
+        self.mk("c2", "relation note " * 40 + " [E1]", good, relations=[{"rel": "uses", "target": "c1", "basis": "ambiguous"}])
         with self.assertRaises(CardError):
-            self.cards.batch(self.rev, ["c1"], "approve", "太短")
+            self.cards.batch(self.rev, ["c1"], "approve", "short")
         with self.assertRaises(PermissionError):
-            self.cards.batch(self.rev, ["c1"], "publish", "这是一条足够长的发布评语。")
-        res = self.cards.batch(self.rev, ["c1", "c2", "nope"], "approve", "抽查原文一致，证据全部精确匹配。")
+            self.cards.batch(self.rev, ["c1"], "publish", "This is a sufficiently long publish comment.")
+        res = self.cards.batch(self.rev, ["c1", "c2", "nope"], "approve", "Spot-checked against the source; all evidence matches exactly.")
         self.assertEqual(res["done"], ["c1"])
         self.assertEqual({x["id"] for x in res["skipped"]}, {"c2", "nope"})
         rec = self.cards.reviews("c1")[-1]
@@ -777,17 +806,19 @@ class TestRiskBatchGranularity(unittest.TestCase):
         ev = [e for e in self.kb.events(50) if e["action"] == "review.batch_approve"][0]
         self.assertEqual(ev["detail"]["done"], ["c1"])
         self.assertIn("rules", ev["detail"]["criteria"])
-        pub = self.cards.batch(self.admin, ["c1", "c2"], "publish", "第一批低风险卡片，已审阅通过。")
+        pub = self.cards.batch(self.admin, ["c1", "c2"], "publish", "First batch of low-risk cards, reviewed and approved.")
         self.assertEqual(pub["done"], ["c1"])
         self.assertTrue(is_public(self.cards.load("c1")[0]))
 
     def test_consolidate_split_keeps_evidence_and_merge(self):
         from lithokb.consolidate import Consolidator, merge
-        ev = [{"id": f"E{i}", "path": "a.md", "lines": str(1 + 2 * i), "quote": f"第{i}点：光刻工艺窗口与掩模优化的关系说明，包含较多的描述性文字。"}
-              for i in range(1, 31)]
-        body = "定义段落 [E1]\n\n" + "".join(f"### 补充（来自 [《A》](src:a.md)）\n\n第{i}点的展开说明，" + "细节描述" * 40 + f" [E{i}]\n\n"
-                                         for i in range(2, 31))
-        self.mk("big", body, ev, title="工艺窗口")
+        ev = [{"id": f"E{i}", "path": "a.md", "lines": str(1 + 2 * i), "quote": POINT.format(i)} for i in range(1, 31)]
+        # addendum headings in both forms: legacy Chinese ("Addendum (from [<<A>>](src:a.md))" with full-width
+        # brackets) on odd points, current English on even ones
+        heads = {0: "### Addendum (from [“A”](src:a.md))", 1: f"### {ADDENDUM_ZH} [\u300aA\u300b](src:a.md)\uff09"}
+        body = "Definition paragraph [E1]\n\n" + "".join(f"{heads[i % 2]}\n\nExpanded notes on point {i}, " + "detail text " * 80 + f" [E{i}]\n\n"
+                                                      for i in range(2, 31))
+        self.mk("big", body, ev, title="Process window")
         con = Consolidator(self.kb, self.cards, Compiler(self.kb, self.cards))
         self.assertEqual([c["id"] for c in con.candidates()], ["big"])
         run = con.run(self.admin, "big", {**self.kb.config["llm"], "backend": "mock"})
@@ -795,7 +826,8 @@ class TestRiskBatchGranularity(unittest.TestCase):
         self.assertLess(run["after"]["units"], run["before"]["units"])
         head, hbody = self.cards.load("big")
         self.assertEqual(head["origin"]["op"], "consolidate")
-        self.assertNotIn("补充（来自", hbody)
+        self.assertNotIn(ADDENDUM_ZH, hbody)
+        self.assertNotIn("Addendum (from", hbody)
         self.assertIn("[[big-details", hbody)  # parent links its child
         child, _ = self.cards.load("big-details")
         self.assertEqual((child["parent"], child["status"]), ("big", "in_review"))
@@ -804,37 +836,42 @@ class TestRiskBatchGranularity(unittest.TestCase):
         self.assertEqual(child["grounding"]["score"], 1.0)
         self.assertIn("consolidated rewrite; read in full", self.cards.risk("big")["reasons"])
         # merge a thin card into another
-        self.mk("thin", "SMO 扩大工艺窗口 [E1]", [{"id": "E1", "path": "b.md", "lines": "3", "quote": "SMO 扩大工艺窗口。"}], title="SMO 作用")
+        self.mk("thin", "SMO enlarges the process window [E1]", [{"id": "E1", "path": "b.md", "lines": "3", "quote": "SMO enlarges the process window."}],
+                title="Role of SMO")
         with self.assertRaises(PermissionError):
             merge(self.cards, self.rev, "thin", "big")
         h = merge(self.cards, self.admin, "thin", "big")
-        self.assertIn("### Merged: SMO 作用", self.cards.load("big")[1])
-        self.assertIn("SMO 作用", h["aliases"])
+        self.assertIn("### Merged: Role of SMO", self.cards.load("big")[1])
+        self.assertIn("Role of SMO", h["aliases"])
         t, _ = self.cards.load("thin")
         self.assertEqual((t["lifecycle"], t["replaced_by"]), ("superseded", "big"))
+
+
+NODE_5NM_ZH = "5nm \u53ca\u4ee5\u4e0b"  # Chinese facet value: "5nm and below" (real sources state conditions in Chinese)
 
 
 class TestViewsFacetsIssuesMCP(unittest.TestCase):
     def setUp(self):
         self.kb = fresh_kb()
         S.put(self.kb, "rev", [
-            {"path": "a.md", "text": "# EUV\n\n随着工艺节点进入5nm以下，EUV光刻成为主流。\n\n2019年 EUV 进入量产。\n\nDOF > 100 nm 是典型签核目标。\n"},
-            {"path": "toc.md", "text": "# 目录\n" + "".join(f"\n- [第{i}章]({i:02d}.md)" for i in range(1, 12))}])
+            {"path": "a.md", "text": "# EUV\n\nAs process nodes move below 5nm, EUV lithography becomes mainstream.\n\n"
+                                     "EUV entered volume production in 2019.\n\nDOF > 100 nm is a typical sign-off target.\n"},
+            {"path": "toc.md", "text": "# Contents\n" + "".join(f"\n- [Chapter {i}]({i:02d}.md)" for i in range(1, 12))}])
         self.cards = Cards(self.kb)
         self.admin, self.rev, self.rev2, self.bob = (user(self.kb, n) for n in ("admin", "rev", "rev2", "bob"))
-        ev = [{"id": "E1", "path": "a.md", "lines": "3", "quote": "随着工艺节点进入5nm以下，EUV光刻成为主流。"},
-              {"id": "E2", "path": "a.md", "lines": "5", "quote": "2019年 EUV 进入量产。"},
-              {"id": "E3", "path": "a.md", "lines": "7", "quote": "DOF > 100 nm 是典型签核目标。"}]
-        self.cards.new_revision("x", {"id": "euv", "title": "EUV 光刻", "type": "concept", "evidence": ev,
+        ev = [{"id": "E1", "path": "a.md", "lines": "3", "quote": "As process nodes move below 5nm, EUV lithography becomes mainstream."},
+              {"id": "E2", "path": "a.md", "lines": "5", "quote": "EUV entered volume production in 2019."},
+              {"id": "E3", "path": "a.md", "lines": "7", "quote": "DOF > 100 nm is a typical sign-off target."}]
+        self.cards.new_revision("x", {"id": "euv", "title": "EUV lithography", "type": "concept", "evidence": ev,
                                       "conditions": [{"dim": "wavelength", "value": "EUV", "evidence": "E1"},
-                                                     {"dim": "node", "value": "5nm 及以下", "evidence": "E1"},
+                                                     {"dim": "node", "value": NODE_5NM_ZH, "evidence": "E1"},
                                                      {"dim": "node", "value": "<7nm", "evidence": "E3"}],
-                                      "events": [{"when": "2019", "what": "EUV 进入量产", "evidence": "E2"},
-                                                 {"when": "下一讲", "what": "x", "evidence": "E2"}],
+                                      "events": [{"when": "2019", "what": "EUV enters volume production", "evidence": "E2"},
+                                                 {"when": "next lecture", "what": "x", "evidence": "E2"}],
                                       "facts": [{"name": "DOF", "value": "> 100", "unit": "nm", "evidence": "E3"},
-                                                {"name": "缺陷类型", "value": "Micro-bridging", "evidence": "E1"}]},
-                                "EUV 成为主流 [E1]，2019 年量产 [E2]，DOF [E3]。", {"kind": "llm"})
-        self.cards.new_revision("x", {"id": "arf", "title": "ArF 浸没", "type": "concept", "evidence": ev[:1],
+                                                {"name": "defect type", "value": "Micro-bridging", "evidence": "E1"}]},
+                                "EUV is now mainstream [E1], in volume production since 2019 [E2], DOF [E3].", {"kind": "llm"})
+        self.cards.new_revision("x", {"id": "arf", "title": "ArF immersion", "type": "concept", "evidence": ev[:1],
                                       "conditions": [{"dim": "wavelength", "value": "193nm", "evidence": "E1"}]},
                                 "ArF [E1]", {"kind": "llm"})
 
@@ -855,10 +892,10 @@ class TestViewsFacetsIssuesMCP(unittest.TestCase):
         from lithokb import facets as F
         m, _ = self.cards.load("euv")
         sup = {(k, x.get("value", x.get("when"))): x["supported"] for k in ("conditions", "events", "facts") for x in m[k]}
-        self.assertTrue(sup[("conditions", "EUV")] and sup[("conditions", "5nm 及以下")])
+        self.assertTrue(sup[("conditions", "EUV")] and sup[("conditions", NODE_5NM_ZH)])
         self.assertFalse(sup[("conditions", "<7nm")])          # quote does not mention 7 nm
         self.assertTrue(sup[("events", "2019")])
-        self.assertFalse(sup[("events", "下一讲")])              # not a date
+        self.assertFalse(sup[("events", "next lecture")])      # not a date
         self.assertTrue(sup[("facts", "> 100")])
         self.assertFalse(sup[("facts", "Micro-bridging")])     # cited quote does not state it
         self.assertEqual(F.applies(F.ok(m["conditions"]), {"node": "3nm"}), "yes")
@@ -874,36 +911,36 @@ class TestViewsFacetsIssuesMCP(unittest.TestCase):
     def test_issue_register(self):
         from lithokb.issues import Issues
         reg = Issues(self.kb)
-        a = reg.create("rev", "contradiction", "DOF 目标两处说法不同", "a.md 说 >100nm，b.md 说 >80nm", cards=["euv"])
-        b = reg.create("rev", "contradiction", "DOF 目标两处说法不同！", "again", cards=["euv"])
+        a = reg.create("rev", "contradiction", "DOF target stated differently in two places", "a.md says >100nm, b.md says >80nm", cards=["euv"])
+        b = reg.create("rev", "contradiction", "DOF target stated differently in two places!", "again", cards=["euv"])
         self.assertEqual((a["id"], b["seen"]), (b["id"], 2))     # deduplicated
-        r = reg.create("bob", "report", "E3 数值与原文不一致", cards=["euv"])
+        r = reg.create("bob", "report", "E3 value does not match the source", cards=["euv"])
         with self.assertRaises(PermissionError):
             reg.act(self.bob, a["id"], "resolve", "x")
-        reg.act(self.bob, r["id"], "comment", "补充：原文第7行")   # reporter may comment
+        reg.act(self.bob, r["id"], "comment", "Note: source line 7")   # reporter may comment
         with self.assertRaises(Exception):
             reg.act(self.rev, a["id"], "resolve", "")             # needs an explanation
-        x = reg.act(self.rev, a["id"], "resolve", "不同节点的目标，已在卡片中注明条件")
+        x = reg.act(self.rev, a["id"], "resolve", "Targets for different nodes; the conditions are now stated on the card")
         self.assertEqual(x["status"], "resolved")
         self.assertEqual(reg.stats()["open"], 1)
 
     def test_reader_never_sees_unpublished_revision(self):
         self.cards.act(self.rev, "euv", "approve")
         self.cards.act(self.admin, "euv", "publish")
-        self.cards.human_edit(self.rev2, "euv", {"title": "EUV 光刻（草稿新标题）", "summary": "SECRET-DRAFT",
-                                                 "body": "SECRET-DRAFT 正文 [E1]"})
+        self.cards.human_edit(self.rev2, "euv", {"title": "EUV lithography (new draft title)", "summary": "SECRET-DRAFT",
+                                                 "body": "SECRET-DRAFT body [E1]"})
         idx_view = [c for c in self.cards.listing(visible_only=True) if c["id"] == "euv"][0]
-        self.assertEqual((idx_view["title"], idx_view["rev"]), ("EUV 光刻", 1))
+        self.assertEqual((idx_view["title"], idx_view["rev"]), ("EUV lithography", 1))
         self.assertEqual(self.cards.search("SECRET-DRAFT", visible_only=True), [])
         self.assertTrue(self.cards.search("SECRET-DRAFT", visible_only=False))
         g = self.cards.graph(visible_only=True)
-        self.assertEqual([n["title"] for n in g["nodes"] if n["id"] == "euv"], ["EUV 光刻"])
+        self.assertEqual([n["title"] for n in g["nodes"] if n["id"] == "euv"], ["EUV lithography"])
         from lithokb.mcp import Server
         srv = Server(self.kb, self.bob)
         out = json.dumps(srv.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                                      "params": {"name": "get_card", "arguments": {"id": "euv"}}}), ensure_ascii=False)
         self.assertNotIn("SECRET-DRAFT", out)
-        self.assertIn("EUV 成为主流", out)
+        self.assertIn("EUV is now mainstream", out)
 
     def test_mcp_protocol(self):
         import io
@@ -926,14 +963,14 @@ class TestViewsFacetsIssuesMCP(unittest.TestCase):
         self.assertEqual(len(res[2]["result"]["tools"]), 16)
         self.assertIn('"value": "> 100"', res[3]["result"]["content"][0]["text"])
         self.assertEqual(json.loads(res[4]["result"]["content"][0]["text"]), [])   # EUV card does not apply to 28nm
-        self.assertIn("    3|随着工艺节点", res[5]["result"]["content"][0]["text"])
+        self.assertIn("    3|As process nodes", res[5]["result"]["content"][0]["text"])
         self.assertTrue(res[6]["result"]["isError"])             # unpublished → refused, as a tool error
         self.assertEqual(res[7]["error"]["code"], -32601)
 
     def test_annotate_backfill_mock(self):
         from lithokb.annotate import Annotator
         self.cards.new_revision("x", {"id": "bare", "title": "Bare", "type": "concept",
-                                      "evidence": [{"id": "E1", "path": "a.md", "lines": "5", "quote": "2019年 EUV 进入量产。"}]},
+                                      "evidence": [{"id": "E1", "path": "a.md", "lines": "5", "quote": "EUV entered volume production in 2019."}]},
                                 "bare [E1]", {"kind": "llm"})
         an = Annotator(self.kb, self.cards, Compiler(self.kb, self.cards))
         self.assertIn("bare", an.candidates())

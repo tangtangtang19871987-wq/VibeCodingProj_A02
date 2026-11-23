@@ -62,7 +62,7 @@ class TestPipelineGraphs(unittest.TestCase):
 
     def test_ask_runs_navigate_read_answer_verify(self):
         self.comp.start("admin", self.comp.plan(None), backend="mock", background=False)
-        r = Asker(self.kb, self.cards, self.comp).ask(user(self.kb, "rev"), "Hopkins 模型的局限",
+        r = Asker(self.kb, self.cards, self.comp).ask(user(self.kb, "rev"), "limitations of the Hopkins model",
                                                       {**self.kb.config["llm"], **MOCK}, include_unpublished=True)
         self.assertEqual(r["status"], "done", r.get("error"))
         ask_nodes = [g["node"] for g in r["graph"] if g["graph"] == "ask"]
