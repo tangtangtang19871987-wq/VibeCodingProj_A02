@@ -1,70 +1,70 @@
-# 实验记录：ASML 计算光刻课程 × glm-5.3-flash（2026-11-21）
+# Experiment log: ASML computational lithography course × glm-5.3-flash (2026-11-21)
 
-**资料**：《ASML计算光刻与光学邻近效应修正》课程，33 个 HTML 页面（3 个目录页 + 30 章，约 70 万字节，转换后约 10 万字符 Markdown）。资料本身不入库。
-**模型**：OpenRouter `z-ai/glm-5.3-flash`（$0.04 / $0.078 每百万 token），`reasoning.effort = low`。
+**Material**: the course "ASML Computational Lithography and Optical Proximity Correction" (Chinese-language), 33 HTML pages (3 table-of-contents pages + 30 chapters, about 700 KB; about 100 000 characters of Markdown after conversion). The material itself is not committed to the repository.
+**Model**: OpenRouter `z-ai/glm-5.3-flash` ($0.04 / $0.078 per million tokens), `reasoning.effort = low`.
 
-## 结果演进
+## How the results evolved
 
-| 轮次 | 改动 | 成功 | 卡片 | 跨章节卡片 | 引用可核验 | 悬空引用 | 费用 | 耗时 |
+| Run | Change | Succeeded | Cards | Cross-chapter cards | Citations verifiable | Dangling refs | Cost | Time |
 |---|---|---|---|---|---|---|---|---|
-| 试编译 1（5 章） | 初版提示 lkb-compile/2 | 5/5 | 21 | 0 | 64% → 修核验器后 94% | 8 | $0.010 | 158 s |
-| 试编译 2（5 章） | 提示 v3：禁用"…"截断、合并而非替换 | 3/5 | 13 | 0 | 99% | 2 | $0.005 | 96 s |
-| 全量 2（33 篇） | + 无效 JSON 自动重试 | 32/33 | 101 | **1** | 97% | 12 | $0.077 | 945 s |
-| 全量 3（33 篇） | 提示 v4：提及检测 + append 动作 + 主题骨架建卡 | 33/33* | 93 | **14** | **100%**（665/668 精确） | 3 | $0.128 | 1110 s |
+| Trial 1 (5 chapters) | Initial prompt lkb-compile/2 | 5/5 | 21 | 0 | 64% → 94% after fixing the verifier | 8 | $0.010 | 158 s |
+| Trial 2 (5 chapters) | Prompt v3: ban "…" truncation, merge instead of replace | 3/5 | 13 | 0 | 99% | 2 | $0.005 | 96 s |
+| Full run 2 (33 docs) | + automatic retry on invalid JSON | 32/33 | 101 | **1** | 97% | 12 | $0.077 | 945 s |
+| Full run 3 (33 docs) | Prompt v4: mention detection + append action + creating cards for the topic skeleton | 33/33* | 93 | **14** | **100%** (665/668 exact) | 3 | $0.128 | 1110 s |
 
-\* 2 篇首轮因输出截断 / JSON 结构损坏失败，加入"截断与损坏也触发纠正重试"后重跑成功。
+\* 2 documents failed in the first pass because of truncated output / broken JSON structure; they succeeded on rerun after "truncation and corruption also trigger a correction retry" was added.
 
-典型跨章节卡片：工艺窗口（7 章）、OPC 技术分类（5 章）、计算光刻（5 章）、ILT（4 章）、SMO（3 章）、OPC 代价函数（3 章）。
+Typical cross-chapter cards: Process window (7 chapters), OPC technique taxonomy (5 chapters), Computational lithography (5 chapters), ILT (4 chapters), SMO (3 chapters), OPC cost function (3 chapters).
 
-## 发现与对应改进
+## Findings and corresponding fixes
 
-| 现象 | 根因 | 改进 |
+| Symptom | Root cause | Fix |
 |---|---|---|
-| 不限推理时单篇 >5 分钟无输出 | 推理模型先长时间思考 | `openrouter_reasoning: low`，流式 + 卡顿检测 → 单篇约 20–40 s |
-| 64% 引用"不可核验" | 核验器把格式标记替换为空格（破坏中文匹配）、全角/引号差异；模型用"…"截断、多行只取行首、引用目录视图 | 标记删除 + 去空白 + NFKC + 引号统一；新增 `elided`（分段按序核对）；提示禁止截断与拼接 |
-| 更新卡片丢掉其他章节的证据 | 模型重写全卡时只保留本章内容 | 来自其他文档的证据由系统确定性保留（carry forward） |
-| 偶发退化输出 `{"": [""]}`、JSON 被包成字符串、结构损坏、输出循环截断 | 便宜模型在 JSON 模式下的随机故障 | 一次纠正重试；字符串化 JSON 自动解包；≥50% 条目无效视为失败 |
-| 几乎不合并（101 卡中仅 1 张跨章） | 模型只见标题索引；"update"需重写全卡 | **提及检测**（标题/缩写/别名字符串匹配，非向量）提供相关卡片全文；**append** 动作只写增量，由系统合并 |
-| 引用编译规范中的主题却不建卡 | 模型不遵守"需要时创建主题" | 编译规范主题骨架中的主题由系统自动建卡 |
+| With unlimited reasoning, no output for > 5 minutes per document | The reasoning model thinks for a long time first | `openrouter_reasoning: low`, streaming + stall detection → about 20–40 s per document |
+| 64% of citations "unverifiable" | The verifier replaced formatting markers with spaces (breaking Chinese matching), full-width/quote-mark differences; the model truncated with "…", took only the start of multi-line quotes, quoted the outline view | Delete markers + strip whitespace + NFKC + unify quote marks; new `elided` check (segments matched in order); prompt forbids truncation and splicing |
+| Updated cards lost evidence from other chapters | When rewriting a whole card the model kept only the current chapter's content | Evidence from other documents is carried forward deterministically by the system |
+| Occasional degenerate output `{"": [""]}`, JSON wrapped as a string, broken structure, looping truncated output | Random failures of a cheap model in JSON mode | One correction retry; stringified JSON is unwrapped automatically; ≥ 50% invalid entries counts as failure |
+| Almost no merging (only 1 of 101 cards cross-chapter) | The model only saw the title index; "update" required rewriting the whole card | **Mention detection** (string matching on title/abbreviation/alias, not vectors) supplies the full text of related cards; the **append** action writes only the increment, merged by the system |
+| Topics referenced in the compile schema were not created as cards | The model did not follow "create topics when needed" | Topics in the schema's topic skeleton are created as cards automatically by the system |
 
-## 问答（真实模型）
+## Q&A (real model)
 
-问："ILT 与模型型 OPC 相比有什么优势和代价？工艺窗口方面有什么差别？"
-- 阅读计划合理：定位第 14 讲（对比/优势/挑战）、15 讲（复杂度数字）、19 讲（FEM/工艺窗口）、8 讲（MB-OPC 代价函数）、4 讲（对比表）。
-- 回答结构清晰并主动列出资料缺口（无定量工艺窗口对比数据）。12 条引用中 10 条核验通过；2 条被正确拦截（一条把卡片当作文件引用，一条引用了未提供的章节）。18 s，<$0.01。
+Question (asked in Chinese): "What are the advantages and costs of ILT compared with model-based OPC? How do they differ in process window?"
+- Sensible reading plan: located Lecture 14 (comparison/advantages/challenges), Lecture 15 (complexity figures), Lecture 19 (FEM/process window), Lecture 8 (MB-OPC cost function), Lecture 4 (comparison table).
+- The answer was clearly structured and proactively listed source gaps (no quantitative process-window comparison data). 10 of 12 citations verified; 2 were correctly blocked (one cited a card as if it were a file, one cited a section that had not been provided). 18 s, < $0.01.
 
-## 后续修复（同日）
+## Follow-up fixes (same day)
 
-| 问题 | 修复 | 验证 |
+| Problem | Fix | Verification |
 |---|---|---|
-| ID 不一致（`optical-proximity-correction` vs `opc`） | 确定性 ID 归一（英文名/缩写/别名 → 首字母缩写），作用于 parent、关系、正文链接 | 单元测试 |
-| 问答把卡片当文件引用 | 提示区分「卡片 → [[链接]]」与「原文章节 → [S]」；引自卡片的内容对照卡片文本核验（`card`），引用未读章节标记「未在阅读计划中」 | 同一问题重问：4/4 精确，13 s |
-| 三份目录页重复 | lint 新增原始文档重复检测（4-gram Jaccard / 包含度，忽略排版与链接） | 3 对目录页全部检出，30 章无误报，0.11 s |
-| 推理过长的系统性防护 | 分阶段推理强度 + 协议"简短规划" + 推理看门狗（超阈值无正文则中断降档） | 真实模型：high 档在 4001 字符被中断 → medium 档 41.7 s 完成 |
+| Inconsistent IDs (`optical-proximity-correction` vs `opc`) | Deterministic ID normalization (English name/abbreviation/alias → acronym), applied to parent, relations and body links | Unit tests |
+| Q&A cited cards as files | Prompt distinguishes "card → [[link]]" from "source section → [S]"; content quoted from a card is verified against the card text (`card`), and citations of unread sections are marked "not in the reading plan" | Same question asked again: 4/4 exact, 13 s |
+| Three duplicate table-of-contents pages | lint adds source-document duplicate detection (4-gram Jaccard / containment, ignoring formatting and links) | All 3 pairs of TOC pages detected, no false positives among the 30 chapters, 0.11 s |
+| Systematic protection against overlong reasoning | Per-stage reasoning effort + protocol "brief planning" + reasoning watchdog (abort and step down when the threshold is exceeded with no content) | Real model: the high level was aborted at 4001 characters → the medium level finished in 41.7 s |
 
-## 仍待改进
+## Still to improve
 
-- 「决策 / 誊写」两阶段编译（见 README），在更大资料集上评估是否值得额外调用。
-- 三份目录页的停用由管理员决定（lint 已提示）。
+- Two-phase "decision / transcription" compilation (see README); evaluate on a larger corpus whether the extra call is worth it.
+- Retiring the three TOC pages is left to the admin (lint already flags them).
 
-## 核心结构轮（PageIndex / Wiki / 图谱，同一知识库，glm-5.3-flash）
+## Core-structure round (PageIndex / Wiki / graph, same knowledge base, glm-5.3-flash)
 
-**PageIndex 节点摘要**（`lkb index`）：32 篇文档 32 次调用，0 失败，**$0.021**，2.5 分钟。识别实体 166 个（全部在原文中逐字核验；2 个原文中不存在的实体被自动丢弃）。一次模型把 `entities` 嵌进了 `nodes` 里 → 解析时自动提升（已修复，重跑 $0.0006）。摘要质量示例（第 20 讲同一节）：结构摘要「主要三维效应表现：」→ LLM 摘要「四种三维效应：Ta 吸收层致阴影效应、边缘近场扰动、相位偏移、偏振响应差异；EUV 13.5nm 尤为显著」。
+**PageIndex node summaries** (`lkb index`): 32 documents, 32 calls, 0 failures, **$0.021**, 2.5 minutes. 166 entities recognized (all verified verbatim in the sources; 2 entities not present in the sources were dropped automatically). Once the model nested `entities` inside `nodes` → automatically lifted during parsing (fixed; rerun cost $0.0006). Summary quality example (same section of Lecture 20, both in Chinese in the source): structural summary "Main 3D effects:" → LLM summary "Four 3D effects: shadowing from the Ta absorber layer, edge near-field disturbance, phase shift, polarization response differences; especially pronounced at EUV 13.5nm".
 
-**图谱**（读者视角，仅已发布）：50 卡片 · 32 文档 · 378 章节 · 76 实体；边：审阅 147 · 概念提及 667 · 实体 406 · 出处 436；孤立卡片 0。本体约束（规范 v3 新增第 8 节）检出 4 处违反，例如 `edge-placement-error measured_by opc`（指标 → 主题），留给审阅者处理。
-路径示例：掩模图形分割 —依赖→ 掩模制造约束 ←提及— 水平集方法用于 ILT。
+**Graph** (reader view, published only): 50 cards · 32 documents · 378 sections · 76 entities; edges: reviewed 147 · concept mentions 667 · entities 406 · provenance 436; 0 isolated cards. The ontology constraints (Section 8, new in schema v3) found 4 violations, e.g. `edge-placement-error measured_by opc` (metric → topic), left to reviewers.
+Example path: mask pattern fragmentation —depends on→ mask manufacturing constraints ←mentioned by— level-set methods for ILT.
 
-**Wiki 主题综述**：5 个"有下级页面却无综述"的主题，5 次调用（1 次只返回摘要 → 加纠正重试后成功），合计 **$0.002**。机械核验：链接全部存在、无新增数字；人工审阅（rev2）后发布。
+**Wiki topic overviews**: 5 topics "with child pages but no overview", 5 calls (1 returned only a summary → succeeded after adding a correction retry), **$0.002** in total. Mechanical verification: all links exist, no new numbers; published after human review (rev2).
 
-**问答：平铺导航 → 树搜索**（同样的问题）：
+**Q&A: flat navigation → tree search** (same questions, asked in Chinese):
 
-| 问题 | 导航提示词（旧 → 新） | 引用核验率（旧 → 新） | 费用（新） |
+| Question | Navigation prompt (old → new) | Citation verification rate (old → new) | Cost (new) |
 |---|---|---|---|
-| ILT vs 模型型 OPC | 46 208 → 28 905 字符 | 0.83 / 1.0 → 1.0 | $0.0034 |
-| 共同工艺窗口 | 31 673 → 28 217 | 1.0 → 1.0 | $0.0014 |
-| EUV 下掩模三维效应（条件 EUV） | 38 578 → 28 375 | 0.75 → 0.86 | $0.0030 |
-| 同上，预算压到 6 000 字符（模拟大 5 倍的库） | 38 578 → 10 072 + 4 391（两轮） | 0.75 → **1.0** | $0.0027 |
+| ILT vs model-based OPC | 46 208 → 28 905 characters | 0.83 / 1.0 → 1.0 | $0.0034 |
+| Common process window | 31 673 → 28 217 | 1.0 → 1.0 | $0.0014 |
+| Mask 3D effects under EUV (condition EUV) | 38 578 → 28 375 | 0.75 → 0.86 | $0.0030 |
+| Same, budget squeezed to 6 000 characters (simulating a 5× larger base) | 38 578 → 10 072 + 4 391 (two rounds) | 0.75 → **1.0** | $0.0027 |
 
-压缩预算时模型先读主题卡并展开 `mask-3d`，第二轮找到第 20 讲摘要与"总结与展望"节——树搜索在看不到全库时仍能找到正确材料。
+With the squeezed budget the model first read the topic card and expanded `mask-3d`; in the second round it found the Lecture 20 summary and the "Summary and outlook" section — tree search still finds the right material when it cannot see the whole base.
 
-**本轮顺带发现并修复的真实缺陷**：CLI 的 `cards` / `show` 会向读者显示未发布修订（Web 与 MCP 早已正确）→ 读者只见已发布修订，`diff` / `reviews` 需审阅者权限；并发写同一卡片会丢修订（两个进程各写 12 次只剩部分）→ 跨进程文件锁，测试中关掉锁即失败、打开即通过。
+**Real defects found and fixed in this round**: the CLI's `cards` / `show` showed unpublished revisions to readers (Web and MCP were already correct) → readers now see only published revisions, and `diff` / `reviews` require reviewer permission; concurrent writes to the same card lost revisions (two processes writing 12 times each left only some) → cross-process file lock; the test fails with the lock disabled and passes with it enabled.
