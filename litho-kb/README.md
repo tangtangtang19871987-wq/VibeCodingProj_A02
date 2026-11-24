@@ -56,6 +56,15 @@ Cards are just "pages". The real core of the system is maintaining three complem
 
 Problems found and fixed during benchmarking: a "mention-edge explosion" caused by generic aliases (5.3 million edges, 1.7 GB → 12 thousand edges, 118 MB); re-classifying all sources on every call (403 ms → 7 ms section search); linear prefix comparison in name scanning (graph cold build 10 s → 4.7 s, now cached per text, so editing one card only rescans that card).
 
+## 1.6 Query first: golden questions → topics → ontology → entity graph
+
+The questions the knowledge base must answer decide what it captures. The loop:
+
+1. **Golden questions** (`evalset.py`, `eval/golden.jsonl`): real questions with expected documents/sections and key points. `lkb eval run` scores every question mechanically (documents and sections read, key points present in the answer, verifiable quotes), stores the run with a configuration snapshot, and `lkb eval compare` shows the change. Feature switches (`--features themes=0,facts=0`) allow ablations on the same knowledge-base state. Web: *Evaluation*.
+2. **Topic graph** (`topics.py`, `lkb topics build`): a two-level theme hierarchy over all source sections with 2–4 representative sections per theme — "centroids" without vectors. Themes become a third root of the unified tree, so broad questions fan out over themes instead of repeating one point.
+3. **Ontology loop** (`ontology.py`, `lkb ontology propose`): the model proposes entity types and typed relations (domain → range) for the golden questions from the themes' representative sections; every item cites quotes that are verified mechanically. Reviewers comment or ask for a refinement (a new proposal that addresses the feedback); an admin approves one version, which becomes a new SCHEMA.md version (section 8). OWL/Turtle export and import. Web: *Ontology*.
+4. **Entity graph** (`entities.py`, `lkb extract [--limit N]`): per document, instances of the approved types and typed relations between them; names must occur verbatim, quotes are verified, domain/range is enforced, invalid items are dropped and reported. Cached per (document, ontology fingerprint): incremental; start small with `--limit`. The graph gets an `extracted` layer; entity pages show relations with evidence; facts and type instances relevant to a question become navigation hints that point to their source sections.
+
 ## 2. Two-layer knowledge structure
 
 ```
@@ -272,6 +281,9 @@ lkb tree [--budget N --open ID…]           the unified knowledge tree as the n
 lkb wiki home|page ID|entities|entity ID|gaps|export|hubs [ID|--auto]
 lkb kg stats|neighbors ID|path A B|central|communities|findings [--depth N --layers reviewed,linked]
 lkb fsck [--repair]   lkb bench [--cards N --docs M]   lkb ask … --cond wavelength:EUV,node:5nm
+lkb eval list|import FILE|export|run [--ids --all-cards --features themes=0,facts=0 --label]|runs|show RUN|compare A B
+lkb topics status|build|show     lkb extract [PATHS…] [--status --limit N --force]
+lkb ontology propose [--from PID --feedback TXT]|list|show PID|approve|reject|comment PID -m TXT|export|import FILE
 ```
 The CLI acts as `--user` (or `LKB_USER`) under the same role and workflow rules (anyone who can run the CLI already has file permissions on the data directory, so its claimed identity is trusted).
 
@@ -310,6 +322,10 @@ The whole directory can go straight into git for backup and diff-based auditing.
 | `lithokb/wiki.py` | Wiki pages / entity pages / home page / structural gaps, topic overviews (LLM + mechanical verification), static export |
 | `lithokb/graph.py` | Layered knowledge graph: deterministic entity linking, ontology constraints, neighbors / paths / centrality / communities |
 | `lithokb/textindex.py` | BM25 inverted index (Chinese bigram tokenization, incremental) |
+| `lithokb/evalset.py` | Golden questions, evaluation runs, comparison |
+| `lithokb/topics.py` | Topic graph over source sections (themes, representative sections) |
+| `lithokb/ontology.py` | Ontology loop: evidence-cited proposals, review / refine / approve, OWL/Turtle |
+| `lithokb/entities.py` | Ontology-guided extraction of instances and typed relations |
 | `lithokb/fsck.py` · `bench.py` | File consistency check and repair · performance benchmark |
 | `lithokb/schema.py` | Versioning and diffs of `SCHEMA.md` |
 | `lithokb/ask.py` | Q&A: navigate → read → answer → file back |
