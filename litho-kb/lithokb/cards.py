@@ -58,8 +58,8 @@ def summary_id(path: str) -> str:
 _MARKS = re.compile(r"[`*_>#|~]|^\s*(?:[-+]|\d+[.)])\s+", re.M)
 # segment separators inside a quote: ellipses, line breaks (multi-line quotes often keep only the start of each
 # line) and the " — " the outline uses between heading and gist (models sometimes quote the outline view)
-# list markers in the MIDDLE of a quote: models join list items into one line ("…\u6700\u9ad8\u3002- **\u8fb9\u6cbf…", "\uff1a1. \u4f7f\u7528…"),
-# while in the source those markers start a line (and are removed there by _MARKS)
+# list markers in the MIDDLE of a quote: models join list items into one line ("... end. - **Next item:** ...",
+# "...: 1. first step"), while in the source those markers start a line (and are removed there by _MARKS)
 _MIDLIST = re.compile(r"(?<=[\s\u3002\uff1a:\uff1b;\uff0c,])(?:[-+]|\d+[.)])\s+")
 # pieces of a quote that skips lines / table cells without marking it: sentence ends, table pipes, line breaks
 _PIECES = re.compile(r"[\u3002\uff1b;\uff01\uff1f!?|\n]+|…+|\.{3,}| — ")
