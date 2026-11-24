@@ -170,6 +170,24 @@ class TestTopicsOntologyEntities(Base):
         self.assertEqual(r["status"], "done", r.get("error"))
         self.assertTrue(r["navigation"]["facts"])
         self.assertIn("entity graph", self.comp.trace(r["id"])["nav-prompt.md"])
+        # completeness check ran against the entity graph (candidates from the facts)
+        self.assertGreater(r["coverage"]["candidates"], 0)
+        # evidence expansion: fact sections not chosen by the navigator are added (at most 3)
+        why = [x["why"] for x in r["navigation"]["sections"]]
+        self.assertLessEqual(why.count("evidence of entity-graph facts"), 3)
+        off = Asker(self.kb, self.cards, self.comp).ask(self.rev, f"what is {ent['title']}?", self.cfg, include_unpublished=True,
+                                                         features={"complete": False, "expand_facts": False})
+        self.assertNotIn("coverage", off)
+        self.assertNotIn("evidence of entity-graph facts", [x["why"] for x in off["navigation"]["sections"]])
+
+    def test_eval_repeat_reports_spread(self):
+        rec = E.run_eval(self.kb, Asker(self.kb, self.cards, self.comp), self.cards, self.rev, self.cfg,
+                         include_unpublished=True, repeat=2)
+        self.assertEqual(rec["repeat"], 2)
+        self.assertEqual(len(rec["per_repeat"]), 2)
+        self.assertEqual(len(rec["questions"][0]["runs"]), 2)
+        for k, (lo, hi) in rec["spread"].items():
+            self.assertLessEqual(lo, hi)
 
 
 if __name__ == "__main__":

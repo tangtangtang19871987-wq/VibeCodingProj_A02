@@ -58,6 +58,11 @@ def summary_id(path: str) -> str:
 _MARKS = re.compile(r"[`*_>#|~]|^\s*(?:[-+]|\d+[.)])\s+", re.M)
 # segment separators inside a quote: ellipses, line breaks (multi-line quotes often keep only the start of each
 # line) and the " — " the outline uses between heading and gist (models sometimes quote the outline view)
+# list markers in the MIDDLE of a quote: models join list items into one line ("…最高。- **边沿…", "：1. 使用…"),
+# while in the source those markers start a line (and are removed there by _MARKS)
+_MIDLIST = re.compile(r"(?<=[\s\u3002\uff1a:\uff1b;\uff0c,])(?:[-+]|\d+[.)])\s+")
+# pieces of a quote that skips lines / table cells without marking it: sentence ends, table pipes, line breaks
+_PIECES = re.compile(r"[\u3002\uff1b;\uff01\uff1f!?|\n]+|…+|\.{3,}| — ")
 _ELLIPSIS = re.compile(r"…+|\.{3,}|\u3002\u3002\u3002|\n+| — ")
 _QUOTES = str.maketrans({"“": '"', "”": '"', "„": '"', "‟": '"', "\u300c": '"', "\u300d": '"', "‘": "'", "’": "'", "\u300e": '"', "\u300f": '"'})
 
@@ -68,7 +73,7 @@ def _norm(s: str) -> str:
     turned into a space would break an otherwise verbatim match."""
     s = unicodedata.normalize("NFKC", s).translate(_QUOTES)  # full/half width, curly/straight quotes
     s = re.sub(r"\\([\\`*_{}\[\]()#+\-.!|>~])", r"\1", s)  # Markdown escapes (e.g. "\|" in converted tables)
-    return re.sub(r"\s+", "", _MARKS.sub("", s)).lower()
+    return re.sub(r"\s+", "", _MARKS.sub("", _MIDLIST.sub("", s))).lower()
 
 
 def _find_in_order(segs: list[str], hay: str) -> bool:
@@ -100,7 +105,7 @@ def verify_evidence(kb: KB, ev: dict, text_cache: dict | None = None) -> dict:
         return out
     lines = text.splitlines()
     out["sha"] = S.load_meta(kb).get(path, {}).get("sha256", "")
-    raw = ev.get("quote", "")
+    raw = ev.get("quote", "").replace("\\n", "\n")  # observed: line breaks written as a literal backslash-n
     whole = _norm(raw)  # line breaks vanish in the comparison form: a verbatim multi-line quote is one string
     segs = [x for x in (_norm(t) for t in _ELLIPSIS.split(raw)) if len(x) >= 2]
     multi = len(segs) > 1 or bool(re.search(r"…|\.{3,}|\u3002\u3002\u3002", raw))  # a trailing "…" also marks an abbreviation
@@ -115,6 +120,16 @@ def verify_evidence(kb: KB, ev: dict, text_cache: dict | None = None) -> dict:
     if multi and window and _find_in_order(segs, window):
         out["check"], out["found_lines"] = "elided", f"{a}-{b}"
         return out
+    # stitched quote: lines or table cells skipped without "…" — every piece (sentence / cell / line, ≥ 4 chars)
+    # must still be verbatim and in order within the CITED lines, and the pieces must make up the quote
+    pieces = [x for x in (_norm(t) for t in _PIECES.split(raw)) if len(x) >= 4]
+    if window and len(pieces) >= 2 and sum(map(len, pieces)) >= 0.8 * len(whole):
+        # table cells may only be stitched within ONE row: cells of different rows joined together change the meaning
+        ok = (any(_find_in_order(pieces, _norm(ln)) for ln in lines[a - 1:b]) if "|" in raw
+              else _find_in_order(pieces, window))
+        if ok:
+            out["check"], out["found_lines"], out["stitched"] = "elided", f"{a}-{b}", True
+            return out
     # citation drift: search the document with a sliding line window
     norm_lines = [_norm(x) for x in lines]
     for i in range(len(lines)):

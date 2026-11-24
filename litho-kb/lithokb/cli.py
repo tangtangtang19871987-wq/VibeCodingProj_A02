@@ -243,7 +243,8 @@ def main(argv=None) -> None:
     s.add_argument("args", nargs="*")
     s.add_argument("--ids", default="", help="comma-separated question ids (run)")
     s.add_argument("--all-cards", action="store_true", help="include unpublished cards (reviewer+)")
-    s.add_argument("--features", default="", help="ablation switches, e.g. themes=0,facts=0")
+    s.add_argument("--features", default="", help="ablation switches, e.g. themes=0,facts=0,expand_facts=0,complete=0")
+    s.add_argument("--repeat", type=int, default=1, help="ask every question N times; report mean and min–max")
     s.add_argument("--label", default="")
     s.add_argument("--backend")
     s.add_argument("--model")
@@ -687,11 +688,13 @@ def main(argv=None) -> None:
                          ids=[x for x in args.ids.split(",") if x] or None,
                          include_unpublished=args.all_cards and A.RANK[me["role"]] >= 2, label=args.label,
                          features={k: v not in ("0", "false", "off") for k, v in
-                                   (x.split("=", 1) for x in args.features.split(",") if "=" in x)} or None)
+                                   (x.split("=", 1) for x in args.features.split(",") if "=" in x)} or None,
+                         repeat=args.repeat)
         if args.json:
             return _out(rec, args)
         print(f"{rec['id']}  {rec['label']}  scope={rec['scope']}  {rec['config']}")
         print("aggregate:", json.dumps(rec["aggregate"], ensure_ascii=False))
+        print("spread (min–max over repeats):", json.dumps(rec["spread"], ensure_ascii=False))
         for q in rec["questions"]:
             print(f"  {q['id']} docs={q['doc_recall']} secs={q['section_recall']} keypts={q['key_points']} "
                   f"grnd={q['grounding']} gap={'Y' if q['gap_reported'] else '-'}  missed={q['key_points_missed']}")

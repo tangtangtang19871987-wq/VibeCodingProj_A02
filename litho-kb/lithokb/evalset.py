@@ -122,13 +122,32 @@ def _score(q: dict, run: dict, cards) -> dict:
             "key_points": ratio(kp_hits, q.get("key_points", [])), "key_points_missed": kp_miss,
             "grounding": (run.get("grounding") or {}).get("score") if (run.get("grounding") or {}).get("total") else None,
             "gap_reported": bool(((run.get("answer") or {}).get("gaps") or "").strip()),
+            "answerable": (run.get("answer") or {}).get("answerable"),
             "cards_read": len(nav.get("cards", [])), "sections_read": len(nav.get("sections", [])),
             "nav_rounds": len(nav.get("rounds", [])), "latency_s": run.get("latency_s"),
             "cost_usd": run.get("cost_usd"), "answer_chars": len(ans)}
 
 
+METRICS = ("doc_recall", "section_recall", "key_points", "grounding")
+
+
+def _aggregate(rows: list[dict]) -> dict:
+    agg = {}
+    for k in METRICS:
+        vals = [r[k] for r in rows if isinstance(r.get(k), (int, float))]
+        agg[k] = round(sum(vals) / len(vals), 3) if vals else None
+    agg["failed"] = sum(r["status"] != "done" for r in rows)
+    agg["not_fully_answerable"] = sum((r.get("answerable") or "full") != "full" for r in rows)
+    agg["cost_usd"] = round(sum(r["cost_usd"] or 0 for r in rows), 6)
+    agg["latency_s"] = round(sum(r["latency_s"] or 0 for r in rows), 1)
+    return agg
+
+
 def run_eval(kb: KB, asker, cards, user: dict, cfg: dict, ids: list[str] | None = None,
-             include_unpublished: bool = False, label: str = "", features: dict | None = None) -> dict:
+             include_unpublished: bool = False, label: str = "", features: dict | None = None,
+             repeat: int = 1) -> dict:
+    """Ask every question `repeat` times (LLM answers vary from run to run); the aggregate is the mean over
+    repeats and `spread` gives min–max per metric, so changes can be told apart from noise."""
     from . import pageindex as PI
     from . import schema as SC
     from .ask import PROMPT_VERSION as ASK_PV
@@ -137,27 +156,40 @@ def run_eval(kb: KB, asker, cards, user: dict, cfg: dict, ids: list[str] | None 
         raise ValueError("no questions to evaluate (eval/golden.jsonl is empty or ids not found)")
     rid = "eval-" + time.strftime("%Y%m%dT%H%M%S")
     t0 = time.time()
-    rows = []
-    for q in qs:
-        r = asker.ask(user, q["question"], cfg, include_unpublished=include_unpublished, features=features)
-        rows.append(_score(q, r, cards))
-    agg = {}
-    for k in ("doc_recall", "section_recall", "key_points", "grounding"):
-        vals = [r[k] for r in rows if isinstance(r[k], (int, float))]
-        agg[k] = round(sum(vals) / len(vals), 3) if vals else None
-    agg["failed"] = sum(r["status"] != "done" for r in rows)
-    agg["gaps_reported"] = sum(r["gap_reported"] for r in rows)
-    agg["cost_usd"] = round(sum(r["cost_usd"] or 0 for r in rows), 6)
-    agg["latency_s"] = round(sum(r["latency_s"] or 0 for r in rows), 1)
+    reps = []
+    for _ in range(max(1, int(repeat))):
+        rows = []
+        for q in qs:
+            r = asker.ask(user, q["question"], cfg, include_unpublished=include_unpublished, features=features,
+                          record_gaps=False)  # evaluation must not write knowledge-gap issues
+            rows.append(_score(q, r, cards))
+        reps.append(rows)
+    per_rep = [_aggregate(rows) for rows in reps]
+    agg = {k: (round(sum(a[k] for a in per_rep if a[k] is not None) / max(1, sum(a[k] is not None for a in per_rep)), 3)
+               if any(a[k] is not None for a in per_rep) else None) for k in METRICS}
+    for k in ("failed", "not_fully_answerable", "cost_usd", "latency_s"):
+        agg[k] = round(sum(a[k] for a in per_rep), 6)
+    spread = {k: [min(a[k] for a in per_rep if a[k] is not None), max(a[k] for a in per_rep if a[k] is not None)]
+              for k in METRICS if any(a[k] is not None for a in per_rep)}
+    questions = []
+    for i, q in enumerate(qs):  # per question: mean over repeats, plus every repeat's run id
+        rs = [rows[i] for rows in reps]
+        row = dict(rs[-1])
+        for k in METRICS:
+            vals = [r[k] for r in rs if isinstance(r.get(k), (int, float))]
+            row[k] = round(sum(vals) / len(vals), 2) if vals else None
+        row["key_points_missed"] = sorted({m for r in rs for m in r["key_points_missed"]})
+        row["runs"] = [r["run"] for r in rs]
+        questions.append(row)
     st = PI.Indexer(kb, asker.comp).status()
     rec = {"id": rid, "label": label, "by": user["name"], "at": now(), "seconds": round(time.time() - t0, 1),
-           "scope": "all" if include_unpublished else "published", "features": features or {},
+           "scope": "all" if include_unpublished else "published", "features": features or {}, "repeat": len(reps),
            "config": {"backend": cfg.get("backend"), "model": cfg.get("openrouter_model") if cfg.get("backend") == "openrouter"
                       else cfg.get("model"), "schema_version": SC.current(kb)["version"], "ask_prompt": ASK_PV,
                       "cards": len(cards.index()), "pageindex_compiled": f"{st['compiled']}/{st['documents']}"},
-           "aggregate": agg, "questions": rows}
+           "aggregate": agg, "spread": spread, "per_repeat": per_rep, "questions": questions}
     atomic_write(_runs_dir(kb) / f"{rid}.json", json.dumps(rec, ensure_ascii=False, indent=1))
-    kb.event(user["name"], "eval.run", rid, questions=len(rows), **{k: v for k, v in agg.items() if v is not None})
+    kb.event(user["name"], "eval.run", rid, questions=len(qs), repeat=len(reps), **{k: v for k, v in agg.items() if v is not None})
     return rec
 
 
@@ -166,7 +198,7 @@ def runs(kb: KB) -> list[dict]:
     out = []
     for p in sorted(d.glob("*.json"), reverse=True) if d.exists() else []:
         r = json.loads(p.read_text("utf-8"))
-        out.append({k: r[k] for k in ("id", "label", "by", "at", "scope", "config", "aggregate")})
+        out.append({k: r.get(k) for k in ("id", "label", "by", "at", "scope", "config", "aggregate", "spread", "repeat", "features")})
     return out
 
 

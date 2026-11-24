@@ -529,6 +529,11 @@ class TestGroundingRealCases(unittest.TestCase):
         self.assertEqual(self.check("\u800cILT\u662f\u9006\u5411\u6c42\u89e3", "1"), "moved")
         # stitched table cells from lines 12-13
         self.assertIn(self.check("\u9ad8\uff0c\u53ef\u5904\u7406\u4efb\u610f\u4e8c\u7ef4\u56fe\u5f62 | \u9ad8\uff0c\u9700\u8981\u5927\u91cf\u4eff\u771f\u8fed\u4ee3", "12-13"), ("fuzzy", "missing"))
+        # cells of ONE table row with a cell skipped: still the same row → elided
+        self.assertEqual(self.check("\u8ba1\u7b97\u6210\u672c | \u9ad8\uff0c\u9700\u8981\u5927\u91cf\u4eff\u771f\u8fed\u4ee3", "13"), "elided")  # middle cell skipped
+        # list items joined into one line (bullets in the middle) and lines skipped without "…"
+        self.assertEqual(self.check("- **\u89e3\u6790\u68af\u5ea6\uff1a**\u901a\u8fc7\u5149\u523b\u6a21\u578b\u7684\u89e3\u6790\u8868\u8fbe\u5f0f\u6c42\u5bfc\uff0c\u8ba1\u7b97\u7cbe\u786e\u4f46\u590d\u6742\u3002"
+                                    "- **\u6570\u503c\u68af\u5ea6\uff1a**\u901a\u8fc7\u6709\u9650\u5dee\u5206\u6cd5\u8fd1\u4f3c\u8ba1\u7b97", "5-6"), "elided")
         # invented: "ILT is the only correct method"
         self.assertEqual(self.check("ILT \u662f\u552f\u4e00\u6b63\u786e\u7684\u65b9\u6cd5", "3"), "missing")
 

@@ -805,7 +805,8 @@ routes.ask = async ([rid]) => {
       </details>
       <h3>② Answer ${gbadge(run.grounding)} ${a.confidence != null ? `<span class="small muted">confidence ${a.confidence}</span>` : ''}</h3>
       <div class="doc">${renderCardBody({ body: a.answer_md }, known)}</div>
-      ${a.gaps ? `<div class="banner warn">Gaps in sources: ${esc(a.gaps)}</div>` : ''}
+      ${a.answerable && a.answerable !== 'full' ? `<div class="banner warn">${a.answerable === 'none' ? 'The sources do not answer this question.' : 'The sources answer this question only in part.'}${a.gaps ? ' Missing: ' + esc(a.gaps) : ''}</div>` : (a.gaps ? `<div class="banner warn">Gaps in sources: ${esc(a.gaps)}</div>` : '')}
+      ${run.coverage && (run.coverage.omitted || []).length ? `<p class="small muted">Completeness check (entity graph): ${run.coverage.omitted.length} item(s) from the reading material were missing in the first draft${run.coverage.omitted_after ? `; ${run.coverage.omitted.length - run.coverage.omitted_after.length} added by the revision` : ''}: ${run.coverage.omitted.map(esc).join(', ')}</p>` : ''}
       <h3>③ Quote verification</h3>${evidenceList({ evidence: evRender }, true)}
       ${can('reviewer') ? (run.filed_as ? `<div class="banner info">Filed as knowledge card <a href="#/review/${esc(run.filed_as)}">${esc(run.filed_as)}</a> (in review)</div>` :
         `<h3>④ File back as knowledge</h3><p class="small muted">A good answer becomes a “Q&amp;A synthesis” card in the review queue; once published it is part of the knowledge base — knowledge grows through use.</p>
@@ -1234,7 +1235,7 @@ routes.eval = async ([rid]) => {
     <p class="small muted">Golden questions decide what the knowledge base must capture and are the regression test for every change (schema, ontology, model, retrieval). Scores are mechanical: expected documents/sections read, key points present in the answer, verifiable quotes. Run with <span class="mono">lkb eval run</span>; edit questions with <span class="mono">lkb eval import FILE</span>.</p>
     <h2>Runs</h2><table class="grid"><tr><th>Run</th><th>Label</th><th>When</th>${keys.map(k => `<th>${k.replace('_', ' ')}</th>`).join('')}<th>Cost</th></tr>
     ${d.runs.map(r => `<tr><td class="mono"><a href="#/eval/${esc(r.id)}">${esc(r.id.slice(5))}</a></td><td>${esc(r.label || '')}</td><td class="small">${fmtTime(r.at)}</td>
-      ${keys.map(k => `<td>${pct(r.aggregate[k])}</td>`).join('')}<td class="small">$${(r.aggregate.cost_usd || 0).toFixed(3)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No runs yet.</td></tr>'}</table>
+      ${keys.map(k => `<td>${pct(r.aggregate[k])}${r.repeat > 1 && r.spread && r.spread[k] ? `<div class="small muted">${pct(r.spread[k][0])}–${pct(r.spread[k][1])}</div>` : ''}</td>`).join('')}<td class="small">$${(r.aggregate.cost_usd || 0).toFixed(3)}${r.repeat > 1 ? `<div class="muted">×${r.repeat}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No runs yet.</td></tr>'}</table>
     <h2>Golden questions (${d.questions.length})</h2><div class="cardlist">${d.questions.map(x => `<div class="item"><b>${esc(x.id)}</b> <span class="badge">${esc(x.type)}</span> ${esc(x.question)}
       <div class="small muted">expects ${x.expected_sources.map(docTitle).map(esc).join(', ') || '—'} · key points: ${x.key_points.map(k => esc(k.label)).join(', ') || '—'}${x.notes ? ' · ' + esc(x.notes) : ''}</div></div>`).join('') || '<p class="muted">No golden questions yet.</p>'}</div></div>`);
 };

@@ -28,7 +28,7 @@ from .cards import Cards, _norm, grounding, is_public, slug, verify_evidence
 from .compiler import Compiler, new_run_id, parse_response
 from .store import KB, atomic_write, now
 
-PROMPT_VERSION = "lkb-ask/2"
+PROMPT_VERSION = "lkb-ask/3"
 MAX_CARDS, MAX_SECTIONS = 12, 8
 
 NAV_SYSTEM = """[[LKB:NAVIGATE]]
@@ -51,11 +51,16 @@ sections. Be precise and concise; keep formulas in LaTeX; state conditions (node
 - Facts taken from a <section> of a source document: add an evidence marker [S1], [S2]…; each evidence item
   quotes that section verbatim (path = the section's document path, never a card id): {"id":"S1","path":"…","lines":"a-b","quote":"…"} (≤ 300 chars, copied exactly,
   without the "NNNN|" prefix). Quotes are machine-checked.
-- If the material is insufficient or contradictory, say so explicitly and list what is missing under "gaps".
+- Questions that ask for kinds, types, steps, methods, terms or conflicts ("which / what kinds / 有哪些"): enumerate
+  EVERY distinct item the material mentions, grouped sensibly, each with a short explanation — do not stop at the
+  most prominent ones. Quote quotes exactly; do not join lines that are not adjacent in the source.
 - State under which conditions (node, wavelength, layer…) your statements hold when the material says so; never
   carry a statement over to conditions the material does not cover.
+- "answerable": "full" if the material answers every part of the question, "partial" if some part is not covered,
+  "none" if the material does not answer it. "gaps": only when not "full" — name the specific missing information
+  (one line each); otherwise "". Do not list general limitations of the material as gaps.
 Return exactly one JSON object in a ```json block:
-{"answer_md":"…","evidence":[…],"used_cards":["…"],"confidence":0.0,"gaps":"…"}"""
+{"answer_md":"…","evidence":[…],"used_cards":["…"],"confidence":0.0,"answerable":"full|partial|none","gaps":"…"}"""
 
 
 def _tree_text(cards: list[dict]) -> str:
@@ -227,6 +232,23 @@ class Navigator:
         g.add_conditional_edges("decide", lambda st: END if st["done"] else "open", {"open": "open", END: END})
         g.add_edge("open", "decide")
         g.compile().invoke({"round": 0, "view": view0}, config={"recursion_limit": 4 * max_rounds + 4})
+        # evidence expansion: sections that ground relevant entity-graph facts are read even when the navigator
+        # did not pick them (observed: the needed section was offered as a hint but not chosen); at most 3 extra
+        if self.features.get("expand_facts", True):
+            votes: dict = {}
+            for f in getattr(self, "last_facts", []):
+                if f.get("section") in tree.nodes:
+                    votes[f["section"]] = votes.get(f["section"], 0) + 1
+            added = 0
+            for sid, _ in sorted(votes.items(), key=lambda kv: -kv[1]):
+                nd = tree.nodes[sid]
+                if added >= 3 or any(x["path"] == nd["path"] and x["node"] == nd["node"] for x in secs):
+                    continue
+                secs.append({"path": nd["path"], "node": nd["node"], "title": nd["title"],
+                             "lines": f"{nd['start']}-{nd['end']}", "why": "evidence of entity-graph facts"})
+                added += 1
+            if added:
+                mark(run, "navigate", "expand_facts", sections=added)
         return {"reasoning": " / ".join(x for x in reasoning if x), "cards": cards, "sections": secs,
                 "dropped": dropped[:20], "rounds": rounds, "hints": len(hints), "method": "tree-search/langgraph",
                 "facts": getattr(self, "last_facts", [])[:30],
@@ -259,7 +281,7 @@ class Asker:
                 f"{body}\n\nrelations: {rels}\napplies under: {conds}\n</card>")
 
     def ask(self, user: dict, question: str, cfg: dict, include_unpublished: bool = False,
-            conditions: dict | None = None, features: dict | None = None) -> dict:
+            conditions: dict | None = None, features: dict | None = None, record_gaps: bool = True) -> dict:
         question = question.strip()
         if not question:
             raise ValueError("empty question")
@@ -332,6 +354,46 @@ class Asker:
                 mark(run, "ask", "answer")
                 return {"ans": ans}
 
+            def n_complete(st: AskState) -> dict:
+                """Coverage check against the entity graph: items that appear in the reading material but not in
+                the draft are listed; the model revises once, adding the relevant ones with evidence."""
+                if not (features or {}).get("complete", True):
+                    return {}
+                from . import graph as G
+                facts = run.get("navigation", {}).get("facts", [])
+                names = []
+                for f in facts:
+                    for n in ([f["name"]] if f["kind"] == "instance" else [f["subject"], f["object"]]):
+                        if n and len(G._key(n)) >= 2 and n not in names:
+                            names.append(n)
+                mat, draft = G._key(st["ans_user"]), G._key(st["ans"].get("answer_md", ""))
+                omitted = [n for n in names if G._key(n) in mat and G._key(n) not in draft]
+                run["coverage"] = {"candidates": len(names), "omitted": omitted[:30]}
+                if not omitted:
+                    return {}
+
+                def check(res):
+                    d = parse_response_obj(res.text)
+                    if len(re.sub(r"[\W_]+", "", str(d.get("answer_md", "")))) < 20:
+                        raise ValueError("answer_md is empty or a placeholder")
+                    return d
+                user_fix = (st["ans_user"] + "\n\n# Draft answer (JSON)\n" + json.dumps(st["ans"], ensure_ascii=False)[:20000] +
+                            "\n\n# Items that appear in the reading material but not in the draft\n" +
+                            "\n".join(f"- {n}" for n in omitted[:20]) +
+                            "\n\n# Task\nRevise the draft. Add each listed item that is relevant to the question (with evidence "
+                            "from the material, same rules); ignore items that are not relevant. Keep all correct content of "
+                            "the draft. Return the complete JSON object.")
+                try:
+                    fixed, _, _ = generate(comp=self.comp, run=run, cfg=cfg, system=ANS_SYSTEM, user=user_fix, check=check,
+                                           correction=lambda e: f"\n\n# Correction\n({e[:160]}) Return the complete JSON object.",
+                                           max_attempts=2, prefix="fix-", graph="complete")
+                except ValueError:
+                    return {}
+                after = G._key(fixed.get("answer_md", ""))
+                run["coverage"]["omitted_after"] = [n for n in omitted if G._key(n) not in after][:30]
+                mark(run, "ask", "complete", omitted=len(omitted), still=len(run["coverage"]["omitted_after"]))
+                return {"ans": fixed}
+
             def n_verify(st: AskState) -> dict:
                 ans, chosen, secs = st["ans"], st["chosen"], st["secs"]
                 cache: dict = {}
@@ -360,11 +422,15 @@ class Asker:
                     ev.append(r)
                 vis_ids = set(st["vis_ids"])
                 used = [c for c in (slug(str(x)) for x in ans.get("used_cards", []) or []) if c in vis_ids]
+                answerable = str(ans.get("answerable", "") or "").lower()
+                answerable = answerable if answerable in ("full", "partial", "none") else ("partial" if str(ans.get("gaps") or "").strip() else "full")
                 run["answer"] = {"answer_md": str(ans.get("answer_md", "")), "evidence": ev, "used_cards": used,
-                                 "confidence": ans.get("confidence"), "gaps": str(ans.get("gaps", "") or "")}
+                                 "confidence": ans.get("confidence"), "answerable": answerable,
+                                 "gaps": str(ans.get("gaps", "") or "") if answerable != "full" else ""}
                 run["grounding"] = grounding(ev)
                 gaps = run["answer"]["gaps"].strip()
-                if gaps and gaps.lower() not in ("\u65e0", "none", "-", "n/a"):  # includes the Chinese word for "none"
+                if record_gaps and run["answer"]["answerable"] != "full" and gaps and \
+                        gaps.lower() not in ("\u65e0", "none", "-", "n/a"):  # includes the Chinese word for "none"
                     from .issues import Issues  # what users need but the knowledge base cannot answer → gap register
                     gap = Issues(self.kb).create(user["name"], "gap", question[:120], run["answer"]["gaps"],
                                                  cards=used, sources=run["sources"], origin={"kind": "query", "run": rid})
@@ -373,12 +439,14 @@ class Asker:
                 return {}
 
             g = StateGraph(AskState)
-            for name, fn in (("navigate", n_navigate), ("read", n_read), ("answer", n_answer), ("verify", n_verify)):
+            for name, fn in (("navigate", n_navigate), ("read", n_read), ("answer", n_answer), ("complete", n_complete),
+                             ("verify", n_verify)):
                 g.add_node(name, fn)
             g.add_edge(START, "navigate")
             g.add_edge("navigate", "read")
             g.add_edge("read", "answer")
-            g.add_edge("answer", "verify")
+            g.add_edge("answer", "complete")
+            g.add_edge("complete", "verify")
             g.add_edge("verify", END)
             g.compile().invoke({})
             run["status"] = "done"
