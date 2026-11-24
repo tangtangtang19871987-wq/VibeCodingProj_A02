@@ -68,3 +68,26 @@ Example path: mask pattern fragmentation —depends on→ mask manufacturing con
 With the squeezed budget the model first read the topic card and expanded `mask-3d`; in the second round it found the Lecture 20 summary and the "Summary and outlook" section — tree search still finds the right material when it cannot see the whole base.
 
 **Real defects found and fixed in this round**: the CLI's `cards` / `show` showed unpublished revisions to readers (Web and MCP were already correct) → readers now see only published revisions, and `diff` / `reviews` require reviewer permission; concurrent writes to the same card lost revisions (two processes writing 12 times each left only some) → cross-process file lock; the test fails with the lock disabled and passes with it enabled.
+
+## Query-first loop (golden questions, topics, ontology, entity graph), same KB, glm-5.3-flash
+
+**Golden questions.** Ten ILT questions written with the owner (mask representations, gradient pipeline, optimizers, representations that handle holes, parallel processing and tile stitching, cost function vs. fields, classic cost terms, conflicting objectives, MRC and mask writing, ILT vs. OPC/SMO), each with expected documents/sections and key points. Stored in the KB (`eval/golden.jsonl`); scored mechanically.
+
+**The first evaluation run found two real bugs**: (1) the navigator put leaf sections under `expand`, which were silently dropped, so no source text was read; (2) an answer consisting of `"..."` passed validation. Both fixed (and tested); q09 key-point coverage went from 0 to 1.0.
+
+**Topic graph.** One call, $0.0045: 14 topics / 18 subtopics over 346 sections, coverage 100%. Because this corpus is one lecture per document, most topics follow lectures; some (advanced nodes, HPC and model accuracy) group several.
+
+**Ontology loop.** Proposal from topic evidence + golden questions: 12 entity types, 14 relations, 51/52 evidence quotes verified, all 10 questions served, 3 questions flagged as not supported by the documents (tile stitching, which layers ILT is used for, an explicit velocity-field definition). One refine round with reviewer feedback (remove an abstract type; add `conflicts_with` and `precedes`) → 11 types / 14 relations, approved as SCHEMA v4 (provisionally, for the experiment). Cost $0.008 for both proposals.
+
+**Entity graph.** Pilot on 6 documents, then the remaining 24: 177 instances, 121 typed relations, all with verified quotes; dropped as invalid: names not found verbatim, endpoints missing, one domain/range violation. Cost $0.026.
+
+**Ablation** (same KB state, switches for themes and entity facts; means over runs; 10 questions):
+
+| Configuration | Runs | Doc recall | Section recall | Key points | Grounding |
+|---|---|---|---|---|---|
+| themes off, facts off | 2 | 0.825 | 0.383 | 0.867 | 0.930 |
+| themes only | 1 | 0.767 | 0.500 | 0.925 | 0.940 |
+| facts only | 1 | 0.751 | 0.284 | 0.900 | 0.918 |
+| themes + facts | 2 | 0.812 | **0.666** | 0.875 | 0.893 |
+
+Reading: the combination reliably finds more of the expected source sections (0.32/0.45 vs. 0.63/0.70 per run); key-point coverage and document recall do not change beyond run-to-run noise (key points varied 0.78–0.95 between two identical runs). Ten questions and one or two runs per configuration are not enough for fine conclusions; the key-point check is coarse (term presence).
