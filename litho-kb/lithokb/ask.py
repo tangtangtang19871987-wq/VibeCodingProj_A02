@@ -51,7 +51,7 @@ sections. Be precise and concise; keep formulas in LaTeX; state conditions (node
 - Facts taken from a <section> of a source document: add an evidence marker [S1], [S2]…; each evidence item
   quotes that section verbatim (path = the section's document path, never a card id): {"id":"S1","path":"…","lines":"a-b","quote":"…"} (≤ 300 chars, copied exactly,
   without the "NNNN|" prefix). Quotes are machine-checked.
-- Questions that ask for kinds, types, steps, methods, terms or conflicts ("which / what kinds / 有哪些"): enumerate
+- Questions that ask for kinds, types, steps, methods, terms or conflicts ("which / what kinds / \u6709\u54ea\u4e9b"): enumerate
   EVERY distinct item the material mentions, grouped sensibly, each with a short explanation — do not stop at the
   most prominent ones. Quote quotes exactly; do not join lines that are not adjacent in the source.
 - State under which conditions (node, wavelength, layer…) your statements hold when the material says so; never
