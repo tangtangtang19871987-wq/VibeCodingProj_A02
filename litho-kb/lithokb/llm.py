@@ -243,12 +243,20 @@ def _mock(system: str, user: str) -> LLMResult:
         pages = re.findall(r'<page id="([^"]+)"[^>]*>\n# (.*?)\n(.*?)\n', user)
         body = "This topic covers:\n\n" + "\n".join(f"- [[{i}]]: {s}" for i, t, s in pages)
         text, note = _fence({"summary": "Topic overview", "body_md": body}), "list of sub-pages"
+    elif "[[LKB:ONTOLOGY]]" in system:
+        text, note = _mock_ontology(user)
+    elif "[[LKB:EXTRACT]]" in system:
+        text, note = _mock_extract(user)
+    elif "[[LKB:TOPICS]]" in system:
+        text, note = _mock_topics(user)
     elif "[[LKB:INDEX]]" in system:
         text, note = _mock_index(user)
     elif "[[LKB:NAVIGATE]]" in system and "<tree>" in user:
         text, note = _mock_tree_navigate(user)
     elif "[[LKB:NAVIGATE]]" in system:
         text, note = _mock_navigate(user)
+    elif "[[LKB:ANSWER]]" in system and "[[MOCK:PLACEHOLDER]]" in user and "# Correction" not in user:
+        text, note = _fence({"answer_md": "...", "evidence": [], "used_cards": [], "gaps": ""}), "placeholder answer on purpose"
     elif "[[LKB:ANSWER]]" in system:
         text, note = _mock_answer(user)
     else:
@@ -370,6 +378,73 @@ def _mock_index(user: str):
                    "nodes": nodes, "virtual_sections": [], "entities": ents}), "first line per section"
 
 
+def _mock_ontology(user: str):
+    """Ontology mock: two types and one relation, evidence = first non-empty line of the first sections."""
+    secs = re.findall(r'<section handle="(E\d+)"[^>]*>\n(.*?)\n</section>', user, re.S)
+    ev = []
+    for h, body in secs[:2]:
+        ln = next((x.strip() for x in body.splitlines() if len(x.strip()) > 8 and not x.startswith("#")), "")
+        if ln:
+            ev.append({"handle": h, "quote": ln[:100]})
+    qs = re.findall(r"^(q\d+):", user, re.M)
+    return _fence({"entity_types": [
+        {"id": "method", "label": "Method", "definition": "A technique described in the documents.", "examples": [],
+         "evidence": ev[:1], "questions": qs[:1]},
+        {"id": "model", "label": "Model", "definition": "A physical or numerical model.", "examples": [],
+         "evidence": ev[1:2] or ev[:1], "questions": qs[1:2]}],
+        "entity_relations": [{"id": "depends_on_model", "label": "Depends on model", "domain": ["method"], "range": ["model"],
+                              "definition": "The method needs the model.", "evidence": ev[:1], "questions": qs[:2]}],
+        "uncovered": [], "notes": "mock"}), "two types from the first evidence lines"
+
+
+def _mock_extract(user: str):
+    """Extraction mock: instances = bold terms / title-case words that appear on numbered lines; one relation."""
+    lines = re.findall(r"^\s*(\d+)\|(.*)$", user, re.M)
+    types = re.findall(r"^- `([a-z_]+)` ", user, re.M)
+    rels = re.findall(r"^- `([a-z_]+)`: ([a-z_|*]+) -> ([a-z_|*]+)", user, re.M)
+    ents, seen = [], set()
+    for n, ln in lines:
+        for w in re.findall(r"\b([A-Z][A-Za-z]{2,}(?:[- ][A-Z][A-Za-z]+)*|[A-Z]{2,})\b", ln):
+            if w not in seen and types:
+                seen.add(w)
+                ents.append({"name": w, "type": types[len(ents) % len(types)], "aliases": [],
+                             "evidence": {"lines": n, "quote": ln.strip()[:120]}})
+    out_rels = []
+    if rels and len(ents) >= 2:
+        rid, dom, rng = rels[0]
+        a = next((e for e in ents if e["type"] in dom.split("|") or dom == "*"), None)
+        b = next((e for e in ents if e is not a and (e["type"] in rng.split("|") or rng == "*")), None)
+        if a and b:
+            out_rels.append({"subject": a["name"], "predicate": rid, "object": b["name"],
+                             "evidence": a["evidence"]})
+    return _fence({"entities": ents[:12], "relations": out_rels}), "capitalised terms as instances"
+
+
+def _mock_topics(user: str):
+    """Topic mock: one topic per pair of documents, one subtopic per document; merge = identity."""
+    if "# Partial leaves" in user:
+        leaves = re.findall(r"^(p\d+-\S+) \| (.*?) - ", user, re.M)
+        return _fence({"topics": [{"id": lid, "title": t, "summary": t, "subtopics": []} for lid, t in leaves],
+                       "mapping": {lid: lid for lid, _ in leaves}}), "identity merge"
+    docs: dict[str, list] = {}
+    titles = {}
+    for m in re.finditer(r'^(D(\d+)\.\S+) \| "([^"]*)"', user, re.M):
+        docs.setdefault(m.group(2), []).append(m.group(1))
+        titles[m.group(2)] = m.group(3)
+    keys = sorted(docs, key=int)
+    topics = []
+    for i in range(0, len(keys), 2):
+        pair = keys[i:i + 2]
+        subs = [{"id": f"doc-{k}", "title": titles[k], "summary": titles[k], "sections": docs[k],
+                 "representative": docs[k][:2]} for k in pair]
+        topics.append({"id": f"theme-{i // 2 + 1}", "title": " / ".join(titles[k] for k in pair), "summary": "",
+                       "subtopics": subs})
+    if len(topics) == 1:
+        topics.append({"id": "theme-extra", "title": "Misc", "summary": "", "sections": docs[keys[0]][:1],
+                       "representative": docs[keys[0]][:1], "subtopics": []})
+    return _fence({"topics": topics, "unassigned": [], "notes": "mock"}), "documents paired into themes"
+
+
 def _mock_tree_navigate(user: str):
     """Tree-search mock: read nodes whose line matches question terms (hints first); expand matching
     collapsed nodes in the first round."""
@@ -391,6 +466,10 @@ def _mock_tree_navigate(user: str):
             if tag not in ("dir", "doc") and h not in read:
                 read.append(h)
     done = not expand or rnd >= 2
+    if "[[MOCK:LEAFEXPAND]]" in q:  # observed with real models: leaf sections listed under "expand"
+        secs = [h for h in read if "/" in h]
+        return _fence({"reasoning": "mock: leaf sections under expand", "read": [h for h in read if "/" not in h][:6],
+                       "expand": secs[:4], "done": False}), "leaf sections under expand"
     return _fence({"reasoning": f"mock round {rnd}: matched terms {terms[:6]}", "read": read[:10],
                    "expand": [] if done else expand[:4], "done": done}), "term matching over the tree"
 

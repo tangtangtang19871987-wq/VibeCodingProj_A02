@@ -88,6 +88,8 @@ class Navigator:
     def __init__(self, kb: KB, cards: Cards, comp: Compiler):
         self.kb, self.cards, self.comp = kb, cards, comp
 
+    features: dict = {}
+
     def hints(self, tree, H, question: str, readers: bool) -> list[str]:
         """Lexical (BM25 over cards and sections) and graph-neighbour hints — suggestions for the navigator."""
         from . import graph as G
@@ -113,6 +115,19 @@ class Navigator:
                                    f"   ← graph: {tree.nodes[cid]['title'][:20]} {nb['rel']}")
         except Exception:  # noqa: BLE001
             pass
+        try:  # entity graph: typed facts and instances, each pointing at the section it came from
+            facts = G.facts_for(self.kb, self.cards, readers, question) if self.features.get("facts", True) else []
+        except Exception:  # noqa: BLE001
+            facts = []
+        n = 0
+        for f in facts:
+            h = H.get(f["section"]) if f.get("section") in tree.nodes else "-"
+            if f["kind"] == "relation":
+                out.append(f"{h} [fact] {f['subject']} —{f['rel']}→ {f['object']}   ← entity graph")
+            else:
+                out.append(f"{h} [instance of {f['type_label']}] {f['name']}   ← entity graph")
+            n += 1
+        self.last_facts = facts
         return out
 
     def run(self, run: dict, cfg: dict, question: str, cond_txt: str, readers: bool, conditions: dict | None) -> dict:
@@ -123,7 +138,8 @@ class Navigator:
         H = PI.Handles(tree)
         hints = self.hints(tree, H, question, readers)
         system = PI.NAV_SYSTEM % (MAX_CARDS, MAX_SECTIONS)
-        view0, _ = tree.render(["k", "d"], H, budget)
+        roots = [r for r in tree.roots() if r != "t" or self.features.get("themes", True)]
+        view0, _ = tree.render(roots, H, budget)
         cards, secs, dropped, rounds, reasoning = [], [], [], [], []
 
         # LangGraph NAVIGATE graph:  START → decide ──expand→ open → decide …  ──done→ END
@@ -169,7 +185,23 @@ class Navigator:
                 else:
                     continue
                 reads.append(nid)
-            exp = [x for x in (H.resolve(h) for h in d.get("expand", []) or []) if x and tree.nodes[x]["children"]]
+            exp = []
+            for h in d.get("expand", []) or []:
+                x = H.resolve(h)
+                if not x:
+                    continue
+                nd = tree.nodes[x]
+                if nd["children"]:
+                    exp.append(x)
+                elif nd["kind"] == "section" and len(secs) < MAX_SECTIONS and \
+                        not any(s_["path"] == nd["path"] and s_["node"] == nd["node"] for s_ in secs):
+                    # observed: leaf sections put under "expand" — nothing to open, so the model wants to read them
+                    secs.append({"path": nd["path"], "node": nd["node"], "title": nd["title"],
+                                 "lines": f"{nd['start']}-{nd['end']}", "why": "requested via expand (leaf)"})
+                    reads.append(x)
+                elif nd["kind"] == "card" and x not in cards and len(cards) < MAX_CARDS:
+                    cards.append(x)
+                    reads.append(x)
             dropped.extend(bad)
             done = d.get("done", True) is True or not exp or r == max_rounds
             rounds.append({"round": r, "prompt_chars": len(system) + len(user), "read": [H.get(x) for x in reads],
@@ -197,6 +229,7 @@ class Navigator:
         g.compile().invoke({"round": 0, "view": view0}, config={"recursion_limit": 4 * max_rounds + 4})
         return {"reasoning": " / ".join(x for x in reasoning if x), "cards": cards, "sections": secs,
                 "dropped": dropped[:20], "rounds": rounds, "hints": len(hints), "method": "tree-search/langgraph",
+                "facts": getattr(self, "last_facts", [])[:30],
                 "_visible": list(tree.visible_cards)}
 
 
@@ -226,7 +259,7 @@ class Asker:
                 f"{body}\n\nrelations: {rels}\napplies under: {conds}\n</card>")
 
     def ask(self, user: dict, question: str, cfg: dict, include_unpublished: bool = False,
-            conditions: dict | None = None) -> dict:
+            conditions: dict | None = None, features: dict | None = None) -> dict:
         question = question.strip()
         if not question:
             raise ValueError("empty question")
@@ -256,7 +289,10 @@ class Asker:
                 ans: dict
 
             def n_navigate(st: AskState) -> dict:
-                nav = Navigator(self.kb, self.cards, self.comp).run(run, cfg, question, cond_txt,
+                navr = Navigator(self.kb, self.cards, self.comp)
+                navr.features = dict(features or {})
+                run["features"] = navr.features
+                nav = navr.run(run, cfg, question, cond_txt,
                                                                     readers=not include_unpublished, conditions=conditions)
                 vis = nav.pop("_visible")
                 run["navigation"] = nav
@@ -284,8 +320,9 @@ class Asker:
             def n_answer(st: AskState) -> dict:
                 def check(res):
                     d = parse_response_obj(res.text)
-                    if not str(d.get("answer_md", "")).strip():
-                        raise ValueError("empty answer_md")
+                    body = re.sub(r"[\W_]+", "", str(d.get("answer_md", "")))
+                    if len(body) < 20:  # observed: "..." returned as the whole answer
+                        raise ValueError("answer_md is empty or a placeholder")
                     return d
                 ans, _, _ = generate(comp=self.comp, run=run, cfg=cfg, system=ANS_SYSTEM, user=st["ans_user"], check=check,
                                      correction=lambda e: ("\n\n# Correction\nYour previous answer was not usable (" + e[:160] +

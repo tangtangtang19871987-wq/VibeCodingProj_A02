@@ -104,7 +104,10 @@ def compiled_summary(kb: KB, sha: str) -> dict | None:
 
 def state_stamp(kb: KB):
     """Changes whenever sources or compiled summaries change (for derived caches)."""
-    return (S.meta_stamp(kb), pi_stamp(kb))
+    tp = kb.root / "compiled" / "topics.json"
+    ed = kb.root / "compiled" / "entities"
+    return (S.meta_stamp(kb), pi_stamp(kb), tp.stat().st_mtime_ns if tp.exists() else 0,
+            ed.stat().st_mtime_ns if ed.exists() else 0)
 
 
 _TREE_CACHE: dict[tuple, dict] = {}
@@ -411,10 +414,39 @@ class KnowledgeTree:
                     add_secs(nd.get("children", []), sid)
 
             add_secs(tree["nodes"], did)
+        self._add_topics()
         for nd in self.nodes.values():  # folder summaries: what is inside (structural)
             if nd["kind"] == "folder":
                 docs = [self.nodes[c]["title"] for c in nd["children"] if self.nodes[c]["kind"] == "doc"]
                 nd["summary"] = f"{len(docs)} document(s): " + ", ".join(docs[:6]) + ("…" if len(docs) > 6 else "")
+
+    def _add_topics(self):
+        """Themes root: topic → subtopic → references to member sections (representatives first)."""
+        from .topics import load
+        t = load(self.kb)
+        if not t or not t.get("topics"):
+            return
+        self._add("t", "root", "Themes (topics across documents)", "what the sections are about, grouped across documents")
+        flat = t["topics"]
+        for x in flat:
+            if x["parent"] is None:
+                self._add_topic(x, "t", flat)
+
+    def _add_topic(self, x, parent, flat):
+        tid = f"t:{x['id']}"
+        if tid in self.nodes:
+            return
+        self._add(tid, "topic", x["title"], x.get("summary", ""), parent, members=len(x["members"]))
+        for c in flat:
+            if c["parent"] == x["id"]:
+                self._add_topic(c, tid, flat)
+        own = x.get("own", x["members"]) if any(c["parent"] == x["id"] for c in flat) else x["members"]
+        rep = [m for m in x.get("representative", []) if m in own]
+        for m in rep + [m for m in own if m not in rep]:
+            if m in self.nodes:
+                sec = self.nodes[m]
+                self._add(f"r:{x['id']}#{m}", "ref", sec["title"], sec["summary"], tid, target=m,
+                          representative=m in rep, path=sec["path"], node=sec["node"], start=sec["start"], end=sec["end"])
 
     # -- rendering for the navigator --------------------------------------------------
     def descendants(self, nid: str) -> int:
@@ -435,8 +467,11 @@ class KnowledgeTree:
     def line(self, nid: str, handle: str, depth: int, collapsed: int = 0) -> str:
         nd = self.nodes[nid]
         tag = {"card": f"[{nd.get('type', 'card')}]", "doc": "[doc]", "section": "[§]", "folder": "[dir]",
-               "root": ""}[nd["kind"]]
-        extra = f" (L{nd['start']}-{nd['end']})" if nd["kind"] == "section" else ""
+               "root": "", "topic": "[theme]", "ref": "[§★]" if nd.get("representative") else "[§]"}[nd["kind"]]
+        extra = f" (L{nd['start']}-{nd['end']})" if nd["kind"] in ("section", "ref") else ""
+        if nd["kind"] == "ref":
+            doc = self.nodes.get(f"d:{nd['path']}", {}).get("title", nd["path"])
+            extra = f" — in “{doc[:40]}”" + extra
         al = f" aka {', '.join(nd['aliases'])}" if nd.get("aliases") else ""
         s = f" — {nd['summary'][:150]}" if nd.get("summary") else ""
         more = f"  [+{collapsed}]" if collapsed else ""
@@ -481,6 +516,9 @@ class KnowledgeTree:
                 emit(r)
         return "\n".join(out), collapsed
 
+    def roots(self) -> list[str]:
+        return [r for r in ("k", "t", "d") if r in self.nodes]
+
     def path_to(self, nid: str) -> list[str]:
         out = []
         while nid is not None:
@@ -519,8 +557,14 @@ class Handles:
         if nid in self.fwd:
             return self.fwd[nid]
         nd = self.tree.nodes[nid]
+        if nd["kind"] == "ref":  # a theme's reference to a section reads as that section
+            h = self.get(nd["target"])
+            self.fwd[nid] = h
+            return h
         if nd["kind"] in ("card", "root"):
             h = nid
+        elif nd["kind"] == "topic":
+            h = "th" + str(sum(1 for v in self.fwd if v.startswith("t:")) + 1)
         elif nd["kind"] == "folder":
             h = "dir" + str(sum(1 for v in self.fwd if v.startswith("f:")) + 1)
         elif nd["kind"] == "doc":
@@ -542,12 +586,16 @@ class Handles:
 
 NAV_SYSTEM = """[[LKB:NAVIGATE]]
 You are the navigator of LithoKB, a curated computational-lithography knowledge base. You do not answer yet.
-You see a tree of the knowledge base: Knowledge (reviewed knowledge cards under topics) and Sources (original documents →
-sections, with line ranges). Every line starts with a handle, then a tag, a title and a summary. "[+N]" means N
+You see a tree of the knowledge base: Knowledge (reviewed knowledge cards under topics), Themes (what the source
+sections are about, grouped across documents; ★ marks a theme's representative sections) and Sources (original
+documents → sections, with line ranges). Every line starts with a handle, then a tag, a title and a summary. "[+N]" means N
 nodes below it are not shown yet — ask to "expand" it to see them. <hints> lists nodes that match the question's
 words or are graph neighbours of such nodes; they are suggestions, not answers.
 Reason like an expert using the index of a handbook: follow topics, aliases, prerequisites and contrasts. Prefer
 knowledge cards; add document sections when exact numbers, conditions or details matter or when no card fits.
+For BROAD questions (what kinds / which types / overview / what else / conflicts / comparisons) cover breadth: pick
+the relevant themes and read representative (★) sections from several of them, instead of many sections that make
+the same point.
 Return exactly one JSON object in a ```json block:
 {"reasoning":"short reading plan","read":["handle", ...],"expand":["handle", ...],"done":true|false}
 - "read": cards or sections (or a whole small document) to read in full. At most %d cards and %d sections in total.

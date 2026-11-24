@@ -86,3 +86,4 @@ ul.pitree li.closed > ul { display: none; }
 ul.pitree .tw { display: inline-block; width: 14px; cursor: pointer; color: var(--muted); user-select: none; }
 ul.pitree .gist { margin-left: 18px; max-width: 900px; }
 @media (max-width: 700px) { .grid2 { grid-template-columns: 1fr; } }
+pre.diff { white-space: pre-wrap; font-size: 12px; background: var(--accent-soft); padding: 8px; border-radius: 6px; max-height: 420px; overflow: auto; }

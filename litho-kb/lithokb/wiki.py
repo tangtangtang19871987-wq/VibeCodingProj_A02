@@ -137,10 +137,23 @@ class Wiki:
                 secs.append({"path": s["path"], "node": s["node"], "title": s["title"], "start": s["start"], "end": s["end"]})
             elif s.get("kind") == "card":
                 cards_.append({"id": e["s"], "title": s["title"], "type": s.get("type"), "count": e.get("count", 1)})
+        onto = G.ontology(self.kb)
+        rels = []
+        for e, d in [(e, "out") for e in g.out.get(eid, [])] + [(e, "in") for e in g.inc.get(eid, [])]:
+            if e["layer"] != "extracted" or not e.get("evidence"):
+                continue
+            other = e["t"] if d == "out" else e["s"]
+            rels.append({"dir": d, "rel": e["rel"], "label": onto["entity_relations"].get(e["rel"], {}).get("label", e["rel"]),
+                         "id": other, "title": g.nodes[other].get("title"), "kind": g.nodes[other].get("kind"),
+                         "evidence": e["evidence"]})
+        described = [{"id": e["t"], "title": g.nodes[e["t"]].get("title")} for e in g.out.get(eid, []) if e["rel"] == "described_by"]
+        paths = {s["path"] for s in secs} | {ev["path"] for r in rels for ev in r["evidence"]}
         return {**{k: nd.get(k) for k in ("id", "title", "type", "aliases", "docs")},
-                "type_label": G.ontology(self.kb)["entity_types"].get(nd.get("type"), ""),
+                "type_label": onto["entity_types"].get(nd.get("type"), ""),
+                "type_definition": onto["type_defs"].get(nd.get("type"), ""),
+                "relations": rels, "described_by": described,
                 "sections": secs, "cards": sorted(cards_, key=lambda x: -x["count"]),
-                "source_titles": S.doc_titles(self.kb, {s["path"] for s in secs})}
+                "source_titles": S.doc_titles(self.kb, paths)}
 
     def entities(self, readers: bool) -> list[dict]:
         g = self.graph(readers)

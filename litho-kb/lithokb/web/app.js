@@ -38,7 +38,7 @@ const set = html => { $('#main').innerHTML = html; };
 function renderShell(route) {
   const links = [['#/', 'Home'], ['#/wiki', 'Knowledge'], ['#/src', 'Sources']];
   if (S.me) links.push(['#/ask', 'Ask']);
-  const rev = [['#/review', 'Review'], ['#/issues', 'Issues'], ['#/traces', 'LLM traces'], ['#/schema', 'Schema'], ['#/lint', 'Health']];
+  const rev = [['#/review', 'Review'], ['#/issues', 'Issues'], ['#/ontology', 'Ontology'], ['#/eval', 'Evaluation'], ['#/traces', 'LLM traces'], ['#/schema', 'Schema'], ['#/lint', 'Health']];
   const adm = [['#/publish', 'Publish'], ['#/compile', 'Compile'], ['#/users', 'Users'], ['#/log', 'Audit log']];
   const viewRoutes = ['k', 'wiki', 'tree', 'entity', 'graph', 'mindmap', 'timeline', 'facts'];
   const a = (l, cls = '') => `<a href="${l[0]}" class="${cls} ${('#/' + route[0]) === l[0] || (route[0] === '' && l[0] === '#/') || (l[0] === '#/wiki' && viewRoutes.includes(route[0])) ? 'on' : ''}">${l[1]}</a>`;
@@ -1148,7 +1148,12 @@ routes.entity = async ([id]) => {
     <div class="small muted"><a href="#/wiki">Wiki</a> › Entity</div>
     <h1 style="margin:6px 0">${esc(e.title)}</h1>
     <p class="small">${badge('comment', e.type_label || ENT_LABEL[e.type] || 'Unclassified')} ${(e.aliases || []).length ? '<span class="muted">also known as ' + e.aliases.map(esc).join(', ') + '</span>' : ''}</p>
-    <p class="small muted">Entities are detected by the document index (PageIndex) and their names verified verbatim in the source. An entity is not a reviewed knowledge card but a navigation entry point to related knowledge.</p>
+    ${e.type_definition ? `<p class="small"><i>${esc(e.type_label)}: ${esc(e.type_definition)}</i></p>` : ''}
+    <p class="small muted">Entities are instances of the approved ontology's types, extracted from the sources with verbatim evidence (or detected by the document index). They are navigation entry points, not reviewed knowledge cards.</p>
+    ${(e.described_by || []).length ? `<p class="small">Described in: ${e.described_by.map(c => `<a href="${wikiHref(c.id)}">${esc(c.title)}</a>`).join(', ')}</p>` : ''}
+    ${(e.relations || []).length ? `<h2>Relations <span class="muted small">(entity graph, each with verified evidence)</span></h2><ul class="small">${e.relations.map(r =>
+      `<li>${r.dir === 'out' ? '<b>' + esc(e.title) + '</b>' : `<a href="${entHref(r.id)}">${esc(r.title)}</a>`} —<b>${esc(r.label)}</b>→ ${r.dir === 'out' ? `<a href="${entHref(r.id)}">${esc(r.title)}</a>` : '<b>' + esc(e.title) + '</b>'}
+        ${r.evidence.map(ev => `<div class="muted">“${esc(ev.quote)}” — ${docLink(ev.path, 'L=' + String(ev.lines || '').split('-')[0], 'L' + esc(ev.lines || ''))}</div>`).join('')}</li>`).join('')}</ul>` : ''}
     ${e.cards.length ? `<h2>Knowledge cards that mention it</h2><div class="cardlist">${e.cards.map(c => `<a class="item" href="${wikiHref(c.id)}"><b>${esc(c.title)}</b> <span class="muted small">${esc(TYPE_LABEL[c.type] || c.type)}${c.count > 1 ? ' · ' + c.count + '×' : ''}</span></a>`).join('')}</div>` : ''}
     <h2>Source locations</h2><ul class="small">${e.sections.map(s => `<li>${docLink(s.path, 'L=' + s.start, '· ' + esc(s.title))} <span class="muted">L${s.start}-${s.end}</span></li>`).join('') ||
       (e.docs || []).map(d => `<li>${docLink(d)}</li>`).join('')}</ul></div>`);
@@ -1159,8 +1164,8 @@ routes.tree = async (_, q) => {
   const d = await get('pageindex' + (q.view === 'head' && can('reviewer') ? '?view=head' : ''));
   const st = can('reviewer') ? await get('pageindex/status').catch(() => null) : null;
   const N = d.nodes;
-  const tag = n => ({ card: TYPE_LABEL[n.type] || 'Card', doc: 'Document', section: '§', folder: 'Folder', root: '' })[n.kind];
-  const href = n => n.kind === 'card' ? wikiHref(n.id) : n.kind === 'doc' ? srcHref(n.path) : n.kind === 'section' ? srcHref(n.path, 'L=' + n.start) : '';
+  const tag = n => ({ card: TYPE_LABEL[n.type] || 'Card', doc: 'Document', section: '§', folder: 'Folder', root: '', topic: 'Theme', ref: n.representative ? '§ ★ representative' : '§' })[n.kind];
+  const href = n => n.kind === 'card' ? wikiHref(n.id) : n.kind === 'doc' ? srcHref(n.path) : (n.kind === 'section' || n.kind === 'ref') ? srcHref(n.path, 'L=' + n.start) : '';
   const li = id => { const n = N[id]; const kids = n.children || [];
     return `<li class="${kids.length ? 'closed' : ''}" data-id="${esc(id)}">${kids.length ? '<span class="tw" data-open>▸</span>' : '<span class="tw"> </span>'}
       ${href(n) ? `<a href="${href(n)}">${esc(n.title)}</a>` : `<b>${esc(n.title)}</b>`} <span class="muted small">${esc(tag(n))}${n.kind === 'section' ? ' L' + n.start + '-' + n.end : ''}${kids.length ? ' · ' + kids.length : ''}</span>
@@ -1170,7 +1175,7 @@ routes.tree = async (_, q) => {
     <p class="small muted">When answering a question the model walks this tree level by level, like a handbook's table of contents, reasoning about which cards and source sections to read — no vector search, no chunking.
       ${st ? `Node summaries: ${st.compiled}/${st.documents} documents summarized by the LLM${st.pending.length ? ' (the rest use heading + first sentence)' : ''}.` : ''}</p>
     <div class="row"><input id="tq" placeholder="Search source sections (BM25)…" style="width:360px"><button id="tgo">Search</button></div><div id="thits"></div>
-    <ul class="pitree">${li('k')}${li('d')}</ul></div>`);
+    <ul class="pitree">${li('k')}${N.t ? li('t') : ''}${li('d')}</ul></div>`);
   const root = $('#main');
   root.addEventListener('click', e => {
     const t = e.target.closest('[data-open]'); if (!t) return;
@@ -1208,6 +1213,76 @@ function bindPathFinder(nodes) {
       : '<p class="muted">No path between them</p>';
   };
 }
+
+// ---------------------------------------------------------------- golden questions & evaluation runs
+const pct = v => v === null || v === undefined ? '—' : Math.round(v * 100) + '%';
+routes.eval = async ([rid]) => {
+  const d = await get('eval');
+  if (rid) {
+    const r = await get('eval/runs/' + encodeURIComponent(rid));
+    set(`<div class="row"><a href="#/eval">← Evaluation</a><span class="mono">${esc(r.id)}</span></div><div class="panel">
+      <h1 style="margin-top:0">${esc(r.label || r.id)}</h1>
+      <p class="small muted">${esc(r.by)} · ${fmtTime(r.at)} · scope ${esc(r.scope)} · ${esc(JSON.stringify(r.config))}${Object.keys(r.features || {}).length ? ' · features ' + esc(JSON.stringify(r.features)) : ''}</p>
+      <table class="grid"><tr><th>#</th><th>Question</th><th>Docs</th><th>Sections</th><th>Key points</th><th>Grounding</th><th>Missed key points</th><th>Trace</th></tr>
+      ${r.questions.map(x => `<tr><td>${esc(x.id)}</td><td>${esc(x.question)}</td><td>${pct(x.doc_recall)}</td><td>${pct(x.section_recall)}</td><td>${pct(x.key_points)}</td><td>${pct(x.grounding)}</td>
+        <td class="small">${esc((x.key_points_missed || []).join(', '))}${(x.docs_missed || []).length ? '<br><span class="muted">docs: ' + x.docs_missed.map(docTitle).map(esc).join(', ') + '</span>' : ''}</td>
+        <td><a href="#/ask/${esc(x.run)}">answer</a> · <a href="#/traces/${esc(x.run)}">trace</a></td></tr>`).join('')}</table></div>`);
+    return;
+  }
+  const keys = ['doc_recall', 'section_recall', 'key_points', 'grounding'];
+  set(`<div class="panel"><h1 style="margin-top:0">Evaluation</h1>
+    <p class="small muted">Golden questions decide what the knowledge base must capture and are the regression test for every change (schema, ontology, model, retrieval). Scores are mechanical: expected documents/sections read, key points present in the answer, verifiable quotes. Run with <span class="mono">lkb eval run</span>; edit questions with <span class="mono">lkb eval import FILE</span>.</p>
+    <h2>Runs</h2><table class="grid"><tr><th>Run</th><th>Label</th><th>When</th>${keys.map(k => `<th>${k.replace('_', ' ')}</th>`).join('')}<th>Cost</th></tr>
+    ${d.runs.map(r => `<tr><td class="mono"><a href="#/eval/${esc(r.id)}">${esc(r.id.slice(5))}</a></td><td>${esc(r.label || '')}</td><td class="small">${fmtTime(r.at)}</td>
+      ${keys.map(k => `<td>${pct(r.aggregate[k])}</td>`).join('')}<td class="small">$${(r.aggregate.cost_usd || 0).toFixed(3)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No runs yet.</td></tr>'}</table>
+    <h2>Golden questions (${d.questions.length})</h2><div class="cardlist">${d.questions.map(x => `<div class="item"><b>${esc(x.id)}</b> <span class="badge">${esc(x.type)}</span> ${esc(x.question)}
+      <div class="small muted">expects ${x.expected_sources.map(docTitle).map(esc).join(', ') || '—'} · key points: ${x.key_points.map(k => esc(k.label)).join(', ') || '—'}${x.notes ? ' · ' + esc(x.notes) : ''}</div></div>`).join('') || '<p class="muted">No golden questions yet.</p>'}</div></div>`);
+};
+
+// ---------------------------------------------------------------- ontology loop: propose → review → refine → approve
+routes.ontology = async ([pid]) => {
+  const d = await get('ontology');
+  const okCheck = c => c === 'exact' || c === 'moved' || c === 'elided';
+  const evs = list => list.map(e => `<div class="small muted">${okCheck(e.check) ? badge('exact', 'verified') : badge('missing', 'unverified')} “${esc(e.quote)}” — ${docLink(e.path, 'L=' + String(e.lines || '').split('-')[0], 'L' + esc(e.lines || ''))}</div>`).join('');
+  if (pid) {
+    const r = await get('ontology/' + encodeURIComponent(pid));
+    const o = r.ontology;
+    set(`<div class="row"><a href="#/ontology">← Ontology</a><span class="mono">${esc(r.id)}</span> ${badge(r.status === 'approved' ? 'published' : r.status === 'proposed' ? 'in_review' : 'rejected', r.status)}</div>
+      <div class="panel"><h1 style="margin-top:0">Ontology proposal</h1>
+      <p class="small muted">${esc(r.by)} · ${fmtTime(r.at)} · ${esc(r.origin.kind)}${r.parent ? ' · refines <a href="#/ontology/' + esc(r.parent) + '">' + esc(r.parent) + '</a>' : ''} · ${esc(r.summary)}</p>
+      ${r.feedback ? `<p class="small"><b>Reviewer feedback addressed:</b> ${esc(r.feedback)}</p>` : ''}
+      <h2>Entity types (${o.entity_types.length})</h2>${o.entity_types.map(t => `<div class="item"><b class="mono">${esc(t.id)}</b> ${esc(t.label)} — ${esc(t.definition)}
+        <div class="small">examples: ${esc((t.examples || []).join(', ') || '—')} · serves ${esc((t.questions || []).join(', ') || '—')}</div>${evs(t.evidence)}</div>`).join('')}
+      <h2>Entity relations (${o.entity_relations.length})</h2>${o.entity_relations.map(x => `<div class="item"><b class="mono">${esc(x.id)}</b> ${esc(x.domain.join('|'))} → ${esc(x.range.join('|'))} — ${esc(x.definition)}
+        <div class="small">serves ${esc((x.questions || []).join(', ') || '—')}</div>${evs(x.evidence)}</div>`).join('')}
+      ${(o.uncovered || []).length ? `<h2>Questions the documents cannot support</h2><ul class="small">${o.uncovered.map(u => `<li><b>${esc(u.question)}</b>: ${esc(u.why)}</li>`).join('')}</ul>` : ''}
+      <h2>Change to SCHEMA.md</h2><pre class="diff">${esc(r.diff)}</pre>
+      <h2>Reviews</h2><ul class="small">${r.reviews.map(v => `<li>${esc(v.by)} · ${stLabel(v.verdict)} · ${fmtTime(v.at)} — ${esc(v.comment)}</li>`).join('') || '<li class="muted">none</li>'}</ul>
+      ${r.status === 'proposed' ? `<textarea id="oc" rows="3" style="width:100%" placeholder="Comment (required) or feedback for the model"></textarea>
+        <div class="row"><button id="o_comment">Comment</button><button id="o_refine">Ask the model to refine</button>
+        <button id="o_reject">Reject</button>${can('admin') ? '<button id="o_approve" class="primary">Approve → new SCHEMA version</button>' : ''}</div>` : ''}</div>`);
+    const act = async (v, btn) => {
+      const c = $('#oc').value.trim();
+      if (c.length < 5) { toast('Please write a comment (at least 5 characters).'); return; }
+      btn.disabled = true;
+      if (v === 'refine') btn.textContent = 'Refining…';
+      try {
+        const res = await api('POST', `ontology/${encodeURIComponent(pid)}/${v}`, v === 'refine' ? { feedback: c } : { comment: c });
+        if (v === 'refine') { toast('New proposal ' + res.proposal); location.hash = '#/ontology/' + res.proposal; }
+        else { toast(v === 'approve' ? 'Approved → SCHEMA v' + res.schema_version : 'Saved'); route(); }
+      } catch (e) { toast('Failed: ' + e.message); btn.disabled = false; }
+    };
+    ['comment', 'refine', 'reject', 'approve'].forEach(v => { const b = $('#o_' + v); if (b) b.onclick = () => act(v, b); });
+    return;
+  }
+  const cur = d.current;
+  set(`<div class="panel"><h1 style="margin-top:0">Ontology</h1>
+    <p class="small muted">Loop: gather evidence (representative sections of each theme) → the model proposes entity and relation types for the golden questions, citing verbatim evidence → reviewers comment or ask for a refinement → an admin approves one version, which becomes a new SCHEMA.md version. Propose with <span class="mono">lkb ontology propose</span>. <a href="/api/ontology/turtle" target="_blank">Export as OWL/Turtle</a></p>
+    <h2>Proposals</h2><table class="grid"><tr><th>Proposal</th><th>Status</th><th>By</th><th>When</th><th>Summary</th></tr>
+    ${d.proposals.map(p => `<tr><td class="mono"><a href="#/ontology/${esc(p.id)}">${esc(p.id)}</a></td><td>${esc(p.status)}${p.schema_version ? ' → v' + p.schema_version : ''}</td><td>${esc(p.by)}</td><td class="small">${fmtTime(p.at)}</td><td class="small">${esc(p.summary || '')}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No proposals yet.</td></tr>'}</table>
+    <h2>Current ontology</h2><h3>Entity types</h3><ul class="small">${Object.entries(cur.entity_types).map(([k, v]) => `<li><b class="mono">${esc(k)}</b> ${esc(v)} <span class="muted">${esc(cur.type_defs[k] || '')}</span></li>`).join('')}</ul>
+    <h3>Entity relations</h3><ul class="small">${Object.entries(cur.entity_relations).map(([k, v]) => `<li><b class="mono">${esc(k)}</b> ${esc(v.domain.join('|'))} → ${esc(v.range.join('|'))} <span class="muted">${esc(v.definition || '')}</span></li>`).join('') || '<li class="muted">none</li>'}</ul></div>`);
+};
 
 routes.login = async () => {
   set(`<div class="panel" style="max-width:380px;margin:40px auto"><h1>Log in</h1><form id="lf"><div class="row"><input id="ln" placeholder="Username" style="width:100%" autocomplete="username"></div>

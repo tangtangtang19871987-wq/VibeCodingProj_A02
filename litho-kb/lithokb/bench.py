@@ -104,7 +104,7 @@ def run_bench(n_cards: int = 2000, n_docs: int = 400, seed: int = 7) -> dict:
         res["tree_build_ms"] = round(ts[0], 1)
         res["tree_nodes"] = len(tree.nodes)
         H = PI.Handles(tree)
-        (txt, _), ts = _timeit(lambda: tree.render(["k", "d"], H, 24000))
+        (txt, _), ts = _timeit(lambda: tree.render(tree.roots(), H, 24000))
         res["tree_render_24k_ms"] = round(ts[0], 1)
         res["tree_render_lines"] = txt.count("\n") + 1
         g, ts = _timeit(lambda: G.build(kb, cards, readers=False))

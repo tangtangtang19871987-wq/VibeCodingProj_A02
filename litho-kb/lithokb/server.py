@@ -166,6 +166,47 @@ def make_handler(app: App):
             if not kb.config.get("public_read") and not user:
                 raise HTTPError(401, "login required")
 
+        # ---- golden questions, ontology loop, topics (reviewers) ----------------------------------
+        def _loop(self, method, head, parts, q, user):
+            A.require(user, "reviewer")
+            if head == "eval":
+                from . import evalset as E
+                if parts[1:2] == ["runs"] and len(parts) == 3:
+                    return self._json(E.get_run(kb, parts[2]))
+                if parts[1:2] == ["compare"]:
+                    return self._json(E.compare(kb, q.get("a", ""), q.get("b", "")))
+                if method == "PUT":
+                    return self._json(E.upsert(kb, user["name"], self._body()))
+                return self._json({"questions": E.load(kb), "runs": E.runs(kb)})
+            if head == "ontology":
+                from . import ontology as O
+                from . import graph as G
+                if len(parts) == 1:
+                    o = G.ontology(kb)
+                    return self._json({"proposals": O.proposals(kb),
+                                       "current": {"entity_types": o["entity_types"], "type_defs": o["type_defs"],
+                                                   "entity_relations": {k: {**v, "domain": sorted(v["domain"]), "range": sorted(v["range"])}
+                                                                        for k, v in o["entity_relations"].items()}}})
+                if parts[1] == "turtle":
+                    return self._send(200, O.to_turtle(kb).encode(), "text/turtle; charset=utf-8")
+                pid = parts[1]
+                if method == "POST" and len(parts) == 3:
+                    b = self._body()
+                    loop = O.OntologyLoop(kb, app.compiler)
+                    if parts[2] == "refine":
+                        from .compiler import llm_config
+                        run = loop.propose(user["name"], llm_config(kb, None, None), parent=pid, feedback=b.get("feedback", ""))
+                        return self._json(run, 200 if run["status"] == "done" else 400)
+                    return self._json(loop.decide(user, pid, parts[2], b.get("comment", "")))
+                rec = O.get(kb, pid)
+                rec["source_titles"] = S.doc_titles(kb, {e["path"] for x in rec["ontology"]["entity_types"] + rec["ontology"]["entity_relations"]
+                                                         for e in x["evidence"]})
+                return self._json(rec)
+            if head == "topics":
+                from . import topics as T
+                return self._json({"status": T.status(kb), "topics": (T.load(kb) or {}).get("topics", [])})
+            raise HTTPError(404, "not found")
+
         # ---- wiki / knowledge graph / page index -----------------------------------------
         def _knowledge(self, method, head, parts, q, user, reviewer):
             from . import graph as G
@@ -439,6 +480,8 @@ def make_handler(app: App):
                         raise FileNotFoundError(parts[1])
                     return self._json({**it, "source_titles": S.doc_titles(kb, it.get("sources", []))})
 
+            if head in ("eval", "ontology", "topics"):
+                return self._loop(method, head, parts, q, user)
             if head in ("wiki", "entities", "kg", "pageindex"):
                 return self._knowledge(method, head, parts, q, user, reviewer)
             if head == "graph":

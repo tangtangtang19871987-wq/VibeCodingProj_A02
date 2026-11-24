@@ -41,25 +41,44 @@ _SCAN_CACHE: dict = {}
 
 
 # ---- ontology (from SCHEMA) ------------------------------------------------------------
-def ontology(kb) -> dict:
-    """{"entity_types": {type: label}, "constraints": {rel: (set(subject types)|{'*'}, set(object types)|{'*'})}}"""
-    text = SC.current(kb)["text"]
-    # section heading: "Graph ontology" (or its legacy Chinese heading); constraints follow
-    # "Relation constraints" (or the legacy Chinese label); full-width and ASCII colons are accepted
+def ontology(kb, text: str | None = None) -> dict:
+    """Parse the ontology section of SCHEMA.md (or `text`).
+
+    {"entity_types": {type: label}, "type_defs": {type: description},
+     "entity_relations": {rel: {"label", "domain": set, "range": set, "definition"}},
+     "constraints": {card_rel: (set(subject card types)|{'*'}, set(object card types)|{'*'})}}
+
+    Section layout (heading contains "Graph ontology", or its legacy Chinese heading):
+        - `type` Label: description                       entity types
+        Entity relations ...:                              (optional block)
+        - `rel` Label: domainA|domainB → rangeA — definition
+        Relation constraints ...:                          card-relation constraints (or the legacy Chinese label)
+        - `rel`: A|B → C|D
+    Full-width and ASCII colons are accepted."""
+    text = SC.current(kb)["text"] if text is None else text
     m = re.search(r"^#+[^\n]*(?:\u672c\u4f53|ontology)[^\n]*\n(.*?)(?=^#{1,2} |\Z)", text, re.M | re.S | re.I)
-    et, cons = {}, {}
+    et, defs, erel, cons = {}, {}, {}, {}
     if m:
         part = m.group(1)
         cm = re.search(r"\u5173\u7cfb\u7ea6\u675f|relation constraints", part, re.I)
-        cpos = cm.start() if cm else -1
-        ent_part = part[:cpos] if cpos >= 0 else part
-        for mm in re.finditer(r"^[ \t]*[-*][ \t]+`([a-z][a-z0-9_]*)`[ \t]+([^\uff1a:\n]+)", ent_part, re.M):
+        rm = re.search(r"^[ \t]*entity relations", part, re.I | re.M)
+        cpos = cm.start() if cm else len(part)
+        rpos = rm.start() if rm and rm.start() < cpos else -1
+        ent_part = part[:rpos if rpos >= 0 else cpos]
+        for mm in re.finditer(r"^[ \t]*[-*][ \t]+`([a-z][a-z0-9_]*)`[ \t]+([^\uff1a:\n]+)[\uff1a:]?[ \t]*([^\n]*)$", ent_part, re.M):
             et[mm.group(1)] = mm.group(2).strip()
-        if cpos >= 0:
+            defs[mm.group(1)] = mm.group(3).strip()
+        if rpos >= 0:
+            for mm in re.finditer(r"^[ \t]*[-*][ \t]+`([a-z][a-z0-9_]*)`[ \t]*([^\uff1a:\n`]*)[\uff1a:][ \t]*([\w|*]+)[ \t]*(?:→|->)[ \t]*([\w|*]+)[ \t]*(?:[—–-]+[ \t]*(.*))?$",
+                                  part[rpos:cpos], re.M):
+                erel[mm.group(1)] = {"label": mm.group(2).strip() or mm.group(1), "domain": set(mm.group(3).split("|")),
+                                     "range": set(mm.group(4).split("|")), "definition": (mm.group(5) or "").strip()}
+        if cm:
             for mm in re.finditer(r"^[ \t]*[-*][ \t]+`([a-z_]+)`[ \t]*[\uff1a:][ \t]*([\w|*]+)[ \t]*(?:→|->)[ \t]*([\w|*]+)",
                                   part[cpos:], re.M):
                 cons[mm.group(1)] = (set(mm.group(2).split("|")), set(mm.group(3).split("|")))
-    return {"entity_types": et or dict(DEFAULT_ENTITY_TYPES), "constraints": cons}
+    return {"entity_types": et or dict(DEFAULT_ENTITY_TYPES), "type_defs": defs, "entity_relations": erel,
+            "constraints": cons}
 
 
 # ---- deterministic entity linking ------------------------------------------------------------
@@ -413,8 +432,39 @@ def build(kb, cards, readers: bool) -> Graph:
             g.edge(sid, eid, "mentions", "indexed", basis="mention")
         for nm in [ent["name"], *ent["aliases"]]:
             egz.add(nm, eid)
-        if ent["type"] and ent["type"] not in onto["entity_types"]:
-            g.findings.append({"kind": "untyped_entity", "card": eid, "detail": f"entity type {ent['type']!r} is not in the ontology"})
+    # extracted layer: ontology-typed instances and relations with verified evidence (entities.py)
+    from .entities import load_all as load_extracted
+    name_to_id: dict[str, str] = {}
+    for p, rec in load_extracted(kb).items():
+        tree = PI.doc_tree(kb, p, meta)
+        for e in rec["entities"]:
+            k = _key(e["name"])
+            eid = name_to_id.get(k) or next((alias_of[x] for x in [k] if x in alias_of), None) or entity_id(e["name"])
+            nd = g.nodes.get(eid)
+            if nd is None or nd.get("kind") != "entity":
+                g.node(eid, kind="entity", title=e["name"], type=e["type"], aliases=list(e.get("aliases", []))[:8], docs=[p])
+            else:
+                nd["type"] = e["type"]
+                nd["docs"] = sorted(set(nd.get("docs", [])) | {p})
+            for x in [k] + [_key(a) for a in e.get("aliases", [])]:
+                name_to_id.setdefault(x, eid)
+            for nm in [e["name"], *e.get("aliases", [])]:
+                egz.add(nm, eid)
+            sec = section_at(tree, (e.get("evidence") or {}).get("lines"))
+            if sec:
+                g.edge(f"s:{p}#{sec}", eid, "mentions", "extracted", basis="extracted")
+            card = sorted(gz.names.get(k, []))
+            if card:
+                g.edge(eid, card[0], "described_by", "linked", basis="mention")
+        for r in rec["relations"]:
+            s_, o_ = name_to_id.get(r["subject"]), name_to_id.get(r["object"])
+            if s_ and o_:
+                ev = {"path": p, **{k: r["evidence"][k] for k in ("lines", "quote", "check") if k in r["evidence"]}}
+                prev = next((e for e in g.out.get(s_, []) if e["t"] == o_ and e["rel"] == r["predicate"] and e["layer"] == "extracted"), None)
+                if prev:
+                    prev["evidence"].append(ev)
+                else:
+                    g.edge(s_, o_, r["predicate"], "extracted", basis="extracted", evidence=[ev])
     egz.finalize()
     for cid, v in vis.items():
         for eid, n in egz.scan(v.get("_body", "")).most_common(max_m):
@@ -426,9 +476,82 @@ def build(kb, cards, readers: bool) -> Graph:
     return g
 
 
+def entity_id(name: str) -> str:
+    from .cards import slug
+    k = _key(name)
+    a = slug(name)
+    return "e:" + (a if a and re.fullmatch(r"[\x00-\x7f]+", name) else re.sub(r"\s+", "-", k)[:48])
+
+
+def section_at(tree: dict, lines) -> str | None:
+    """Deepest outline node containing the first cited line."""
+    try:
+        n = int(str(lines).split("-")[0])
+    except (TypeError, ValueError):
+        return None
+    best, stack = None, list(tree["nodes"])
+    while stack:
+        nd = stack.pop()
+        if nd["start"] <= n <= nd["end"]:
+            best = nd["id"]
+            stack = list(nd.get("children", []))
+    return best
+
+
 def explain_path(steps: list[dict]) -> str:
     zh = {"out": "→", "in": "←"}
     return " ".join([steps[0]["from_title"]] + [f"{zh[s['dir']]}{s['rel']}{zh[s['dir']]} {s['to_title']}" for s in steps]) if steps else ""
 
 
 __all__ = ["Graph", "Gazetteer", "build", "ontology", "explain_path", "STRONG"]
+
+
+def facts_for(kb, cards, readers: bool, question: str, limit: int = 14) -> list[dict]:
+    """Entity-graph facts relevant to a question: relations of entities named in the question, and
+    instances of entity types the question asks about ("which optimizers…"). Each fact carries the
+    source section it was extracted from, so the navigator can open it."""
+    from .textindex import BM25
+    from . import pageindex as PI
+    g = build(kb, cards, readers)
+    onto = ontology(kb)
+    ents = {n: d for n, d in g.nodes.items() if d.get("kind") == "entity"}
+    if not ents:
+        return []
+    gz = Gazetteer()
+    for eid, d in ents.items():
+        t = d.get("title", "")
+        for nm in [t, re.sub(r"[\uff08(].*?[)\uff09]", "", t).strip(), *re.findall(r"[\uff08(]([^)\uff09]{2,40})[)\uff09]", t), *d.get("aliases", [])]:
+            gz.add(nm, eid)
+    gz.finalize()
+    named = [e for e, _ in gz.scan(question).most_common(6)]
+    bm = BM25()
+    for t, label in onto["entity_types"].items():
+        bm.put(t, 1, [(label + " " + t.replace("_", " "), 3), (onto["type_defs"].get(t, ""), 1)])
+    asked = [t for sc, t in bm.search(question, 2) if sc > 0.5]
+    meta = S.meta_ro(kb)
+    out, seen = [], set()
+
+    def sec_of(ev):
+        try:
+            tree = PI.doc_tree(kb, ev["path"], meta)
+        except Exception:  # noqa: BLE001
+            return None
+        s = section_at(tree, ev.get("lines"))
+        return f"s:{ev['path']}#{s}" if s else None
+
+    for eid in named:
+        for e in g.out.get(eid, []) + g.inc.get(eid, []):
+            if e["layer"] != "extracted" or not e.get("evidence") or id(e) in seen:
+                continue
+            seen.add(id(e))
+            ev = e["evidence"][0]
+            out.append({"kind": "relation", "subject": g.nodes[e["s"]]["title"], "rel": e["rel"],
+                        "object": g.nodes[e["t"]]["title"], "section": sec_of(ev), "evidence": ev})
+    for t in asked:
+        for eid, d in ents.items():
+            if d.get("type") == t:
+                ev = next((x["evidence"][0] for x in g.out.get(eid, []) + g.inc.get(eid, []) if x.get("evidence")), None)
+                sec = next((x["s"] for x in g.inc.get(eid, []) if x["layer"] == "extracted" and x["s"].startswith("s:")), None)
+                out.append({"kind": "instance", "type": t, "type_label": onto["entity_types"][t], "name": d["title"],
+                            "section": sec or (sec_of(ev) if ev else None), "evidence": ev})
+    return out[:limit * 2]

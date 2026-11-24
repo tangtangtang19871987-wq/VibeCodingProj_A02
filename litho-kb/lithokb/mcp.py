@@ -129,7 +129,7 @@ class Server:
             H.rev[nid] = nid
         if node and node not in t.nodes:
             raise ValueError(f"unknown node {node!r}")
-        txt, _ = t.render([node] if node else ["k", "d"], H, max(1000, min(int(budget), 40000)))
+        txt, _ = t.render([node] if node else t.roots(), H, max(1000, min(int(budget), 40000)))
         return {"tree": txt}
 
     def wiki_page(self, id):

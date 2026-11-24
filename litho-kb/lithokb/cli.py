@@ -219,6 +219,34 @@ def main(argv=None) -> None:
     s = sub.add_parser("bench", help="performance benchmark on a synthetic knowledge base (does not touch --root)")
     s.add_argument("--cards", type=int, default=2000)
     s.add_argument("--docs", type=int, default=400)
+    s = sub.add_parser("extract", help="entity graph: extract instances + typed relations per document, guided by the approved ontology")
+    s.add_argument("paths", nargs="*")
+    s.add_argument("--status", action="store_true")
+    s.add_argument("--force", action="store_true")
+    s.add_argument("--limit", type=int, default=0, help="pilot on the first N pending documents")
+    s.add_argument("--backend")
+    s.add_argument("--model")
+    s = sub.add_parser("ontology", help="ontology loop: propose [--from PID --feedback TXT] | list | show PID | approve|reject|comment PID -m TXT | export | import FILE")
+    s.add_argument("op", choices=["propose", "list", "show", "approve", "reject", "comment", "export", "import"])
+    s.add_argument("pid", nargs="?")
+    s.add_argument("-m", "--comment", default="")
+    s.add_argument("--from", dest="from_pid")
+    s.add_argument("--feedback", default="")
+    s.add_argument("--backend")
+    s.add_argument("--model")
+    s = sub.add_parser("topics", help="topic graph over source sections: status | build | show")
+    s.add_argument("op", choices=["status", "build", "show"])
+    s.add_argument("--backend")
+    s.add_argument("--model")
+    s = sub.add_parser("eval", help="golden questions + evaluation runs: list | import FILE | export | run | runs | show RUN | compare A B")
+    s.add_argument("op", choices=["list", "import", "export", "run", "runs", "show", "compare"])
+    s.add_argument("args", nargs="*")
+    s.add_argument("--ids", default="", help="comma-separated question ids (run)")
+    s.add_argument("--all-cards", action="store_true", help="include unpublished cards (reviewer+)")
+    s.add_argument("--features", default="", help="ablation switches, e.g. themes=0,facts=0")
+    s.add_argument("--label", default="")
+    s.add_argument("--backend")
+    s.add_argument("--model")
     s = sub.add_parser("fsck", help="integrity check of the files (heads vs revisions, reviews, traces, caches)")
     s.add_argument("--repair", action="store_true", help="rebuild derived caches; never touches knowledge files")
     s = sub.add_parser("mcp", help="run the MCP server on stdio (tools for agents; acts as --user)")
@@ -522,7 +550,7 @@ def main(argv=None) -> None:
         readers = A.RANK[me["role"]] < 2
         t = PI.knowledge_tree(kb, cards, readers)
         H = PI.Handles(t)
-        txt, _ = t.render(["k", "d"], H, args.budget)
+        txt, _ = t.render(t.roots(), H, args.budget)
         print(txt)
         for nid in args.open:
             nid = nid if nid in t.nodes else next((k for k in t.nodes if k.endswith(nid)), None)
@@ -577,6 +605,97 @@ def main(argv=None) -> None:
             for c, lab in comm.items():
                 groups.setdefault(lab, []).append(c)
             return _out(sorted(groups.values(), key=len, reverse=True), args)
+    if cmd == "extract":
+        from .entities import Extractor
+        ex = Extractor(kb, Compiler(kb, cards))
+        if args.status:
+            return _out(ex.status(), args)
+        A.require(me, "admin")
+        from .compiler import llm_config
+        return _out(ex.run(me["name"], llm_config(kb, args.backend, args.model), args.paths or None, args.force, args.limit), args)
+    if cmd == "ontology":
+        from . import ontology as O
+        if args.op == "list":
+            return _out(O.proposals(kb), args)
+        if args.op == "show":
+            r = O.get(kb, args.pid)
+            if args.json:
+                return _out(r, args)
+            print(f"{r['id']}  {r['status']}  by {r['by']}  {r['summary']}")
+            for t in r["ontology"]["entity_types"]:
+                ok = sum(e.get("check") in ("exact", "moved", "elided") for e in t["evidence"])
+                print(f"  type {t['id']:<24} {t['label']} — {t['definition']}  [evidence {ok}/{len(t['evidence'])}] q={','.join(t['questions'])}")
+            for x in r["ontology"]["entity_relations"]:
+                ok = sum(e.get("check") in ("exact", "moved", "elided") for e in x["evidence"])
+                print(f"  rel  {x['id']:<24} {'|'.join(x['domain'])} → {'|'.join(x['range'])} — {x['definition']}  [evidence {ok}/{len(x['evidence'])}]")
+            for u in r["ontology"].get("uncovered", []):
+                print(f"  uncovered {u.get('question')}: {u.get('why')}")
+            return print("checks:", json.dumps(r["checks"], ensure_ascii=False))
+        if args.op == "export":
+            return print(O.to_turtle(kb), end="")
+        A.require(me, "reviewer")
+        loop = O.OntologyLoop(kb, Compiler(kb, cards))
+        if args.op == "import":
+            return _out(O.from_turtle(kb, me["name"], open(args.pid, encoding="utf-8").read())["summary"], args)
+        if args.op == "propose":
+            from .compiler import llm_config
+            run = loop.propose(me["name"], llm_config(kb, args.backend, args.model), parent=args.from_pid, feedback=args.feedback)
+            return _out({k: run.get(k) for k in ("status", "proposal", "summary", "error", "cost_usd", "id")}, args)
+        r = loop.decide(me, args.pid, args.op, args.comment)
+        return print(f"{r['id']}: {r['status']}" + (f" → SCHEMA v{r['schema_version']}" if r.get("schema_version") else ""))
+    if cmd == "topics":
+        from . import topics as T
+        if args.op == "status":
+            return _out(T.status(kb), args)
+        if args.op == "show":
+            t = T.load(kb) or {"topics": []}
+            if args.json:
+                return _out(t, args)
+            meta = S.meta_ro(kb)
+            for x in t["topics"]:
+                print(("    " if x["parent"] else "") + f"{x['id']}  {x['title']}  ({len(x['members'])} sections) — {x['summary']}")
+                if x["parent"] or not any(y["parent"] == x["id"] for y in t["topics"]):
+                    for m in x["representative"]:
+                        p_, nid = m[2:].split("#")
+                        from . import pageindex as PI
+                        nd = PI.find(PI.doc_tree(kb, p_, meta), nid)
+                        print(("    " if x["parent"] else "") + f"      ★ {p_} · {nd['title'] if nd else nid}")
+            return print(f"coverage {t.get('coverage')}  unassigned {len(t.get('unassigned', []))}")
+        A.require(me, "admin")
+        from .compiler import llm_config
+        return _out(T.TopicBuilder(kb, Compiler(kb, cards)).build(me["name"], llm_config(kb, args.backend, args.model)), args)
+    if cmd == "eval":
+        from . import evalset as E
+        if args.op == "list":
+            return _out(E.load(kb), args)
+        if args.op == "export":
+            return print("".join(json.dumps(q, ensure_ascii=False) + "\n" for q in E.load(kb)), end="")
+        if args.op == "runs":
+            return _out(E.runs(kb), args)
+        if args.op == "show":
+            return _out(E.get_run(kb, args.args[0]), args)
+        if args.op == "compare":
+            return _out(E.compare(kb, args.args[0], args.args[1]), args)
+        A.require(me, "reviewer")
+        if args.op == "import":
+            raw = open(args.args[0], encoding="utf-8").read().strip()
+            qs = json.loads(raw) if raw.startswith("[") else [json.loads(x) for x in raw.splitlines() if x.strip()]
+            return print(f"saved {len(E.save_all(kb, me['name'], qs))} questions to eval/golden.jsonl")
+        from .ask import Asker
+        from .compiler import llm_config
+        rec = E.run_eval(kb, Asker(kb, cards, comp), cards, me, llm_config(kb, args.backend, args.model),
+                         ids=[x for x in args.ids.split(",") if x] or None,
+                         include_unpublished=args.all_cards and A.RANK[me["role"]] >= 2, label=args.label,
+                         features={k: v not in ("0", "false", "off") for k, v in
+                                   (x.split("=", 1) for x in args.features.split(",") if "=" in x)} or None)
+        if args.json:
+            return _out(rec, args)
+        print(f"{rec['id']}  {rec['label']}  scope={rec['scope']}  {rec['config']}")
+        print("aggregate:", json.dumps(rec["aggregate"], ensure_ascii=False))
+        for q in rec["questions"]:
+            print(f"  {q['id']} docs={q['doc_recall']} secs={q['section_recall']} keypts={q['key_points']} "
+                  f"grnd={q['grounding']} gap={'Y' if q['gap_reported'] else '-'}  missed={q['key_points_missed']}")
+        return
     if cmd == "fsck":
         from .fsck import fsck
         return _out(fsck(kb, cards, repair=args.repair), args)
