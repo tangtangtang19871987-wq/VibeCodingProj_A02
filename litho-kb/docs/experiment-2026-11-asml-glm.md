@@ -91,3 +91,17 @@ With the squeezed budget the model first read the topic card and expanded `mask-
 | themes + facts | 2 | 0.812 | **0.666** | 0.875 | 0.893 |
 
 Reading: the combination reliably finds more of the expected source sections (0.32/0.45 vs. 0.63/0.70 per run); key-point coverage and document recall do not change beyond run-to-run noise (key points varied 0.78–0.95 between two identical runs). Ten questions and one or two runs per configuration are not enough for fine conclusions; the key-point check is coarse (term presence).
+
+## Fixing what the evaluation exposed (ask/3, verifier v2), 3 repeats per configuration
+
+**Diagnosis of the previous runs.** Of 27 missed key points, 15 were present in the reading material (the answer left them out) and 12 were not (retrieval missed sections such as lecture 13 §3.1, where the adjoint method and conjugate gradient / L-BFGS are named; one key point, "chain rule", is not in the corpus at all and was removed from the golden set). 26 of 28 unverifiable quotes were genuine quotes the verifier rejected: list markers in the middle of a quote, lines skipped without an ellipsis, part of a table row, a literal backslash-n. The model reported gaps for every answer, so evaluation queries had filed 55 gap issues.
+
+**Changes.** Verifier: middle-of-quote list markers, stitched pieces within the cited lines, table cells only within one row, literal \n (re-verifying all earlier evaluation quotes: fuzzy 30 → 7). Answer prompt: enumerate every item for "which / what kinds" questions; `answerable` full / partial / none, gaps only when not full; evaluation never files gap issues (49 evaluation-generated issues closed as won't-fix with a comment). Ask graph: a `complete` node lists entity-graph items that appear in the reading material but not in the draft, and the model revises once. Navigation: up to 3 sections that ground relevant facts are read even if the navigator did not pick them. Evaluation: `--repeat`.
+
+| Configuration (×3 repeats, 30 answers each) | Doc recall | Section recall | Key points | Grounding | Cost / answer | Latency / answer |
+|---|---|---|---|---|---|---|
+| themes, facts, expansion, completion all off | 0.789 (0.66–0.88) | 0.366 (0.30–0.40) | 0.914 (0.88–0.94) | 0.993 | $0.0029 | 9.5 s |
+| themes + facts (the previous v3) | 0.823 (0.76–0.88) | 0.567 (0.50–0.65) | 0.844 (0.81–0.92) | 0.990 | $0.0029 | 9.1 s |
+| **all on** | **0.884** (0.88–0.88) | **0.589** (0.52–0.65) | **0.950** (0.93–0.98) | **0.998** | $0.0043 | 16.8 s |
+
+Reading: with all changes, key-point coverage is higher than both other configurations in every repeat, document recall is higher and stable, grounding is almost perfect. q02 (adjoint, resist model) and q03 (conjugate gradient / L-BFGS) went to 1.0 because the grounding sections are now read and the completeness check catches omissions. Themes + facts *without* completion lowered key-point coverage (more material, more omissions) — the completion step is what turns the extra material into coverage. Cost: one extra call when omissions are found (+50% cost, +80% latency). Still missed: q08 "accuracy vs runtime" and "process window" as conflicting objectives, q01 "curvilinear" (only in one table of lecture 22), q04 "polygon".
