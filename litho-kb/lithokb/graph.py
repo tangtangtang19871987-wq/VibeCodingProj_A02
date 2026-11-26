@@ -439,15 +439,25 @@ def build(kb, cards, readers: bool) -> Graph:
         tree = PI.doc_tree(kb, p, meta)
         for e in rec["entities"]:
             k = _key(e["name"])
-            eid = name_to_id.get(k) or next((alias_of[x] for x in [k] if x in alias_of), None) or entity_id(e["name"])
+            forms = set().union(*(name_forms(n) for n in [e["name"], *e.get("aliases", [])]))
+            # exact spelling → same entity; other forms (core name, parenthesised short form) only within one type,
+            # so "ILT" the technique and an unrelated "(ILT)" of another type are not merged
+            eid = name_to_id.get(k) or name_to_id.get(k.replace(" ", ""))
+            if eid is None:
+                eid = next((name_to_id[f] for f in sorted(forms) if f in name_to_id
+                            and g.nodes.get(name_to_id[f], {}).get("type") == e["type"]), None)
+            eid = eid or next((alias_of[f] for f in sorted(forms) if f in alias_of), None) or entity_id(e["name"])
             nd = g.nodes.get(eid)
             if nd is None or nd.get("kind") != "entity":
                 g.node(eid, kind="entity", title=e["name"], type=e["type"], aliases=list(e.get("aliases", []))[:8], docs=[p])
-            else:
-                nd["type"] = e["type"]
+            else:  # same thing under another spelling ("ILT" / "Inverse lithography (ILT)"): one entity, the shortest full name as title
+                nd["type"] = nd.get("type") or e["type"]
                 nd["docs"] = sorted(set(nd.get("docs", [])) | {p})
-            for x in [k] + [_key(a) for a in e.get("aliases", [])]:
-                name_to_id.setdefault(x, eid)
+                names = {nd.get("title", ""), *nd.get("aliases", []), e["name"], *e.get("aliases", [])} - {""}
+                nd["title"] = min(names, key=lambda x: (not re.search(r"[\uff08(]", x), len(x)))  # shortest full name
+                nd["aliases"] = sorted(names - {nd["title"]})[:10]
+            for f in forms:
+                name_to_id.setdefault(f, eid)
             for nm in [e["name"], *e.get("aliases", [])]:
                 egz.add(nm, eid)
             sec = section_at(tree, (e.get("evidence") or {}).get("lines"))
@@ -457,7 +467,8 @@ def build(kb, cards, readers: bool) -> Graph:
             if card:
                 g.edge(eid, card[0], "described_by", "linked", basis="mention")
         for r in rec["relations"]:
-            s_, o_ = name_to_id.get(r["subject"]), name_to_id.get(r["object"])
+            s_ = next((name_to_id[f] for f in sorted(name_forms(r["subject"])) if f in name_to_id), None)
+            o_ = next((name_to_id[f] for f in sorted(name_forms(r["object"])) if f in name_to_id), None)
             if s_ and o_:
                 ev = {"path": p, **{k: r["evidence"][k] for k in ("lines", "quote", "check") if k in r["evidence"]}}
                 prev = next((e for e in g.out.get(s_, []) if e["t"] == o_ and e["rel"] == r["predicate"] and e["layer"] == "extracted"), None)
@@ -474,6 +485,21 @@ def build(kb, cards, readers: bool) -> Graph:
             _CACHE.clear()
         _CACHE[key] = g
     return g
+
+
+def name_forms(name: str) -> set:
+    """Spellings that denote the same thing: the name, without spaces, without a parenthesised part, and the
+    parenthesised short form itself ("Inverse lithography (ILT)" → {…, "inverse lithography", "ilt"}). Very short forms are ignored."""
+    k = _key(name)
+    forms = {k, k.replace(" ", "")}
+    core = re.sub(r"\s*[\uff08(][^)\uff09]*[)\uff09]\s*", "", k).strip()
+    if core:
+        forms.add(core)
+    for inner in re.findall(r"[\uff08(]([^)\uff09]+)[)\uff09]", k):
+        inner = inner.strip()
+        if len(inner) >= 2 and not re.fullmatch(r"[\d.\s]+", inner):
+            forms.add(inner)
+    return {f for f in forms if len(f) >= 2}
 
 
 def entity_id(name: str) -> str:
@@ -524,10 +550,22 @@ def facts_for(kb, cards, readers: bool, question: str, limit: int = 14) -> list[
             gz.add(nm, eid)
     gz.finalize()
     named = [e for e, _ in gz.scan(question).most_common(6)]
+    # a named entity in the question ("ILT") is not a cue for the asked TYPE ("which optimizers"): remove the names
+    # before matching the question against the ontology's type labels and definitions
+    q_types = _key(question)
+    for e in named:
+        d = ents[e]
+        t = d.get("title", "")
+        for nm in sorted({t, re.sub(r"[\uff08(].*?[)\uff09]", "", t).strip(),
+                          *re.findall(r"[\uff08(]([^)\uff09]{2,40})[)\uff09]", t), *d.get("aliases", [])}, key=len, reverse=True):
+            if nm:
+                q_types = q_types.replace(_key(nm), " ")
     bm = BM25()
     for t, label in onto["entity_types"].items():
         bm.put(t, 1, [(label + " " + t.replace("_", " "), 3), (onto["type_defs"].get(t, ""), 1)])
-    asked = [t for sc, t in bm.search(question, 2) if sc > 0.5]
+    hits = bm.search(q_types, 3)
+    top = hits[0][0] if hits else 0
+    asked = [t for sc, t in hits[:2] if sc > 0.5 and sc >= 0.6 * top]  # the clearly best type(s) only
     meta = S.meta_ro(kb)
     out, seen = [], set()
 

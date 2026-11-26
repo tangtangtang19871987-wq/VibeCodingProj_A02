@@ -58,6 +58,11 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"conditions": COND}}},
     {"name": "list_issues", "description": "Open contradictions and open questions in the knowledge base.",
      "inputSchema": {"type": "object", "properties": {"card": {"type": "string"}}}},
+    {"name": "retrieve", "description": "One call, no model: a context pack for a question — ranked knowledge cards "
+     "(with applicability), source sections with line ranges, entity-graph facts with verified quotes, and matching "
+     "themes. Use this to gather material for your own answer; then get_card / read_source / verify_quote.",
+     "inputSchema": {"type": "object", "properties": {"question": {"type": "string"}, "conditions": COND,
+                                                      "limit": {"type": "integer", "default": 8}}, "required": ["question"]}},
     {"name": "search_sections", "description": "Ranked search over sections of the original documents (BM25 over "
      "author-defined sections, with PageIndex summaries). Returns path, node, line range, summary.",
      "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer", "default": 10}},
@@ -107,6 +112,10 @@ class Server:
                 yield m, a
 
     # ---- tools: PageIndex / wiki / graph ------------------------------------------------------
+    def retrieve(self, question, conditions=None, limit=8):
+        from .retrieve import retrieve
+        return retrieve(self.kb, self.cards, question, readers=True, conditions=conditions or None, limit=limit)
+
     def search_sections(self, query, limit=10):
         from . import pageindex as PI
         bm, meta = PI.section_index(self.kb), S.meta_ro(self.kb)

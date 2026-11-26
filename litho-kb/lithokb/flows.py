@@ -33,7 +33,13 @@ import operator
 import time
 from typing import Annotated, Any, Callable, TypedDict
 
-from langgraph.graph import END, START, StateGraph
+
+
+def lg():
+    """LangGraph is imported on first use (≈0.45 s): CLI commands, MCP start-up and read-only requests
+    that never call a model do not pay for it."""
+    from langgraph.graph import END, START, StateGraph
+    return StateGraph, START, END
 
 LADDER = ["high", "medium", "low", "none"]
 MAX_TRANSIENT_RETRIES = 2
@@ -97,6 +103,7 @@ def _finish(state: CallState) -> dict:
 
 
 def _build_call_graph():
+    StateGraph, START, END = lg()
     g = StateGraph(CallState)
     g.add_node("invoke", _invoke)
     g.add_node("step_down", _step_down)
@@ -183,6 +190,7 @@ def generate(*, comp, run: dict, cfg: dict, system: str, user: str,
         mark(run, graph, "correct")
         return {"prompt": user + correction(s["error"]), "path": ["correct"]}
 
+    StateGraph, START, END = lg()
     g = StateGraph(GenState)
     g.add_node("generate", n_generate)
     g.add_node("check", n_check)
@@ -200,9 +208,19 @@ def generate(*, comp, run: dict, cfg: dict, system: str, user: str,
     return out["data"], out["result"], out["attempt"]
 
 
+PERSIST: dict = {}  # run id → save function, registered by long-running pipelines (live progress)
+
+
 def mark(run: dict, graph: str, node: str, **kw) -> None:
-    """Record a node visit of a pipeline graph in the run (shown in the LLM-trace UI)."""
+    """Record a node visit of a pipeline graph in the run (shown in the LLM-trace UI) and persist it at once
+    when the pipeline registered a save function, so pollers see progress node by node."""
     run.setdefault("graph", []).append({"graph": graph, "node": node, **kw})
+    save = PERSIST.get(run.get("id"))
+    if save:
+        try:
+            save()
+        except Exception:  # noqa: BLE001 — progress is best effort
+            pass
 
 
 __all__ = ["run_call", "generate", "mark", "LADDER"]

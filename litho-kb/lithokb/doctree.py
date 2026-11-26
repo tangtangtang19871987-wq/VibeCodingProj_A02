@@ -51,7 +51,9 @@ def build(text: str, key: str | None = None) -> dict:
             continue
         m = None if in_code else _H.match(ln)
         if m:
-            heads.append((i, len(m.group(1)), m.group(2).strip()))
+            t = m.group(2).strip()
+            # converted HTML sometimes puts a whole code block on the heading line: keep titles readable
+            heads.append((i, len(m.group(1)), t if len(t) <= 100 else t[:99].rstrip() + "…"))
     n = len(lines)
     root = {"id": "root", "title": str(meta.get("title", "")), "level": 0, "start": offset + 1, "end": n, "children": []}
     stack = [root]

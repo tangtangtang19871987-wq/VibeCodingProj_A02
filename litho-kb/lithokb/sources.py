@@ -399,3 +399,29 @@ def set_policy(kb: KB, actor: str, rel: str, policy: str, note: str = "") -> dic
 def list_md_by_policy(kb: KB, *policies: str) -> list[str]:
     meta = meta_ro(kb)
     return [p for p in list_md(kb) if policy_of(kb, p, meta)["policy"] in policies]
+
+
+def reconvert(kb: KB, actor: str, apply: bool = False) -> list[dict]:
+    """Re-run the current HTML converter on every HTML original that has a derived Markdown rendition.
+    Dry run (default): report which renditions would change. With apply: write them as new versions (the old
+    version stays in history; cards citing the document are then flagged as stale and can be recompiled)."""
+    meta = load_meta(kb)
+    out, todo = [], []
+    for rel, rec in sorted(meta.items()):
+        if rec.get("deleted") or not rel.lower().endswith(HTML_EXT) or not rec.get("rendition"):
+            continue
+        md_rel = rec["rendition"]
+        mrec = meta.get(md_rel, {})
+        html = (kb.sources / rel).read_bytes()
+        new = html2md.convert(html.decode("utf-8", errors="replace"), source_name=posixpath.basename(rel),
+                              source_sha=sha256(html))
+        old = (kb.sources / md_rel).read_text("utf-8") if (kb.sources / md_rel).exists() else ""
+        changed = new != old
+        out.append({"html": rel, "markdown": md_rel, "changed": changed, "converter_was": mrec.get("converter"),
+                    "converter": html2md.CONVERTER, "lines_before": old.count("\n"), "lines_after": new.count("\n")})
+        if changed:
+            todo.append({"path": rel, "b64": __import__("base64").b64encode(html).decode()})
+    if apply and todo:
+        put(kb, actor, todo, note=f"reconverted with {html2md.CONVERTER}")
+    return out
+

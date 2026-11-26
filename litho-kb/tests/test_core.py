@@ -273,3 +273,26 @@ class TestMCPCore(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestEntityResolutionAndRetrieve(unittest.TestCase):
+    def test_name_forms_merge_spellings_but_not_short_noise(self):
+        f = G.name_forms("Inverse Lithography (ILT)")
+        self.assertIn("ilt", f)
+        self.assertIn("inverse lithography", f)
+        self.assertNotIn("m", G.name_forms("F(m)"))  # one-letter parenthesised parts are not names
+
+    def test_retrieve_pack_without_model(self):
+        from lithokb.retrieve import retrieve
+        kb = fresh_kb()
+        try:
+            S.put_dir(kb, "rev", str(EXAMPLES))
+            cards = Cards(kb)
+            Compiler(kb, cards).start("admin", Compiler(kb, cards).plan(None), backend="mock", background=False)
+            r = retrieve(kb, cards, "threshold model resist", readers=False, limit=5)
+            self.assertTrue(r["cards"] or r["sections"])
+            self.assertTrue(all({"path", "start", "end"} <= set(s) for s in r["sections"]))
+            with self.assertRaises(ValueError):
+                retrieve(kb, cards, "  ")
+        finally:
+            shutil.rmtree(kb.root)

@@ -22,7 +22,6 @@ from . import doctree
 from . import pageindex as PI
 from .flows import generate, mark
 from typing import TypedDict
-from langgraph.graph import END, START, StateGraph
 from . import sources as S
 from .cards import Cards, _norm, grounding, is_public, slug, verify_evidence
 from .compiler import Compiler, new_run_id, parse_response
@@ -147,6 +146,8 @@ class Navigator:
         view0, _ = tree.render(roots, H, budget)
         cards, secs, dropped, rounds, reasoning = [], [], [], [], []
 
+        from .flows import lg
+        StateGraph, START, END = lg()
         # LangGraph NAVIGATE graph:  START → decide ──expand→ open → decide …  ──done→ END
         class NavState(TypedDict, total=False):
             round: int
@@ -280,12 +281,44 @@ class Asker:
         return (f'<card id="{cid}" type="{head["type"]}" rev="{head["rev"]}">\n# {head["title"]}\n{head.get("summary", "")}\n\n'
                 f"{body}\n\nrelations: {rels}\napplies under: {conds}\n</card>")
 
+    def cache_key(self, question: str, cfg: dict, include_unpublished: bool, conditions: dict | None,
+                  features: dict | None) -> str:
+        """Everything an answer depends on: the question and its options, the model and prompt version, and
+        the state of cards, sources, PageIndex summaries, topics, entity graph and schema (all from file stamps)."""
+        import hashlib
+        self.cards.index()
+        sp = self.kb.root / "SCHEMA.md"
+        state = [self.cards._stamp, PI.state_stamp(self.kb), sp.stat().st_mtime_ns if sp.exists() else 0]
+        model = cfg.get("openrouter_model") if cfg.get("backend") == "openrouter" else cfg.get("model")
+        raw = json.dumps([" ".join(question.split()), sorted((conditions or {}).items()), bool(include_unpublished),
+                          sorted((features or {}).items()), cfg.get("backend"), model, PROMPT_VERSION, state],
+                         ensure_ascii=False, default=str)
+        return hashlib.sha256(raw.encode()).hexdigest()[:32]
+
+    def cached(self, key: str) -> dict | None:
+        p = self.kb.traces_dir / "_cache" / f"{key}.json"
+        if not p.exists():
+            return None
+        try:
+            rid = json.loads(p.read_text("utf-8"))["run"]
+            run = self.comp.trace(rid)["run"]
+        except Exception:  # noqa: BLE001 — a broken cache entry is just a miss
+            return None
+        return run if run.get("status") == "done" else None
+
     def ask(self, user: dict, question: str, cfg: dict, include_unpublished: bool = False,
-            conditions: dict | None = None, features: dict | None = None, record_gaps: bool = True) -> dict:
+            conditions: dict | None = None, features: dict | None = None, record_gaps: bool = True,
+            use_cache: bool = False, run_id: str | None = None) -> dict:
         question = question.strip()
         if not question:
             raise ValueError("empty question")
-        rid = new_run_id()
+        key = self.cache_key(question, cfg, include_unpublished, conditions, features) if use_cache else None
+        if key:
+            hit = self.cached(key)
+            if hit:  # same question, same knowledge-base state: the earlier traced answer is still exact
+                self.kb.event(user["name"], "query.cache_hit", hit["id"], question=question[:300])
+                return {**hit, "cached": True, "cached_for": user["name"]}
+        rid = run_id or new_run_id()
         run = {"id": rid, "kind": "query", "by": user["name"], "started": now(), "status": "running",
                "backend": cfg["backend"], "model": cfg.get("model"), "effort": cfg.get("effort"),
                "prompt_version": PROMPT_VERSION, "question": question, "scope": "all" if include_unpublished else "published",
@@ -296,12 +329,18 @@ class Asker:
             run["timeline"].append({"ts": now(), "step": name, **kw})
             self.comp._save_run(run)
 
+        from .flows import PERSIST
+        PERSIST[rid] = lambda: self.comp._save_run(run)
+        step("started")  # visible immediately to anyone polling the run (progress in the UI)
+
         try:
             meta = S.load_meta(self.kb)
             cond_txt = ("\n<conditions>The user asks about: " + ", ".join(f"{k}={v}" for k, v in conditions.items()) +
                         ". Prefer knowledge stated for these conditions; general knowledge (no condition stated) may "
                         "still apply.</conditions>\n") if conditions else ""
 
+            from .flows import lg
+            StateGraph, START, END = lg()
             # LangGraph ASK graph:  START → navigate (NAVIGATE subgraph) → read → answer (GENERATE subgraph) → verify → END
             class AskState(TypedDict, total=False):
                 chosen: list
@@ -458,7 +497,10 @@ class Asker:
             atomic_write(self.comp._trace_dir(rid) / "error.txt", traceback.format_exc())
             step("failed", error=run["error"])
         run["finished"] = now()
+        PERSIST.pop(rid, None)
         self.comp._save_run(run)
+        if key and run["status"] == "done":
+            atomic_write(self.kb.traces_dir / "_cache" / f"{key}.json", json.dumps({"run": rid, "at": now()}))
         self.kb.event(user["name"], f"query.{run['status']}", rid, question=question[:300])
         return run
 

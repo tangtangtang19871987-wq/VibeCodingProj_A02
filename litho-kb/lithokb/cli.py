@@ -82,9 +82,10 @@ def main(argv=None) -> None:
     s.add_argument("--note", default="")
 
     s = sub.add_parser("sources", help="list / show / retire source documents")
-    s.add_argument("op", choices=["tree", "ls", "show", "history", "retire"])
+    s.add_argument("op", choices=["tree", "ls", "show", "history", "retire", "reconvert"])
     s.add_argument("path", nargs="?")
     s.add_argument("--version", type=int)
+    s.add_argument("--apply", action="store_true", help="reconvert: write the new renditions (default: dry run)")
 
     s = sub.add_parser("compile", help="compile sources into knowledge cards via the LLM")
     s.add_argument("paths", nargs="*", help="source paths (default: all changed)")
@@ -190,6 +191,10 @@ def main(argv=None) -> None:
     s.add_argument("path")
     s = sub.add_parser("search", help="search cards and sources")
     s.add_argument("q", nargs="+")
+    s = sub.add_parser("retrieve", help="model-free context pack for a question: cards, sections, entity facts, themes")
+    s.add_argument("question", nargs="+")
+    s.add_argument("--cond", default="")
+    s.add_argument("--limit", type=int, default=8)
     s = sub.add_parser("lint", help="integrity report")
     s = sub.add_parser("reverify", help="re-run evidence verification on all cards (after verifier upgrades)")
     s = sub.add_parser("log", help="audit log")
@@ -248,6 +253,12 @@ def main(argv=None) -> None:
     s.add_argument("--label", default="")
     s.add_argument("--backend")
     s.add_argument("--model")
+    s = sub.add_parser("doctor", help="health check: configuration, ontology, derived structures, backlog, evaluation, files")
+    s = sub.add_parser("refresh", help="bring PageIndex summaries, topic graph and entity graph up to date (dry run unless --apply)")
+    s.add_argument("--apply", action="store_true")
+    s.add_argument("--limit", type=int, default=0, help="entity extraction: at most N documents")
+    s.add_argument("--backend")
+    s.add_argument("--model")
     s = sub.add_parser("fsck", help="integrity check of the files (heads vs revisions, reviews, traces, caches)")
     s.add_argument("--repair", action="store_true", help="rebuild derived caches; never touches knowledge files")
     s = sub.add_parser("mcp", help="run the MCP server on stdio (tools for agents; acts as --user)")
@@ -296,6 +307,16 @@ def main(argv=None) -> None:
         return _out([f"{r['status']:9s} v{r.get('version', '-')}  {r['path']}" + (f"  ({r['reason']})" if r.get("reason") else "")
                      for r in res] if not args.json else res, args)
     if cmd == "sources":
+        if args.op == "reconvert":
+            if args.apply:
+                A.require(me, "admin")
+            res = S.reconvert(kb, me["name"], apply=args.apply)
+            if args.json:
+                return _out(res, args)
+            ch = [r for r in res if r["changed"]]
+            for r in ch:
+                print(f"  {'updated' if args.apply else 'would change'}  {r['markdown']}  {r['lines_before']} → {r['lines_after']} lines  ({r['converter_was']} → {r['converter']})")
+            return print(f"{len(ch)} of {len(res)} HTML renditions {'updated' if args.apply else 'would change (dry run; --apply to write)'}")
         if args.op == "tree":
             def walk(n, d=0):
                 for ch in n["children"]:
@@ -524,6 +545,18 @@ def main(argv=None) -> None:
         return _out(tree, args) if args.json else print(doctree.outline(tree) or "(no headings)")
     if cmd == "search":
         return _out(cards.search(" ".join(args.q), visible_only=A.RANK[me["role"]] < 2), args)
+    if cmd == "retrieve":
+        from .retrieve import retrieve
+        from . import facets as F
+        r = retrieve(kb, cards, " ".join(args.question), readers=A.RANK[me["role"]] < 2,
+                     conditions=F.parse_filter(args.cond) or None, limit=args.limit)
+        if args.json:
+            return _out(r, args)
+        print("# cards"); [print(f"  {c['id']}  {c['title']} — {c['summary'][:90]}") for c in r["cards"]]
+        print("# sections"); [print(f"  {s_['path']} L{s_['start']}-{s_['end']}  {s_['section']} — {s_['summary'][:80]}") for s_ in r["sections"]]
+        print("# facts"); [print(f"  {f.get('relation') or f.get('instance')}  ({f['path']} L{f['lines']})") for f in r["facts"]]
+        print("# themes"); [print(f"  {t['title']} ({t['sections']} sections)") for t in r["themes"]]
+        return
     if cmd == "reverify":
         A.require(me, "admin")
         return _out(cards.reverify(me["name"]), args)
@@ -699,6 +732,25 @@ def main(argv=None) -> None:
             print(f"  {q['id']} docs={q['doc_recall']} secs={q['section_recall']} keypts={q['key_points']} "
                   f"grnd={q['grounding']} gap={'Y' if q['gap_reported'] else '-'}  missed={q['key_points_missed']}")
         return
+    if cmd == "doctor":
+        from .doctor import doctor
+        r = doctor(kb, cards, Compiler(kb, cards))
+        if args.json:
+            return _out(r, args)
+        mark = {"ok": "ok   ", "info": "info ", "warn": "WARN ", "error": "ERROR"}
+        for f in r["findings"]:
+            print(f"{mark[f['level']]} {f['area']:<11} {f['message']}" + (f"   → {f['fix']}" if f["fix"] else ""))
+        print(f"status: {r['status']}  ({r['seconds']} s)")
+        if r["status"] == "error":
+            sys.exit(1)
+        return
+    if cmd == "refresh":
+        from .doctor import refresh
+        from .compiler import llm_config
+        if args.apply:
+            A.require(me, "admin")
+        return _out(refresh(kb, cards, Compiler(kb, cards), me["name"], llm_config(kb, args.backend, args.model),
+                            apply=args.apply, limit=args.limit), args)
     if cmd == "fsck":
         from .fsck import fsck
         return _out(fsck(kb, cards, repair=args.repair), args)

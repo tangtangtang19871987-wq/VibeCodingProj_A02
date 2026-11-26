@@ -39,6 +39,32 @@ class App:
         from .wiki import Wiki
         self.consolidator = Consolidator(kb, self.cards, self.compiler)
         self.wiki = Wiki(kb, self.cards)
+        import threading
+        # model-backed requests (questions) run concurrently up to this limit; beyond it the API answers 429
+        self.llm_slots = threading.BoundedSemaphore(int(kb.config.get("query", {}).get("max_concurrent", 4)))
+
+    def prewarm(self) -> dict:
+        """Build every derived index once (card index, BM25 for both scopes, section index, unified trees,
+        graphs) so that the first visitor does not pay for it. Safe to run in a background thread."""
+        import time
+        from . import graph as G
+        from . import pageindex as PI
+        t0 = time.perf_counter()
+        out = {}
+        for name, fn in (("cards", self.cards.index), ("bm25_readers", lambda: self.cards.text_index(True)),
+                         ("bm25_reviewers", lambda: self.cards.text_index(False)), ("sections", lambda: PI.section_index(self.kb)),
+                         ("tree_readers", lambda: PI.knowledge_tree(self.kb, self.cards, True)),
+                         ("tree_reviewers", lambda: PI.knowledge_tree(self.kb, self.cards, False)),
+                         ("graph_readers", lambda: G.build(self.kb, self.cards, True)),
+                         ("graph_reviewers", lambda: G.build(self.kb, self.cards, False))):
+            t = time.perf_counter()
+            try:
+                fn()
+                out[name] = round((time.perf_counter() - t) * 1000, 1)
+            except Exception as e:  # noqa: BLE001 — prewarming is best effort
+                out[name] = f"failed: {type(e).__name__}: {e}"
+        out["total_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+        return out
 
 
 def card_source_paths(meta: dict, body: str) -> set:
@@ -429,9 +455,33 @@ def make_handler(app: App):
                 from .compiler import llm_config
                 adm = user and user["role"] == "admin"
                 cfg = llm_config(kb, b.get("backend") if adm else None, b.get("model") if adm else None)
-                return self._json(app.asker.ask(user, b.get("question", ""), cfg, include_unpublished=incl,
-                                                conditions=F.parse_filter(b.get("cond", "")) if isinstance(b.get("cond", ""), str)
-                                                else dict(b.get("cond") or {})))
+                cond = F.parse_filter(b.get("cond", "")) if isinstance(b.get("cond", ""), str) else dict(b.get("cond") or {})
+                question = str(b.get("question", "")).strip()
+                if not question:
+                    raise HTTPError(400, "empty question")
+                use_cache = b.get("cache", True) is not False
+                if use_cache:  # an exact earlier answer for the same knowledge-base state costs nothing
+                    hit = app.asker.cached(app.asker.cache_key(question, cfg, incl, cond, None))
+                    if hit:
+                        kb.event(user["name"], "query.cache_hit", hit["id"], question=question[:300])
+                        return self._json({**hit, "cached": True})
+                if not app.llm_slots.acquire(blocking=False):
+                    raise HTTPError(429, "the knowledge base is answering other questions — please retry in a moment")
+                from .compiler import new_run_id
+                rid = new_run_id()
+
+                def work():
+                    try:
+                        app.asker.ask(user, question, cfg, include_unpublished=incl, conditions=cond, use_cache=use_cache,
+                                      run_id=rid)
+                    finally:
+                        app.llm_slots.release()
+                if b.get("async"):  # the UI polls /api/queries/<id> and shows the graph steps as they happen
+                    import threading
+                    threading.Thread(target=work, daemon=True, name=f"ask-{rid}").start()
+                    return self._json({"id": rid, "status": "running"}, 202)
+                work()
+                return self._json(app.compiler.trace(rid)["run"])
             if head == "queries":
                 A.require(user, "reader")
                 if len(parts) == 1:
@@ -521,6 +571,10 @@ def make_handler(app: App):
                 else:
                     rows.sort(key=lambda r: (r["name"].lower(), r["card_title"]))
                 return self._json({"rows": rows, "source_titles": S.doc_titles(kb, {r["path"] for r in rows})})
+            if head == "retrieve":
+                from .retrieve import retrieve
+                return self._json(retrieve(kb, C, q.get("q", ""), readers=not (reviewer and q.get("view") == "head"),
+                                           conditions=F.parse_filter(q.get("cond", "")) or None, limit=int(q.get("limit", 8))))
             if head == "search":
                 qq = q.get("q", "")
                 res = {"cards": C.search(qq, visible_only=not reviewer), "sources": []}
@@ -573,6 +627,10 @@ def make_handler(app: App):
                 return self._json(app.consolidator.candidates())
             if head == "lint":
                 return self._json(C.lint())
+            if head == "doctor":
+                A.require(user, "reviewer")
+                from .doctor import doctor
+                return self._json(doctor(kb, C, app.compiler))
             if head == "events":
                 return self._json(kb.events(limit=int(q.get("limit", 300)), target=q.get("target")))
 
@@ -612,7 +670,9 @@ def serve(kb: KB, host: str = "127.0.0.1", port: int = 8765) -> None:
     app = App(kb)
     httpd = ThreadingHTTPServer((host, port), make_handler(app))
     httpd.daemon_threads = True
-    print(f"LithoKB {__version__} serving {kb.root} on http://{host}:{port}")
+    import threading
+    threading.Thread(target=lambda: print("prewarmed:", app.prewarm(), flush=True), daemon=True, name="prewarm").start()
+    print(f"LithoKB {__version__} serving {kb.root} on http://{host}:{port}", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

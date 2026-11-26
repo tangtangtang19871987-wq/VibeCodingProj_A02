@@ -965,7 +965,7 @@ class TestViewsFacetsIssuesMCP(unittest.TestCase):
         res = {r["id"]: r for r in map(json.loads, out.getvalue().splitlines())}
         self.assertNotIn(None, res)                              # notification got no response
         self.assertEqual(res[1]["result"]["serverInfo"]["name"], "lithokb")
-        self.assertEqual(len(res[2]["result"]["tools"]), 16)
+        self.assertEqual(len(res[2]["result"]["tools"]), 17)
         self.assertIn('"value": "> 100"', res[3]["result"]["content"][0]["text"])
         self.assertEqual(json.loads(res[4]["result"]["content"][0]["text"]), [])   # EUV card does not apply to 28nm
         self.assertIn("    3|As process nodes", res[5]["result"]["content"][0]["text"])

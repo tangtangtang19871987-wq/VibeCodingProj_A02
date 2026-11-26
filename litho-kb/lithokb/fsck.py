@@ -84,6 +84,42 @@ def fsck(kb: KB, cards, repair: bool = False) -> dict:
             if repair:
                 f.unlink()
                 fixed.append(f"removed {f.name}")
+    # derived structures added later: topic graph, entity-extraction cache, ontology proposals, evaluation runs,
+    # answer cache — parseable, and caches that no longer correspond to current documents/ontology are orphans
+    tp = kb.root / "compiled" / "topics.json"
+    if tp.exists() and not _ok_json(tp.read_text("utf-8")):
+        bad("topics_unparseable", "compiled/topics.json", "rebuild with lkb topics build")
+    ed = kb.root / "compiled" / "entities"
+    if ed.exists():
+        from . import graph as G
+        from .entities import fingerprint
+        fp = fingerprint(G.ontology(kb))
+        for f in ed.glob("*.json"):
+            sha24, _, efp = f.stem.partition("-")
+            if efp != fp or sha24 not in live:
+                bad("orphan_entities", f.name, "extraction for an old document version or ontology (harmless)")
+                if repair:
+                    f.unlink()
+                    fixed.append(f"removed {f.name}")
+            elif not _ok_json(f.read_text("utf-8")):
+                bad("entities_unparseable", f.name, "re-extract with lkb extract --force")
+    for sub, kind in (("ontology/proposals", "proposal_unparseable"), ("eval/runs", "eval_run_unparseable")):
+        d = kb.root / sub
+        for f in d.glob("*.json") if d.exists() else []:
+            if not _ok_json(f.read_text("utf-8")):
+                bad(kind, f"{sub}/{f.name}", "unparseable JSON")
+    cd = kb.traces_dir / "_cache"
+    for f in cd.glob("*.json") if cd.exists() else []:
+        try:
+            rid = json.loads(f.read_text("utf-8"))["run"]
+            ok = (kb.traces_dir / rid / "run.json").exists()
+        except (json.JSONDecodeError, KeyError):
+            ok = False
+        if not ok:
+            bad("stale_answer_cache", f.name, "points to a missing trace")
+            if repair:
+                f.unlink()
+                fixed.append(f"removed cache entry {f.name}")
     if repair:
         from . import graph as G, pageindex as PI
         G._CACHE.clear()
@@ -93,7 +129,7 @@ def fsck(kb: KB, cards, repair: bool = False) -> dict:
         cards._files = {}
         cards.index()
         fixed.append("rebuilt in-memory indexes")
-    return {"ok": not [p for p in problems if p["kind"] not in ("orphan_pageindex",)], "cards": len(idx),
+    return {"ok": not [p for p in problems if p["kind"] not in ("orphan_pageindex", "orphan_entities")], "cards": len(idx),
             "sources": sum(1 for r in meta.values() if not r.get("deleted")), "traces": traces,
             "problems": problems, "fixed": fixed, "seconds": round(time.perf_counter() - t0, 3)}
 

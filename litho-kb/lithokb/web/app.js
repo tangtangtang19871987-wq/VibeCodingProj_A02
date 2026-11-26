@@ -680,7 +680,12 @@ routes.lint = async () => {
     ambiguous_relation: 'Has “ambiguous” relations awaiting human judgement', missing_summary: 'Document has no summary card (recompile needed)', duplicate_source: 'Source documents largely duplicate each other',
     granularity_thin: 'Too thin (single fact; merge into a related card)', granularity_too_long: 'Too long (consolidate or split)',
     granularity_fragmented: 'Too many addenda (consolidate and rewrite)', granularity_broad: 'Too much evidence (may cover several concepts)' };
-  set(`<div class="panel"><h1>Knowledge base health check</h1><p class="muted">${issues.length} issue(s)</p><table class="grid"><tr><th>Card</th><th>Issue</th><th>Detail</th></tr>${issues.map(i =>
+  const doc = await get('doctor').catch(() => null);
+  const LV = { ok: badge('published', 'ok'), info: badge('comment', 'info'), warn: badge('in_review', 'warn'), error: badge('rejected', 'error') };
+  set(`${doc ? `<div class="panel" style="margin-bottom:10px"><h1 style="margin-top:0">System status ${LV[doc.status]}</h1>
+    <table class="grid"><tr><th></th><th>Area</th><th>Finding</th><th>Fix</th></tr>${doc.findings.map(f => `<tr><td>${LV[f.level]}</td><td>${esc(f.area)}</td><td class="small">${esc(f.message)}</td><td class="small mono">${esc(f.fix || '')}</td></tr>`).join('')}</table>
+    <p class="small muted">Same as <span class="mono">lkb doctor</span>; derived structures are brought up to date in dependency order with <span class="mono">lkb refresh --apply</span>. Checked in ${doc.seconds} s.</p></div>` : ''}
+    <div class="panel"><h1>Knowledge base health check</h1><p class="muted">${issues.length} issue(s)</p><table class="grid"><tr><th>Card</th><th>Issue</th><th>Detail</th></tr>${issues.map(i =>
     `<tr><td><a href="#/review/${encodeURIComponent(i.card)}">${esc(i.card)}</a></td><td>${esc(KIND[i.kind] || i.kind)}</td><td class="small">${esc(i.detail)}</td></tr>`).join('')}</table></div>`);
 };
 
@@ -781,11 +786,11 @@ routes.log = async (_, q) => {
 };
 
 // ---------------------------------------------------------------- ask (navigate → read → answer → file back)
-routes.ask = async ([rid]) => {
+routes.ask = async ([rid], q = {}) => {
   if (!S.me) { location.hash = '#/login'; return; }
   const hist = await get('queries?limit=30').catch(() => []);
   let run = null;
-  if (rid) run = await get('queries/' + encodeURIComponent(rid));
+  if (rid) { run = await get('queries/' + encodeURIComponent(rid)); if (q.cached) run.cached = true; }
   const all = await get('cards');
   const known = new Set(all.map(c => c.id));
   const histHtml = `<h3 style="margin-top:0">${can('reviewer') ? 'Recent questions' : 'My questions'}</h3>${hist.map(h =>
@@ -801,12 +806,17 @@ routes.ask = async ([rid]) => {
       <details open><summary><b>① Reading plan</b> <span class="small muted">The model first looks at the knowledge tree and document outlines to decide what to read (no vector search)</span></summary>
         <div class="banner info">${esc(n.reasoning || '')}</div>
         <div class="small"><b>Cards read (${(n.cards || []).length}):</b>${(n.cards || []).map(c => `<a href="${cardHref(c)}">${esc(c)}</a>`).join(' · ') || '—'}</div>
-        <div class="small"><b>Source sections read (${(n.sections || []).length}):</b><ul>${(n.sections || []).map(s => `<li><a href="${srcHref(s.path, 'L=' + s.lines)}">${esc(s.path)} › ${esc(s.title)}</a> <span class="muted">L${esc(s.lines)}</span> ${s.why ? '<span class="muted">— ' + esc(s.why) + '</span>' : ''}</li>`).join('') || '<li class="muted">None</li>'}</ul></div>
+        <div class="small"><b>Source sections read (${(n.sections || []).length}):</b><ul>${(n.sections || []).map(s => `<li>${docLink(s.path, 'L=' + s.lines.split('-')[0], '› ' + esc(s.title))} <span class="muted">L${esc(s.lines)}</span> ${s.why === 'evidence of entity-graph facts' ? badge('comment', 'added from graph evidence') : s.why ? '<span class="muted">— ' + esc(s.why.slice(0, 120)) + '</span>' : ''}</li>`).join('') || '<li class="muted">None</li>'}</ul></div>
+      </details>
+      <details><summary><b>How LithoKB found this</b> <span class="small muted">${run.cached ? 'cached answer · ' : ''}${(n.rounds || []).length} navigation round(s) · ${(n.facts || []).length} graph fact(s)${run.coverage ? ` · completeness: ${(run.coverage.omitted || []).length} missing item(s) checked` : ''}</span></summary>
+        ${run.cached ? '<p class="small">This exact question was answered before for the same knowledge-base state; the earlier traced answer is shown (no new model call).</p>' : ''}
+        <ol class="small">${(n.rounds || []).map(x => `<li>Round ${x.round}: read ${x.read.length}, opened ${x.expand.length}${x.invalid.length ? `, ${x.invalid.length} invalid handle(s) ignored` : ''} <span class="muted">(${(x.prompt_chars / 1000).toFixed(1)}k chars of index shown)</span></li>`).join('')}</ol>
+        ${(n.facts || []).length ? `<p class="small"><b>Entity-graph facts offered to the navigator</b> (each from a verified quote):</p><ul class="small">${n.facts.slice(0, 16).map(f => `<li>${f.kind === 'relation' ? `${esc(f.subject)} —${esc(f.rel)}→ ${esc(f.object)}` : `${esc(f.name)} <span class="muted">(${esc(f.type_label || f.type)})</span>`}${f.evidence ? ` <span class="muted">— ${docLink(f.evidence.path, 'L=' + String(f.evidence.lines || '').split('-')[0], 'L' + esc(f.evidence.lines || ''))}</span>` : ''}</li>`).join('')}</ul>` : ''}
+        ${run.coverage && (run.coverage.omitted || []).length ? `<p class="small"><b>Completeness check:</b> the first draft did not mention ${run.coverage.omitted.map(esc).join(', ')}; ${run.coverage.omitted_after ? (run.coverage.omitted.length - run.coverage.omitted_after.length) + ' added in the revision' : 'no revision kept'}.</p>` : ''}
       </details>
       <h3>② Answer ${gbadge(run.grounding)} ${a.confidence != null ? `<span class="small muted">confidence ${a.confidence}</span>` : ''}</h3>
       <div class="doc">${renderCardBody({ body: a.answer_md }, known)}</div>
       ${a.answerable && a.answerable !== 'full' ? `<div class="banner warn">${a.answerable === 'none' ? 'The sources do not answer this question.' : 'The sources answer this question only in part.'}${a.gaps ? ' Missing: ' + esc(a.gaps) : ''}</div>` : (a.gaps ? `<div class="banner warn">Gaps in sources: ${esc(a.gaps)}</div>` : '')}
-      ${run.coverage && (run.coverage.omitted || []).length ? `<p class="small muted">Completeness check (entity graph): ${run.coverage.omitted.length} item(s) from the reading material were missing in the first draft${run.coverage.omitted_after ? `; ${run.coverage.omitted.length - run.coverage.omitted_after.length} added by the revision` : ''}: ${run.coverage.omitted.map(esc).join(', ')}</p>` : ''}
       <h3>③ Quote verification</h3>${evidenceList({ evidence: evRender }, true)}
       ${can('reviewer') ? (run.filed_as ? `<div class="banner info">Filed as knowledge card <a href="#/review/${esc(run.filed_as)}">${esc(run.filed_as)}</a> (in review)</div>` :
         `<h3>④ File back as knowledge</h3><p class="small muted">A good answer becomes a “Q&amp;A synthesis” card in the review queue; once published it is part of the knowledge base — knowledge grows through use.</p>
@@ -824,9 +834,23 @@ routes.ask = async ([rid]) => {
     const question = $('#qq').value.trim(); if (!question) return;
     document.querySelectorAll('[data-cond]').forEach(i => { S.cond[i.dataset.cond] = i.value.trim(); });
     try { localStorage.setItem('lkb_cond', JSON.stringify(S.cond)); } catch (e) {}
-    $('#qgo').disabled = true; $('#qwait').textContent = 'The model is reading and answering…';
-    try { const r = await api('POST', 'ask', { question, include_unpublished: !!($('#qall') && $('#qall').checked), cond: condQS() }); location.hash = '#/ask/' + r.id; }
-    catch (e) { toast(e.message); $('#qgo').disabled = false; $('#qwait').textContent = ''; }
+    $('#qgo').disabled = true; $('#qwait').textContent = 'Starting…';
+    try {
+      const r = await api('POST', 'ask', { question, include_unpublished: !!($('#qall') && $('#qall').checked), cond: condQS(), async: true });
+      if (r.status !== 'running') { location.hash = '#/ask/' + r.id + (r.cached ? '?cached=1' : ''); return; }  // cached answer: immediate
+      // live progress: the run record is written as each LangGraph node finishes
+      const STEP = { started: 'Started', navigate: 'Navigating the index tree', read: 'Reading the selected cards and sections',
+        answer: 'Writing the answer', complete: 'Checking completeness against the entity graph', verify: 'Verifying every quote' };
+      const t0 = Date.now();
+      for (;;) {
+        await new Promise(res => setTimeout(res, 900));
+        const run = await get('queries/' + encodeURIComponent(r.id)).catch(() => null);
+        if (!run) continue;
+        const nodes = (run.graph || []).map(g => g.graph === 'navigate' && g.node === 'decide' ? `navigate round ${g.round}` : g.graph === 'ask' ? STEP[g.node] || g.node : null).filter(Boolean);
+        $('#qwait').textContent = `${Math.round((Date.now() - t0) / 1000)} s · ${nodes.length ? nodes[nodes.length - 1] : 'Navigating the index tree'}…`;
+        if (run.status !== 'running') { location.hash = '#/ask/' + r.id; return; }
+      }
+    } catch (e) { toast(e.message); $('#qgo').disabled = false; $('#qwait').textContent = ''; }
   };
   const fb = $('#fb_go'); if (fb) fb.onclick = async () => {
     try { const h = await api('POST', `queries/${encodeURIComponent(run.id)}/file`, { title: $('#fb_title').value.trim(), parent: $('#fb_parent').value.trim() });

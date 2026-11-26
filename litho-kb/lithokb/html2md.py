@@ -18,7 +18,7 @@ import json
 import re
 from html.parser import HTMLParser
 
-CONVERTER = "lkb-html2md/1"
+CONVERTER = "lkb-html2md/2"
 _BLOCK = {"p", "div", "section", "article", "header", "footer", "main", "aside", "nav", "figure",
           "figcaption", "form", "fieldset", "details", "summary", "dl", "dt", "dd", "center"}
 _SKIP = {"style", "script", "head", "noscript", "template", "button", "select", "option", "iframe"}
@@ -35,6 +35,7 @@ class _Conv(HTMLParser):
         self.title = ""
         self._in_title = False
         self.pre = 0
+        self._divs: list[bool] = []  # per open <div>: is it a code container?
         self.lists: list[list] = []   # stack of [kind, counter]
         self.table = None             # {"rows": [[cells]], "row": [...], "cell": [...], "head": bool}
         self.svg = 0
@@ -86,6 +87,16 @@ class _Conv(HTMLParser):
             self.flush()
             self.table = {"rows": [], "row": [], "cell": None, "head": False}
             return
+        if tag == "div":
+            # code shown in <div class="code-block"> (no <pre>) must keep its line breaks: otherwise the code collapses
+            # into one line and a leading "# comment" becomes a fake heading (observed in converted course pages)
+            is_code = bool(re.search(r"(?:^|[\s_-])(?:code|highlight|codehilite|sourcecode|listing)(?:$|[\s_-])",
+                                     (a.get("class") or "").lower()))
+            self._divs.append(is_code)
+            if is_code:
+                self.flush(self._li_prefix(cont=True))
+                self.pre += 1
+                return
         if re.fullmatch(r"h[1-6]", tag):
             self.flush()
             self.buf.append("")
@@ -164,6 +175,12 @@ class _Conv(HTMLParser):
                 self.table["row"] = []
             elif tag == "table":
                 self._emit_table()
+            return
+        if tag == "div" and self._divs and self._divs.pop():
+            code = "".join(self.buf).strip("\n")
+            self.buf = []
+            self.pre = max(0, self.pre - 1)
+            self.emit("```\n" + code + "\n```")
             return
         if re.fullmatch(r"h[1-6]", tag):
             t = self._text().lstrip("# ")
@@ -316,7 +333,7 @@ def convert(html: str, link_map: dict[str, str] | None = None, source_name: str 
         out.append(("\n" if tight else "\n\n") + b if out else b)
     body = "".join(out).strip() + "\n"
     html_title = _WS.sub(" ", c.title).strip()
-    h1 = re.search(r"^# (.+)$", body, re.M)
+    h1 = re.search(r"^# (.+)$", re.sub(r"^```.*?^```", "", body, flags=re.M | re.S), re.M)  # never inside code
     title = re.sub(r"\[(.+?)\]\([^)]*\)", r"\1", h1.group(1)).strip() if h1 else html_title  # page <title> often carries a site suffix
     fm = {"title": title, "html_title": html_title if html_title != title else "", "converted_from": source_name,
           "source_sha256": source_sha, "converter": CONVERTER}

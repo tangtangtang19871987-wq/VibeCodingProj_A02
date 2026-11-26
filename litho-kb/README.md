@@ -65,6 +65,19 @@ The questions the knowledge base must answer decide what it captures. The loop:
 3. **Ontology loop** (`ontology.py`, `lkb ontology propose`): the model proposes entity types and typed relations (domain → range) for the golden questions from the themes' representative sections; every item cites quotes that are verified mechanically. Reviewers comment or ask for a refinement (a new proposal that addresses the feedback); an admin approves one version, which becomes a new SCHEMA.md version (section 8). OWL/Turtle export and import. Web: *Ontology*.
 4. **Entity graph** (`entities.py`, `lkb extract [--limit N]`): per document, instances of the approved types and typed relations between them; names must occur verbatim, quotes are verified, domain/range is enforced, invalid items are dropped and reported. Cached per (document, ontology fingerprint): incremental; start small with `--limit`. The graph gets an `extracted` layer; entity pages show relations with evidence; facts and type instances relevant to a question become navigation hints that point to their source sections.
 
+## 1.7 Operations: fast for people, cheap for agents, hard to break
+
+- **Questions run asynchronously** (`POST /api/ask {"async": true}` → 202 + run id); the Ask page polls the run, which is persisted after every LangGraph node, and shows the live step (navigate round N → read → answer → completeness check → verify). The answer page has a *How LithoKB found this* panel (navigation rounds, entity-graph facts offered, sections added from graph evidence, completeness check, cache).
+- **Answer cache**: the same question (whitespace-insensitive) with the same options for the same knowledge-base state — cards, sources, PageIndex summaries, topics, entity graph, schema, model and prompt version — returns the earlier traced answer instantly. Any change invalidates it automatically. Evaluation always bypasses the cache.
+- **Concurrency limit** for model calls (`query.max_concurrent`, default 4): beyond it the API answers 429 instead of piling up threads.
+- **Pre-warming**: at start-up the server builds card index, BM25 indexes, section index, unified trees and graphs in the background, so the first visitor does not pay for them.
+- **Model-free retrieval** for agents: `retrieve` (MCP tool, `GET /api/retrieve?q=`, `lkb retrieve`) returns one context pack — ranked cards with applicability, source sections with line ranges, entity-graph facts with verified quotes, matching themes — in milliseconds.
+- **LangGraph is imported lazily**: commands that never call a model start in ~0.06 s (was 0.6 s).
+- **`lkb doctor`** (also on the Health page): configuration and API key, ontology consistency, freshness of PageIndex summaries / topic graph / entity extraction, cards citing changed sources, review backlog, open issues, evaluation coverage, file integrity — each finding with the command that fixes it. **`lkb refresh --apply`** brings the derived structures up to date in dependency order (summaries → topics → entities), calling the model only for what is out of date.
+- **`fsck`** also checks the topic graph, entity-extraction cache (orphans for old documents/ontologies), ontology proposals, evaluation runs and the answer cache.
+- **HTML code blocks** in `<div class="code-block">` (no `<pre>`) keep their line breaks (converter `lkb-html2md/2`); before, a code comment could become a fake heading. `lkb sources reconvert` shows which renditions would change; `--apply` writes new versions (old ones stay in history).
+- **Entity resolution** merges spellings of the same thing ("ILT", "Inverse lithography (ILT)") within one type; headings are capped at a readable length.
+
 ## 2. Two-layer knowledge structure
 
 ```
@@ -283,6 +296,7 @@ lkb kg stats|neighbors ID|path A B|central|communities|findings [--depth N --lay
 lkb fsck [--repair]   lkb bench [--cards N --docs M]   lkb ask … --cond wavelength:EUV,node:5nm
 lkb eval list|import FILE|export|run [--ids --all-cards --features themes=0,facts=0 --label]|runs|show RUN|compare A B
 lkb topics status|build|show     lkb extract [PATHS…] [--status --limit N --force]
+lkb doctor     lkb refresh [--apply --limit N]     lkb retrieve QUESTION… [--cond --limit]     lkb sources reconvert [--apply]
 lkb ontology propose [--from PID --feedback TXT]|list|show PID|approve|reject|comment PID -m TXT|export|import FILE
 ```
 The CLI acts as `--user` (or `LKB_USER`) under the same role and workflow rules (anyone who can run the CLI already has file permissions on the data directory, so its claimed identity is trusted).
@@ -326,6 +340,8 @@ The whole directory can go straight into git for backup and diff-based auditing.
 | `lithokb/topics.py` | Topic graph over source sections (themes, representative sections) |
 | `lithokb/ontology.py` | Ontology loop: evidence-cited proposals, review / refine / approve, OWL/Turtle |
 | `lithokb/entities.py` | Ontology-guided extraction of instances and typed relations |
+| `lithokb/retrieve.py` | Model-free context pack (cards, sections, facts, themes) |
+| `lithokb/doctor.py` | Health check and dependency-ordered refresh of derived structures |
 | `lithokb/fsck.py` · `bench.py` | File consistency check and repair · performance benchmark |
 | `lithokb/schema.py` | Versioning and diffs of `SCHEMA.md` |
 | `lithokb/ask.py` | Q&A: navigate → read → answer → file back |
