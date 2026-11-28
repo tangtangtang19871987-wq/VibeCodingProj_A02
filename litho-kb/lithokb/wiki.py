@@ -151,9 +151,18 @@ class Wiki:
         return {**{k: nd.get(k) for k in ("id", "title", "type", "aliases", "docs")},
                 "type_label": onto["entity_types"].get(nd.get("type"), ""),
                 "type_definition": onto["type_defs"].get(nd.get("type"), ""),
-                "relations": rels, "described_by": described,
+                "relations": rels, "described_by": described, "unit": self._unit(eid, readers),
                 "sections": secs, "cards": sorted(cards_, key=lambda x: -x["count"]),
                 "source_titles": S.doc_titles(self.kb, paths)}
+
+    def _unit(self, eid: str, readers: bool) -> dict | None:
+        """The entity's functional unit: its occurrences in every evidence form, with locations."""
+        try:
+            from . import units as UN
+            u = UN.build(self.kb, self.cards, readers)[0].get(eid)
+        except Exception:  # noqa: BLE001
+            return None
+        return {k: u[k] for k in ("forms", "documents", "cross_document", "occurrences")} if u else None
 
     def entities(self, readers: bool) -> list[dict]:
         g = self.graph(readers)

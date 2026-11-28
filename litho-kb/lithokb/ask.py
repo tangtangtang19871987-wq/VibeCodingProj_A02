@@ -94,6 +94,24 @@ class Navigator:
 
     features: dict = {}
 
+    def type_aware_sections(self, tree, question: str, k: int = 8) -> list[str]:
+        """BM25 section candidates re-ranked by evidence-form coverage (needed forms from the question), plus up to
+        two sections from a wider pool that carry a needed form none of the top candidates has."""
+        from . import artifacts as AF
+        need = AF.needed_types(question) if self.features.get("types", True) else []
+        self.needed = need
+        hits = [(sc, key) for sc, key in PI.section_index(self.kb).search(question, 30) if key in tree.nodes]
+        if not need:
+            return [key for _, key in hits[:k]]
+        ranked = sorted(hits[:16], key=lambda h: -h[0] * (0.5 + 0.5 * AF.coverage(need, tree.nodes[h[1]].get("types"))))
+        top = [key for _, key in ranked[:k]]
+        have = {t for key in top for t in tree.nodes[key].get("types", [])}
+        for t in [t for t in need if t not in have]:
+            extra = next((key for _, key in hits if key not in top and t in tree.nodes[key].get("types", [])), None)
+            if extra and len(top) < k + 2:
+                top.append(extra)
+        return top
+
     def hints(self, tree, H, question: str, readers: bool) -> list[str]:
         """Lexical (BM25 over cards and sections) and graph-neighbour hints — suggestions for the navigator."""
         from . import graph as G
@@ -103,12 +121,12 @@ class Navigator:
             seen.add(cid)
             out.append(tree.line(cid, H.get(cid), 0) + "   ← word match")
         try:
-            sec = [k for _, k in PI.section_index(self.kb).search(question, 8) if k in tree.nodes]
+            sec = self.type_aware_sections(tree, question)
         except Exception:  # noqa: BLE001 — hints are optional
             sec = []
         for k in sec:
             seen.add(k)
-            out.append(tree.line(k, H.get(k), 0) + f"   ← word match in source ({tree.nodes[tree.nodes[k]['parent']]['title'][:30] if tree.nodes[k]['parent'] else ''})")
+            out.append(tree.line(k, H.get(k), 0, forms=H.show_forms) + f"   ← word match in source ({tree.nodes[tree.nodes[k]['parent']]['title'][:30] if tree.nodes[k]['parent'] else ''})")
         try:
             g = G.build(self.kb, self.cards, readers)
             for cid in lex[:3]:
@@ -132,6 +150,20 @@ class Navigator:
                 out.append(f"{h} [instance of {f['type_label']}] {f['name']}   ← entity graph")
             n += 1
         self.last_facts = facts
+        self.last_units = []
+        if self.features.get("units", True):  # functional units: one anchor, its evidence in every form
+            from . import units as UN
+            try:
+                us = UN.search(self.kb, self.cards, readers, question, getattr(self, "needed", []), k=3)
+            except Exception:  # noqa: BLE001
+                us = []
+            for u in us:
+                secs_h = [f"{H.get(o['section'])}[{'/'.join(o['types']) or 'text'}]" for o in u["occurrences"][:5]
+                          if o["section"] in tree.nodes]
+                if secs_h:
+                    out.append(f"[unit] {u['anchor']} ({u['type_label']}; forms: {', '.join(u['forms']) or 'text'}) → "
+                               + " ".join(secs_h) + "   ← functional unit")
+            self.last_units = us
         return out
 
     def run(self, run: dict, cfg: dict, question: str, cond_txt: str, readers: bool, conditions: dict | None) -> dict:
@@ -140,6 +172,7 @@ class Navigator:
         max_rounds = int(qc.get("nav_max_rounds", 3))
         tree = PI.knowledge_tree(self.kb, self.cards, readers, conditions)
         H = PI.Handles(tree)
+        H.show_forms = self.features.get("types", True)
         hints = self.hints(tree, H, question, readers)
         system = PI.NAV_SYSTEM % (MAX_CARDS, MAX_SECTIONS)
         roots = [r for r in tree.roots() if r != "t" or self.features.get("themes", True)]
@@ -236,10 +269,19 @@ class Navigator:
         # evidence expansion: sections that ground relevant entity-graph facts are read even when the navigator
         # did not pick them (observed: the needed section was offered as a hint but not chosen); at most 3 extra
         if self.features.get("expand_facts", True):
+            from .artifacts import coverage
             votes: dict = {}
             for f in getattr(self, "last_facts", []):
                 if f.get("section") in tree.nodes:
                     votes[f["section"]] = votes.get(f["section"], 0) + 1
+            # evidence forms the question needs that the reading list does not have yet: unit sections that carry
+            # them come first (the paper's point: a related paragraph is not the table row that holds the value)
+            need = set(getattr(self, "needed", []))
+            have = {t for x in secs for t in (tree.nodes.get(f"s:{x['path']}#{x['node']}") or {}).get("types", [])}
+            for u in getattr(self, "last_units", []):
+                for o in u["occurrences"]:
+                    if o["section"] in tree.nodes and (need - have) & set(o["types"]):
+                        votes[o["section"]] = votes.get(o["section"], 0) + 10 * len((need - have) & set(o["types"]))
             added = 0
             for sid, _ in sorted(votes.items(), key=lambda kv: -kv[1]):
                 nd = tree.nodes[sid]
@@ -247,11 +289,15 @@ class Navigator:
                     continue
                 secs.append({"path": nd["path"], "node": nd["node"], "title": nd["title"],
                              "lines": f"{nd['start']}-{nd['end']}", "why": "evidence of entity-graph facts"})
+                have |= set(nd.get("types", []))
                 added += 1
             if added:
                 mark(run, "navigate", "expand_facts", sections=added)
         return {"reasoning": " / ".join(x for x in reasoning if x), "cards": cards, "sections": secs,
                 "dropped": dropped[:20], "rounds": rounds, "hints": len(hints), "method": "tree-search/langgraph",
+                "needed_types": getattr(self, "needed", []),
+                "units": [{"anchor": u["anchor"], "type": u["type_label"], "forms": u["forms"],
+                           "sections": [o["section"] for o in u["occurrences"]]} for u in getattr(self, "last_units", [])],
                 "facts": getattr(self, "last_facts", [])[:30],
                 "_visible": list(tree.visible_cards)}
 

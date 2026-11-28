@@ -66,6 +66,7 @@ def _normalize(q: dict, actor: str) -> dict:
             "expected_sections": [{"path": str(s.get("path", "")), "title_contains": str(s.get("title_contains", ""))}
                                   for s in q.get("expected_sections", []) or [] if isinstance(s, dict)],
             "key_points": kp, "notes": str(q.get("notes", "")), "by": q.get("by") or actor,
+            "required_forms": [t for t in q.get("required_forms", []) or [] if t in __import__("lithokb.artifacts", fromlist=["TYPES"]).TYPES],
             "updated": now()}
 
 
@@ -111,6 +112,20 @@ def _score(q: dict, run: dict, cards) -> dict:
     sec_exp = q.get("expected_sections", [])
     sec_hits = [s for s in sec_exp if any(r["path"] == s["path"] and s["title_contains"].lower() in r["title"].lower()
                                           for r in nav.get("sections", []))]
+    # evidence forms: did the material read contain the forms this question needs (explicit, or from its wording)?
+    from .artifacts import needed_types
+    need = q.get("required_forms") or needed_types(q["question"])
+    read_forms = set()
+    try:
+        from . import pageindex as PI
+        from . import sources as S
+        meta = S.meta_ro(cards.kb)
+        for x in nav.get("sections", []):
+            nd = PI.find(PI.doc_tree(cards.kb, x["path"], meta), x["node"]) if x["node"] != "root" else None
+            if nd:
+                read_forms |= set(nd.get("types", []))
+    except Exception:  # noqa: BLE001
+        pass
     low = ans.lower()
     kp_hits = [k["label"] for k in q.get("key_points", []) if any(t.lower() in low for t in k["any"])]
     kp_miss = [k["label"] for k in q.get("key_points", []) if k["label"] not in kp_hits]
@@ -120,6 +135,8 @@ def _score(q: dict, run: dict, cards) -> dict:
             "doc_recall": ratio(doc_hits, exp), "docs_missed": [p for p in exp if p not in read_docs],
             "section_recall": ratio(sec_hits, sec_exp),
             "key_points": ratio(kp_hits, q.get("key_points", [])), "key_points_missed": kp_miss,
+            "form_coverage": round(len(set(need) & read_forms) / len(need), 2) if need else None,
+            "forms_missed": sorted(set(need) - read_forms),
             "grounding": (run.get("grounding") or {}).get("score") if (run.get("grounding") or {}).get("total") else None,
             "gap_reported": bool(((run.get("answer") or {}).get("gaps") or "").strip()),
             "answerable": (run.get("answer") or {}).get("answerable"),
@@ -128,7 +145,7 @@ def _score(q: dict, run: dict, cards) -> dict:
             "cost_usd": run.get("cost_usd"), "answer_chars": len(ans)}
 
 
-METRICS = ("doc_recall", "section_recall", "key_points", "grounding")
+METRICS = ("doc_recall", "section_recall", "key_points", "grounding", "form_coverage")
 
 
 def _aggregate(rows: list[dict]) -> dict:

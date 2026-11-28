@@ -1176,6 +1176,9 @@ routes.entity = async ([id]) => {
     ${e.type_definition ? `<p class="small"><i>${esc(e.type_label)}: ${esc(e.type_definition)}</i></p>` : ''}
     <p class="small muted">Entities are instances of the approved ontology's types, extracted from the sources with verbatim evidence (or detected by the document index). They are navigation entry points, not reviewed knowledge cards.</p>
     ${(e.described_by || []).length ? `<p class="small">Described in: ${e.described_by.map(c => `<a href="${wikiHref(c.id)}">${esc(c.title)}</a>`).join(', ')}</p>` : ''}
+    ${e.unit ? `<h2>Evidence by form <span class="muted small">(functional unit: ${e.unit.documents.length} document(s)${e.unit.cross_document ? ', cross-document' : ''})</span></h2>
+      <p class="small">${e.unit.forms.map(f => `<span class="badge">${esc(f)}</span>`).join(' ') || '<span class="muted">text only</span>'}</p>
+      <ul class="small">${e.unit.occurrences.map(o => `<li>${docLink(o.path, 'L=' + o.start, '› ' + esc(o.title))} <span class="muted">L${o.start}-${o.end}</span> ${(o.types || []).map(t => `<span class="badge">${esc(t)}</span>`).join(' ')}</li>`).join('')}</ul>` : ''}
     ${(e.relations || []).length ? `<h2>Relations <span class="muted small">(entity graph, each with verified evidence)</span></h2><ul class="small">${e.relations.map(r =>
       `<li>${r.dir === 'out' ? '<b>' + esc(e.title) + '</b>' : `<a href="${entHref(r.id)}">${esc(r.title)}</a>`} —<b>${esc(r.label)}</b>→ ${r.dir === 'out' ? `<a href="${entHref(r.id)}">${esc(r.title)}</a>` : '<b>' + esc(e.title) + '</b>'}
         ${r.evidence.map(ev => `<div class="muted">“${esc(ev.quote)}” — ${docLink(ev.path, 'L=' + String(ev.lines || '').split('-')[0], 'L' + esc(ev.lines || ''))}</div>`).join('')}</li>`).join('')}</ul>` : ''}
@@ -1193,7 +1196,7 @@ routes.tree = async (_, q) => {
   const href = n => n.kind === 'card' ? wikiHref(n.id) : n.kind === 'doc' ? srcHref(n.path) : (n.kind === 'section' || n.kind === 'ref') ? srcHref(n.path, 'L=' + n.start) : '';
   const li = id => { const n = N[id]; const kids = n.children || [];
     return `<li class="${kids.length ? 'closed' : ''}" data-id="${esc(id)}">${kids.length ? '<span class="tw" data-open>▸</span>' : '<span class="tw"> </span>'}
-      ${href(n) ? `<a href="${href(n)}">${esc(n.title)}</a>` : `<b>${esc(n.title)}</b>`} <span class="muted small">${esc(tag(n))}${n.kind === 'section' ? ' L' + n.start + '-' + n.end : ''}${kids.length ? ' · ' + kids.length : ''}</span>
+      ${href(n) ? `<a href="${href(n)}">${esc(n.title)}</a>` : `<b>${esc(n.title)}</b>`} <span class="muted small">${esc(tag(n))}${n.kind === 'section' ? ' L' + n.start + '-' + n.end : ''}${kids.length ? ' · ' + kids.length : ''}</span> ${(n.types || []).map(t => `<span class="badge">${esc(t)}</span>`).join(' ')}
       ${n.summary ? `<div class="small muted gist">${esc(n.summary)}</div>` : ''}<ul></ul></li>`; };
   set(`<div class="panel" style="margin-bottom:10px">${viewTabs('#/tree')}</div><div class="panel">
     <h1 style="margin-top:0">Index tree (PageIndex)</h1>

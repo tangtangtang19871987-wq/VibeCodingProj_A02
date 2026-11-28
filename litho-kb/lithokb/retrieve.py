@@ -9,6 +9,8 @@ own answers need something else: fast, deterministic, citable context. `retrieve
   facts     entity-graph relations / instances relevant to the question, each with the verified
             quote, document and lines it was extracted from
   themes    topics whose title or summary match, with their representative sections
+  units     functional units: an anchor (ontology instance) with its occurrences in every evidence form
+            (table, code, formula, steps …) and exact locations; `needed_forms` says what the question asks for
 
 No LLM, no vectors; typically a few milliseconds on a warm server.
 """
@@ -48,7 +50,7 @@ def retrieve(kb, cards, question: str, readers: bool = True, conditions: dict | 
         nd = PI.find(PI.doc_tree(kb, pl["path"], meta), pl["node"])
         if nd:
             secs.append({"path": pl["path"], "document": S.doc_titles(kb, [pl["path"]]).get(pl["path"], pl["path"]),
-                         "section": nd["title"], "start": nd["start"], "end": nd["end"],
+                         "section": nd["title"], "start": nd["start"], "end": nd["end"], "forms": nd.get("types", []),
                          "summary": nd.get("summary") or nd.get("gist", ""), "score": sc})
     facts = []
     for f in G.facts_for(kb, cards, readers, question, limit=limit)[:limit * 2]:
@@ -74,8 +76,15 @@ def retrieve(kb, cards, question: str, readers: bool = True, conditions: dict | 
                     reps.append({"path": path, "section": nd["title"], "start": nd["start"], "end": nd["end"]})
             themes.append({"id": x["id"], "title": x["title"], "summary": x.get("summary", ""),
                            "sections": len(x["members"]), "representative": reps})
-    return {"question": question, "scope": "published" if readers else "all", "cards": out_cards, "sections": secs,
-            "facts": facts, "themes": themes,
+    from . import artifacts as AF
+    from . import units as UN
+    need = AF.needed_types(question)
+    units_out = [{"anchor": u["anchor"], "type": u["type_label"], "forms": u["forms"], "documents": u["documents"],
+                  "occurrences": [{"path": o["path"], "section": o["title"], "start": o["start"], "end": o["end"],
+                                   "forms": o["types"]} for o in u["occurrences"]]}
+                 for u in UN.search(kb, cards, readers, question, need, k=min(limit, 5))]
+    return {"question": question, "scope": "published" if readers else "all", "needed_forms": need,
+            "cards": out_cards, "sections": secs, "facts": facts, "themes": themes, "units": units_out,
             "next": "Read cards with get_card(id), sections with read_source(path, start, end); check quotes with verify_quote."}
 
 

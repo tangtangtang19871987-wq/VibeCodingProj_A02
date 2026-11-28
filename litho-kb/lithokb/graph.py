@@ -499,6 +499,11 @@ def name_forms(name: str) -> set:
         inner = inner.strip()
         if len(inner) >= 2 and not re.fullmatch(r"[\d.\s]+", inner):
             forms.add(inner)
+    for f in list(forms):  # CJK method-name suffixes: "<x> method / algorithm" denote the same thing as "<x>"
+        for suf in ("\u7b97\u6cd5", "\u65b9\u6cd5", "\u6cd5"):
+            if f.endswith(suf) and len(f) - len(suf) >= 2 and re.search(r"[\u4e00-\u9fff]$", f[:-len(suf)]):
+                forms.add(f[:-len(suf)])
+                break
     return {f for f in forms if len(f) >= 2}
 
 

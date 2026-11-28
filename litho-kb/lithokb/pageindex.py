@@ -143,6 +143,11 @@ def doc_tree(kb: KB, path: str, meta: dict | None = None) -> dict:
             if summ.get(nd["id"]):
                 nd["summary"] = summ[nd["id"]]
         tree["compiled"] = {"run": cs.get("run"), "model": cs.get("model"), "at": cs.get("at")}
+    from .artifacts import section_types
+    tlines = text.splitlines()
+    for nd in walk(tree["nodes"]):  # evidence forms of each section's own text (table, code, steps, values …)
+        a, b = own_lines(nd)
+        nd["types"] = section_types("\n".join(tlines[a - 1:b]))
     with _LOCK:
         _TREE_CACHE[key] = tree
     return tree
@@ -410,7 +415,8 @@ class KnowledgeTree:
                 for nd in nodes:
                     sid = f"s:{p}#{nd['id']}"
                     self._add(sid, "section", nd["title"], nd.get("summary") or nd.get("gist", ""), parent_id,
-                              path=p, node=nd["id"], start=nd["start"], end=nd["end"], size=nd.get("chars", 0))
+                              path=p, node=nd["id"], start=nd["start"], end=nd["end"], size=nd.get("chars", 0),
+                              types=nd.get("types", []))
                     add_secs(nd.get("children", []), sid)
 
             add_secs(tree["nodes"], did)
@@ -446,7 +452,8 @@ class KnowledgeTree:
             if m in self.nodes:
                 sec = self.nodes[m]
                 self._add(f"r:{x['id']}#{m}", "ref", sec["title"], sec["summary"], tid, target=m,
-                          representative=m in rep, path=sec["path"], node=sec["node"], start=sec["start"], end=sec["end"])
+                          representative=m in rep, path=sec["path"], node=sec["node"], start=sec["start"], end=sec["end"],
+                          types=sec.get("types", []))
 
     # -- rendering for the navigator --------------------------------------------------
     def descendants(self, nid: str) -> int:
@@ -464,10 +471,13 @@ class KnowledgeTree:
                 memo[c] = sum(1 + memo[k] for k in self.nodes[c]["children"])
         return memo[nid]
 
-    def line(self, nid: str, handle: str, depth: int, collapsed: int = 0) -> str:
+    def line(self, nid: str, handle: str, depth: int, collapsed: int = 0, forms: bool = True) -> str:
         nd = self.nodes[nid]
-        tag = {"card": f"[{nd.get('type', 'card')}]", "doc": "[doc]", "section": "[§]", "folder": "[dir]",
-               "root": "", "topic": "[theme]", "ref": "[§★]" if nd.get("representative") else "[§]"}[nd["kind"]]
+        from .artifacts import tags as _tags
+        ft = _tags(nd.get("types") or []) if forms else ""
+        sec = f"[§ {ft}]" if ft else "[§]"
+        tag = {"card": f"[{nd.get('type', 'card')}]", "doc": "[doc]", "section": sec, "folder": "[dir]",
+               "root": "", "topic": "[theme]", "ref": (f"[§★ {ft}]" if ft else "[§★]") if nd.get("representative") else sec}[nd["kind"]]
         extra = f" (L{nd['start']}-{nd['end']})" if nd["kind"] in ("section", "ref") else ""
         if nd["kind"] == "ref":
             doc = self.nodes.get(f"d:{nd['path']}", {}).get("title", nd["path"])
@@ -487,7 +497,7 @@ class KnowledgeTree:
         while frontier and not full:
             nxt = []
             for nid, d in frontier:
-                ln = len(self.line(nid, handles.get(nid), d)) + 1
+                ln = len(self.line(nid, handles.get(nid), d, forms=getattr(handles, "show_forms", True))) + 1
                 if used + ln > budget and order:
                     full = True  # the rest of this level stays collapsed under its parent ("+N")
                     break
@@ -506,7 +516,7 @@ class KnowledgeTree:
             n_hidden = sum(1 + self.descendants(c) for c in hidden)
             if hidden:
                 collapsed.add(nid)
-            out.append(self.line(nid, handles.get(nid), shown[nid], n_hidden))
+            out.append(self.line(nid, handles.get(nid), shown[nid], n_hidden, forms=getattr(handles, "show_forms", True)))
             for c in self.nodes[nid]["children"]:
                 if c in shown:
                     emit(c)
@@ -551,6 +561,7 @@ class Handles:
 
     def __init__(self, tree: KnowledgeTree):
         self.tree, self.fwd, self.rev = tree, {}, {}
+        self.show_forms = True  # evidence-form tags on section lines (feature switch for ablations)
         self._docs = 0
 
     def get(self, nid: str) -> str:
@@ -593,6 +604,9 @@ nodes below it are not shown yet — ask to "expand" it to see them. <hints> lis
 words or are graph neighbours of such nodes; they are suggestions, not answers.
 Reason like an expert using the index of a handbook: follow topics, aliases, prerequisites and contrasts. Prefer
 knowledge cards; add document sections when exact numbers, conditions or details matter or when no card fits.
+Section tags show the evidence forms a section contains (table, code, formula, steps, values, constraints,
+diagnostics, figure). Pick sections whose forms can carry the answer: a value or default needs a table or values,
+"how is it computed" a formula, a procedure needs steps, a rule or conflict needs constraints.
 For BROAD questions (what kinds / which types / overview / what else / conflicts / comparisons) cover breadth: pick
 the relevant themes and read representative (★) sections from several of them, instead of many sections that make
 the same point.
@@ -640,7 +654,7 @@ def section_index(kb: KB):
                         a, b = own_lines(nd)
                         bm.put(k, sig, [(tree.get("title", "") + " " + " ".join(trail + [nd["title"]]), 4),
                                         (nd.get("summary", ""), 2), ("\n".join(lines[a - 1:b]), 1)],
-                               payload={"path": p, "node": nd["id"]})
+                               payload={"path": p, "node": nd["id"], "types": nd.get("types", [])})
                     visit(nd.get("children", []), trail + [nd["title"]])
 
             visit(tree["nodes"], [])
