@@ -93,6 +93,7 @@ DEFAULT_CONFIG = {
         "reasoning_by_stage": {"compile": "low", "navigate": "low", "answer": "low"},  # per-stage override
         "reasoning_watchdog_chars": 20000,  # abort + retry one level lower if reasoning exceeds this with no output
         "openrouter_max_tokens": 32000,
+        "max_tokens_by_stage": {"navigate": 4000, "answer": 12000, "index": 16000},  # compile keeps the global cap
         "command": "",  # for backend=command: prompt on stdin, response on stdout
         "price_per_mtok": {"claude-opus-5-5": [4.0, 20.0], "z-ai/glm-5.3-flash": [0.0399, 0.0784]},
     },

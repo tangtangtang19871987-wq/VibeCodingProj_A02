@@ -105,3 +105,22 @@ Reading: the combination reliably finds more of the expected source sections (0.
 | **all on** | **0.884** (0.88–0.88) | **0.589** (0.52–0.65) | **0.950** (0.93–0.98) | **0.998** | $0.0043 | 16.8 s |
 
 Reading: with all changes, key-point coverage is higher than both other configurations in every repeat, document recall is higher and stable, grounding is almost perfect. q02 (adjoint, resist model) and q03 (conjugate gradient / L-BFGS) went to 1.0 because the grounding sections are now read and the completeness check catches omissions. Themes + facts *without* completion lowered key-point coverage (more material, more omissions) — the completion step is what turns the extra material into coverage. Cost: one extra call when omissions are found (+50% cost, +80% latency). Still missed: q08 "accuracy vs runtime" and "process window" as conflicting objectives, q01 "curvilinear" (only in one table of lecture 22), q04 "polygon".
+
+## Evidence forms and functional units (after Qiu et al. 2026, "From Chunks to Functional Evidence")
+
+**What was built.** Deterministic evidence forms per section (table, code, formula, steps, values, constraints, diagnostics, figure; ASML corpus: 52 tables, 36 code blocks, 16 formulas, 38 procedures in 346 sections), question cues → needed forms, form tags for the navigator, form-coverage re-ranking of section hints, functional units built from the entity graph (66 units, 41 cross-document, at most 8 occurrences each), unit hints and form-aware evidence expansion, a `form_coverage` metric, and `required_forms` on the golden questions. No vectors, no training (the paper's fine-tuned encoder was its smallest gain: +0.012 ROUGE-L).
+
+**Result: no measurable gain on this corpus.**
+
+| Configuration (×3 repeats, 10 questions) | Doc recall | Section recall | Key points | Grounding | Form coverage |
+|---|---|---|---|---|---|
+| previous (no forms, no units) | 0.862 (0.86–0.87) | 0.689 (0.65–0.73) | 0.939 (0.89–0.98) | 0.983 | 1.00 |
+| forms + units | 0.837 (0.83–0.86) | 0.639 (0.62–0.65) | 0.922 (0.89–0.98) | 0.988 | 1.00 |
+
+Form coverage is already 1.0 without the feature: the material the navigator reads for these questions already contains the needed forms, so the failure the paper targets (a related paragraph instead of the table row with the value) is not the bottleneck here. A targeted test with four value-lookup questions added to the golden set (MFS of e-beam/laser writers, vertex/angle limits, σ range, MEEF limit; ×2 repeats) gave key points 1.0 in both configurations. Remaining misses are specific terms in conceptual answers (resist model, quasi-Newton / CG, polygon, process window).
+
+**Decision.** Form-aware *navigation* is opt-in (`query.form_aware`, default off). The forms stay where they help without risk: index-tree badges, entity pages ("evidence by form"), and the agent `retrieve` pack (`needed_forms`, `units`).
+
+**Robustness bug found in the same runs.** One answer call degenerated into a whitespace loop: ~190,000 blank characters until the 32,000-token cap, 249 s, answer lost (then rescued by the corrective retry). Fixes: a degenerate-output watchdog in the streaming client (a 3,000-character tail of whitespace or of one short repeated pattern aborts the call; the CALL graph retries once as a transient error) and per-stage output caps (`llm.max_tokens_by_stage`: navigate 4,000, answer 12,000, index 16,000).
+
+Cost of this round: about $0.25 (OpenRouter, glm-5.3-flash).

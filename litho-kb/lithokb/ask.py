@@ -168,6 +168,10 @@ class Navigator:
 
     def run(self, run: dict, cfg: dict, question: str, cond_txt: str, readers: bool, conditions: dict | None) -> dict:
         qc = self.kb.config.get("query", {})
+        # form-aware navigation (evidence-form tags, form re-ranking, unit hints) is opt-in: on the 14 golden
+        # questions it brought no measurable gain (docs/experiment-…), so it costs nothing unless enabled
+        fa = bool(qc.get("form_aware", False))
+        self.features = {"types": fa, "units": fa, **(self.features or {})}
         budget = int(qc.get("nav_budget_chars", 24000))
         max_rounds = int(qc.get("nav_max_rounds", 3))
         tree = PI.knowledge_tree(self.kb, self.cards, readers, conditions)

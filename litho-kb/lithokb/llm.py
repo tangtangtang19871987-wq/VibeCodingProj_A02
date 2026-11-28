@@ -39,6 +39,21 @@ class TransientLLMError(LLMError):
     """Rate limit / server error / connection problem — the CALL graph backs off and retries."""
 
 
+def degenerate_tail(text: str, window: int = 3000) -> str:
+    """Why the end of a streamed answer looks degenerate ("" if it does not): a long run of whitespace, or one
+    short pattern repeated over the whole window. Such output never recovers; aborting saves time and money."""
+    tail = text[-window:]
+    if len(tail) < window:
+        return ""
+    if not tail.strip():
+        return f"{window} whitespace characters in a row"
+    for n in range(1, 41):
+        pat = tail[-n:]
+        if pat.strip() and pat * (window // n) == tail[-(window // n) * n:]:
+            return f"pattern {pat[:20]!r} repeated over {window} characters"
+    return ""
+
+
 class WatchdogAbort(LLMError):
     """The model kept reasoning past the watchdog limit without writing any answer —
     the CALL graph retries one reasoning-effort level lower."""
@@ -134,7 +149,7 @@ def _openrouter(cfg: dict, system: str, user: str) -> LLMResult:
     model = cfg.get("openrouter_model") or "z-ai/glm-5.3-flash"
     body = {"model": model, "stream": True,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            "max_tokens": int(cfg.get("openrouter_max_tokens", 32000)),
+            "max_tokens": int(cfg.get("max_tokens_override") or cfg.get("openrouter_max_tokens", 32000)),
             "usage": {"include": True}}
     if cfg.get("json_mode", True):
         body["response_format"] = {"type": "json_object"}
@@ -149,6 +164,7 @@ def _openrouter(cfg: dict, system: str, user: str) -> LLMResult:
                                  headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
     content, reasoning, usage_raw, finish, served, gen_id = [], [], {}, "", model, ""
     rchars, cchars = 0, 0
+    next_check = 4000  # degenerate-output check every 500 characters once the answer is long
     try:
         with urllib.request.urlopen(req, timeout=stall) as resp:  # timeout applies per read → stall detection
             for raw in resp:
@@ -166,6 +182,11 @@ def _openrouter(cfg: dict, system: str, user: str) -> LLMResult:
                     if d.get("content"):
                         content.append(d["content"])
                         cchars += len(d["content"])
+                        if cchars >= next_check:
+                            next_check = cchars + 500
+                            why = degenerate_tail("".join(content)[-3000:])
+                            if why:  # observed: a whitespace loop until max_tokens (4 minutes, answer lost)
+                                raise TransientLLMError(f"degenerate output aborted after {cchars} chars: {why}")
                     if d.get("reasoning"):
                         reasoning.append(d["reasoning"])
                         rchars += len(d["reasoning"])

@@ -78,6 +78,12 @@ The questions the knowledge base must answer decide what it captures. The loop:
 - **HTML code blocks** in `<div class="code-block">` (no `<pre>`) keep their line breaks (converter `lkb-html2md/2`); before, a code comment could become a fake heading. `lkb sources reconvert` shows which renditions would change; `--apply` writes new versions (old ones stay in history).
 - **Entity resolution** merges spellings of the same thing ("ILT", "Inverse lithography (ILT)") within one type; headings are capped at a readable length.
 
+## 1.8 Evidence forms and functional units
+
+After Qiu et al. (2026): every source section carries its evidence forms (table, code, formula, steps, values, constraints, diagnostics, figure; deterministic, `artifacts.py`), and every entity of the approved ontology has a *functional unit* (`units.py`) — its occurrences in every form, with exact locations (cross-document only with ≥ 2 documents and ≥ 2 forms; at most 8 occurrences). Shown as badges in the index tree, as "evidence by form" on entity pages, and returned by `retrieve` (`needed_forms`, `units`). Form-aware navigation (form tags for the navigator, re-ranking by form coverage, unit hints) is opt-in via `query.form_aware`: on this corpus it brought no measurable gain (see the experiment report). Golden questions may declare `required_forms`; evaluation reports `form_coverage`.
+
+The streaming client aborts degenerate output (a long whitespace run or one short pattern repeated) and the CALL graph retries; `llm.max_tokens_by_stage` caps output per stage.
+
 ## 2. Two-layer knowledge structure
 
 ```
@@ -340,6 +346,7 @@ The whole directory can go straight into git for backup and diff-based auditing.
 | `lithokb/topics.py` | Topic graph over source sections (themes, representative sections) |
 | `lithokb/ontology.py` | Ontology loop: evidence-cited proposals, review / refine / approve, OWL/Turtle |
 | `lithokb/entities.py` | Ontology-guided extraction of instances and typed relations |
+| `lithokb/artifacts.py` · `units.py` | Evidence forms of sections and questions · functional units from the entity graph |
 | `lithokb/retrieve.py` | Model-free context pack (cards, sections, facts, themes) |
 | `lithokb/doctor.py` | Health check and dependency-ordered refresh of derived structures |
 | `lithokb/fsck.py` · `bench.py` | File consistency check and repair · performance benchmark |

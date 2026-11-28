@@ -35,6 +35,13 @@ class TestCallGraph(unittest.TestCase):
         self.assertEqual(r.raw_meta["graph_path"], ["invoke", "backoff", "invoke", "finish"])
         self.assertEqual(r.raw_meta["transient_retries"], 1)
 
+    def test_degenerate_output_detector(self):
+        from lithokb.llm import degenerate_tail
+        self.assertIn("whitespace", degenerate_tail("ok " + " \n" * 2000))
+        self.assertIn("repeated", degenerate_tail("xy" * 2000))
+        self.assertEqual(degenerate_tail("a normal answer " * 50), "")
+        self.assertEqual(degenerate_tail("short"), "")
+
     def test_fatal_error_is_raised(self):
         with self.assertRaises(llm.LLMError):
             llm.call({"backend": "nope"}, "s", "u")

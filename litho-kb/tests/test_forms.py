@@ -61,11 +61,11 @@ class TestFormAwareRetrieval(unittest.TestCase):
         H.show_forms = False
         self.assertNotIn("formula", t.line(hop["id"], H.get(hop["id"]), 0, forms=False))
         r = Asker(self.kb, self.cards, self.comp).ask(user(self.kb, "rev"), "How is the TCC decomposition computed?",
-                                                      self.cfg, include_unpublished=True)
+                                                      self.cfg, include_unpublished=True, features={"types": True})
         self.assertEqual(r["status"], "done", r.get("error"))
         self.assertIn("formula", r["navigation"]["needed_types"])
         off = Asker(self.kb, self.cards, self.comp).ask(user(self.kb, "rev"), "How is the TCC decomposition computed?",
-                                                        self.cfg, include_unpublished=True, features={"types": False})
+                                                        self.cfg, include_unpublished=True)  # opt-in: off by default
         self.assertEqual(off["navigation"]["needed_types"], [])
 
     def test_units_built_from_entity_graph_and_in_retrieve(self):

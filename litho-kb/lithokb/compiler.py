@@ -505,6 +505,10 @@ class Compiler:
         by_stage = cfg.get("reasoning_by_stage") or {}
         if stage in by_stage:
             cfg = {**cfg, "openrouter_reasoning": by_stage[stage]}
+        # per-stage output cap: bounds the worst case (a looping model) in time and money
+        cap = (cfg.get("max_tokens_by_stage") or {}).get(stage)
+        if cap:
+            cfg = {**cfg, "max_tokens_override": int(cap)}
         atomic_write(tdir / f"{prefix}system.md", system)
         atomic_write(tdir / f"{prefix}prompt.md", user)
         res = llm.call(cfg, system, user)
