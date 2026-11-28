@@ -717,7 +717,9 @@ class Compiler:
         return run
 
     # ---- read traces -------------------------------------------------------------
-    def runs(self, limit: int = 200, kind: str | None = None) -> list[dict]:
+    def runs(self, limit: int = 200, kind: str | None = None, by: str | None = None) -> list[dict]:
+        """Newest first; `kind` and `by` filter BEFORE the limit (a reader's own questions must not be crowded
+        out by other users' or evaluation runs)."""
         out = []
         d = self.kb.traces_dir
         for p in sorted(d.glob("*/run.json"), reverse=True) if d.exists() else []:
@@ -726,6 +728,8 @@ class Compiler:
             except json.JSONDecodeError:
                 continue
             if kind and r.get("kind", "compile") != kind:
+                continue
+            if by and r.get("by") != by:
                 continue
             out.append(r)
             if len(out) >= limit:

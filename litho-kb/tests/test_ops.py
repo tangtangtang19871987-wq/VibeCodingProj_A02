@@ -57,6 +57,22 @@ class TestAnswerCache(Base):
         self.assertFalse(r4.get("cached"))
         self.assertNotIn("cached", a.ask(rev, "threshold model resist", self.cfg, include_unpublished=True))  # off by default
 
+    def test_cache_hit_for_another_user_is_their_own_run_and_history_is_per_user(self):
+        from lithokb import auth as A
+        A.add_user(self.kb, "system", "carol", "pw-carol", "reader")
+        a = Asker(self.kb, self.cards, self.comp)
+        bob, carol = user(self.kb, "bob"), user(self.kb, "carol")
+        first = a.ask(bob, "threshold model resist", self.cfg, use_cache=True)
+        for i in range(5):  # newer runs by someone else must not crowd out carol's history
+            a.ask(bob, f"question number {i} about OPC", self.cfg)
+        hit = a.ask(carol, "threshold model resist", self.cfg, use_cache=True)
+        self.assertTrue(hit["cached"])
+        self.assertEqual((hit["by"], hit["cached_from"]), ("carol", first["id"]))
+        self.assertNotEqual(hit["id"], first["id"])
+        self.assertEqual(self.comp.trace(hit["id"])["run"]["answer"], first["answer"])  # readable as carol's own run
+        mine = self.comp.runs(limit=1, kind="query", by="carol")
+        self.assertEqual([r["id"] for r in mine], [hit["id"]])
+
 
 class TestHTTPAsync(Base):
     def setUp(self):

@@ -464,7 +464,7 @@ def make_handler(app: App):
                     hit = app.asker.cached(app.asker.cache_key(question, cfg, incl, cond, None))
                     if hit:
                         kb.event(user["name"], "query.cache_hit", hit["id"], question=question[:300])
-                        return self._json({**hit, "cached": True})
+                        return self._json(app.asker.serve_cached(user, hit))
                 if not app.llm_slots.acquire(blocking=False):
                     raise HTTPError(429, "the knowledge base is answering other questions — please retry in a moment")
                 from .compiler import new_run_id
@@ -485,9 +485,8 @@ def make_handler(app: App):
             if head == "queries":
                 A.require(user, "reader")
                 if len(parts) == 1:
-                    runs = app.compiler.runs(limit=int(q.get("limit", 100)), kind="query")
-                    if not reviewer:
-                        runs = [r for r in runs if r["by"] == user["name"]]
+                    runs = app.compiler.runs(limit=int(q.get("limit", 100)), kind="query",
+                                             by=None if reviewer else user["name"])
                     return self._json([{k: r.get(k) for k in ("id", "by", "started", "status", "question", "scope", "filed_as",
                                                                "grounding", "latency_s", "model")} for r in runs])
                 run = app.compiler.trace(parts[1])["run"]

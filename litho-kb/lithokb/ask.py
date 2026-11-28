@@ -345,6 +345,18 @@ class Asker:
                          ensure_ascii=False, default=str)
         return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
+    def serve_cached(self, user: dict, hit: dict) -> dict:
+        """A cache hit for another user becomes a light run of this user (pointing to the original trace), so
+        their history is complete and readers — who may only open their own runs — can open it."""
+        if hit.get("by") == user["name"]:
+            return {**hit, "cached": True}
+        rid = new_run_id()
+        alias = {**{k: v for k, v in hit.items() if k not in ("calls", "timeline", "graph")}, "id": rid, "by": user["name"],
+                 "started": now(), "finished": now(), "cached_from": hit["id"], "cached": True, "latency_s": 0.0,
+                 "cost_usd": 0.0, "calls": [], "timeline": [{"ts": now(), "step": "cache_hit", "from": hit["id"]}]}
+        self.comp._save_run(alias)
+        return alias
+
     def cached(self, key: str) -> dict | None:
         p = self.kb.traces_dir / "_cache" / f"{key}.json"
         if not p.exists():
@@ -367,7 +379,7 @@ class Asker:
             hit = self.cached(key)
             if hit:  # same question, same knowledge-base state: the earlier traced answer is still exact
                 self.kb.event(user["name"], "query.cache_hit", hit["id"], question=question[:300])
-                return {**hit, "cached": True, "cached_for": user["name"]}
+                return self.serve_cached(user, hit)
         rid = run_id or new_run_id()
         run = {"id": rid, "kind": "query", "by": user["name"], "started": now(), "status": "running",
                "backend": cfg["backend"], "model": cfg.get("model"), "effort": cfg.get("effort"),
